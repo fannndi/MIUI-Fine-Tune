@@ -15,6 +15,9 @@ import com.mifinetune.core.Status
 import com.mifinetune.core.Tuner
 import com.mifinetune.core.parseProfiles
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -123,7 +126,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         runCatching {
             val status = Tuner.status()
             val profiles = loadBundledProfiles().filter { !it.hidden }
-            val cards = profiles.map { p -> planCard(p) }
+            // plans run in parallel: three `su` round-trips at once instead of
+            // serializing them keeps app-open under ~6 s
+            val cards = coroutineScope { profiles.map { async { planCard(it) } }.awaitAll() }
             val packRom = runCatching {
                 getApplication<Application>().assets
                     .open(RootBridge.ASSET_PROFILES)
@@ -167,8 +172,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    private suspend fun refreshPlans(): List<ProfileCard> =
-        _state.value.cards.map { planCard(it.profile) }
+    private suspend fun refreshPlans(): List<ProfileCard> {
+        val cards = _state.value.cards
+        return coroutineScope { cards.map { async { planCard(it.profile) } }.awaitAll() }
+    }
 
     fun apply(profileId: String) {
         if (_state.value.busy != null) return
