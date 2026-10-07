@@ -55,6 +55,17 @@ core/  (Rust — satu-satunya writer)
   ditolak kernel/SELinux/ROM (mis. `workqueue.power_efficient` = 444 di ROM ini,
   governor GPU selain `msm-adreno-tz` = EINVAL) muncul sebagai chip⚠ + alasan.
 
+### Engine (v0.3)
+
+- **Profile `sleep` (baru, hidden dari kartu)**: mode layar mati — schedutil
+  adaptif, cap silver `1248000` / gold `1555200`, `min_cpus 1`, GPU cap,
+  normalisasi cpuset/stune. **Tidak menyentuh** net/LMK/swap/stune-cgroup —
+  telpon & notifikasi tetap responsif. Diuji device: 28/28 verified.
+- **Kind `FreqMax`**: cap freq yang lebih ketat dari thermal = in-sync (thermal
+  menang), bukan failure — hilangkan failure palsu saat device panas.
+- **Network stack**: `net.tcp_rmem/wmem` tidak lagi diatur profile
+  (ConnectivityService+netd memilikinya — lihat audit v2).
+
 ### Detail & drift (v0.2)
 
 - **Tombol Detail** di tiap kartu profile → dialog daftar lengkap parameter
