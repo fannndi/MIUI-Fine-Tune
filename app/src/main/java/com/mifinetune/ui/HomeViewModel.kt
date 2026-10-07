@@ -205,6 +205,13 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 report to Tuner.status()
             }.onSuccess { (report, status) ->
                 if (report.ok) config.baseProfile = profileId
+                // mirror into the shared automation state so the Service row
+                // shows the manual decision with a fresh reason (the service
+                // will overwrite both on its next own decision)
+                if (report.ok) {
+                    AutomationState.appliedProfile.value = profileId
+                    AutomationState.reason.value = null
+                }
                 val cards = refreshPlans()
                 _state.update {
                     it.copy(busy = null, report = report, status = status, cards = cards)
