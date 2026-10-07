@@ -89,12 +89,22 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
     fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok())
 }
 
+/// Atomic JSON write: tmp file in the same directory + fsync + rename, so a
+/// crash mid-write can never truncate snapshot.json/state.json (a lost
+/// snapshot means a lost restore path).
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    use std::io::Write;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("mkdir {parent:?}: {e}"))?;
     }
     let s = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
-    fs::write(path, s).map_err(|e| format!("write {path:?}: {e}"))
+    let tmp = path.with_extension("json.tmp");
+    {
+        let mut f = fs::File::create(&tmp).map_err(|e| format!("create {tmp:?}: {e}"))?;
+        f.write_all(s.as_bytes()).map_err(|e| format!("write {tmp:?}: {e}"))?;
+        f.sync_all().map_err(|e| format!("fsync {tmp:?}: {e}"))?;
+    }
+    fs::rename(&tmp, path).map_err(|e| format!("rename {tmp:?} -> {path:?}: {e}"))
 }
 
 pub struct Store {
@@ -239,11 +249,54 @@ fn plan_ops_ordered<'a>(plan: &'a Plan, probe: &ProbeData) -> Vec<&'a PlannedOp>
     )
 }
 
-fn ordered_ops<'a>(plan: &'a Plan, probe: &ProbeData) -> Vec<&'a PlannedOp> {
-    plan_ops_ordered(plan, probe)
+/// Freq-family read-backs can transiently disagree while an external QoS is
+/// active (perf HAL boost holds a higher floor / thermal holds a lower cap).
+/// The kernel settles within ~1 s of the QoS expiring, so a single short
+/// re-read removes the false failure without a full second apply pass.
+fn mismatch_is_transient(kind: catalog::Kind) -> bool {
+    matches!(kind, catalog::Kind::Freq | catalog::Kind::FreqMin | catalog::Kind::FreqMax)
+}
+
+fn verified_readback(
+    key: &str,
+    path: &str,
+    resolved: &str,
+) -> (bool, Option<String>) {
+    let kind = catalog::find(key).map(|e| e.kind);
+    let check = |back: Option<&str>| match (kind, back) {
+        (Some(k), Some(rb)) => readback_matches(k, resolved, rb),
+        _ => false,
+    };
+    let back = probe::read(path);
+    if check(back.as_deref()) {
+        return (true, None);
+    }
+    if matches!(kind, Some(k) if mismatch_is_transient(k)) {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let back2 = probe::read(path);
+        if check(back2.as_deref()) {
+            return (true, None);
+        }
+        return (
+            false,
+            Some(format!(
+                "read-back mismatch: wrote {resolved} got {}",
+                back2.as_deref().unwrap_or("<unreadable>")
+            )),
+        );
+    }
+    (
+        false,
+        Some(format!(
+            "read-back mismatch: wrote {resolved} got {}",
+            back.as_deref().unwrap_or("<unreadable>")
+        )),
+    )
 }
 
 /// Apply a validated plan: snapshot -> guarded writes -> read-back verify.
+/// Returns the report; `report.ok == false` only when a real (non-transient)
+/// mismatch or write error occurred.
 pub fn apply_plan(store: &Store, plan: &Plan, probe: &ProbeData) -> Result<ApplyReport, String> {
     if !plan.ok {
         return Err(format!("plan rejected: {}", plan.errors.join("; ")));
@@ -264,7 +317,7 @@ pub fn apply_plan(store: &Store, plan: &Plan, probe: &ProbeData) -> Result<Apply
         active: Some(plan.profile_id.clone()),
     };
 
-    for op in &ordered_ops(plan, probe) {
+    for op in &plan_ops_ordered(plan, probe) {
         match &op.status {
             crate::profile::OpStatus::Locked(reason) => {
                 report.locked.push(LockedKey { key: op.key.clone(), reason: reason.clone() });
@@ -290,21 +343,12 @@ pub fn apply_plan(store: &Store, plan: &Plan, probe: &ProbeData) -> Result<Apply
             Ok(()) => {
                 res.written = true;
                 report.wrote += 1;
-                let back = probe::read(&op.path);
-                let kind = catalog::find(&op.key).map(|e| e.kind);
-                let ok = match (kind, back.as_deref()) {
-                    (Some(k), Some(rb)) => readback_matches(k, &op.resolved, rb),
-                    _ => false,
-                };
+                let (ok, err) = verified_readback(&op.key, &op.path, &op.resolved);
                 if ok {
                     res.verified = true;
                     report.verified += 1;
                 } else {
-                    res.error = Some(format!(
-                        "read-back mismatch: wrote {} got {}",
-                        op.resolved,
-                        back.as_deref().unwrap_or("<unreadable>")
-                    ));
+                    res.error = err;
                     report.failed += 1;
                     report.ok = false;
                 }
@@ -333,6 +377,37 @@ pub fn apply_plan(store: &Store, plan: &Plan, probe: &ProbeData) -> Result<Apply
         store.save_state(&st)?;
     } else {
         report.active = store.load_state().active;
+    }
+    Ok(report)
+}
+
+/// Apply a profile, then run the automatic pass-2 when the first pass hit
+/// nodes that were missing under the previous governor/scheduler: switching
+/// `scaling_governor` materializes `policyN/schedutil/*`, switching
+/// `io.scheduler` materializes `queue/iosched/*` (cfq tunables).
+pub fn apply_with_pass2(
+    store: &Store,
+    profile: &crate::profile::Profile,
+) -> Result<ApplyReport, String> {
+    let p = probe::probe();
+    let plan = crate::profile::build_plan(profile, &p);
+    let mut report = apply_plan(store, &plan, &p)?;
+
+    if report.locked.iter().any(|l| l.reason.contains("node missing")) {
+        let p2 = probe::probe();
+        let plan2 = crate::profile::build_plan(profile, &p2);
+        if plan2.ok {
+            let r2 = apply_plan(store, &plan2, &p2)?;
+            report.wrote += r2.wrote;
+            report.verified += r2.verified;
+            report.failed += r2.failed;
+            report.results.extend(r2.results);
+            report.locked = r2.locked; // fresh truth per key
+            report.ok = report.ok && r2.ok;
+            if r2.active.is_some() {
+                report.active = r2.active;
+            }
+        }
     }
     Ok(report)
 }
@@ -391,17 +466,12 @@ pub fn restore(store: &Store, probe: &ProbeData) -> Result<ApplyReport, String> 
             Ok(()) => {
                 res.written = true;
                 report.wrote += 1;
-                let back = probe::read(&sv.path);
-                let kind = catalog::find(&key).map(|e| e.kind);
-                let ok = match (kind, back.as_deref()) {
-                    (Some(k), Some(rb)) => readback_matches(k, &sv.value, rb),
-                    _ => false,
-                };
+                let (ok, err) = verified_readback(&key, &sv.path, &sv.value);
                 if ok {
                     res.verified = true;
                     report.verified += 1;
                 } else {
-                    res.error = Some("read-back mismatch".into());
+                    res.error = err;
                     report.failed += 1;
                     report.ok = false;
                 }
@@ -494,6 +564,32 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn json_writes_are_atomic_and_valid() {
+        // write_json must leave a valid file and never leave .tmp leftovers
+        let dir = tmpdir("atomic");
+        let store = Store::new(&dir);
+        let st = State { active: Some("game".into()), updated: 7, last_mode: "apply".into() };
+        store.save_state(&st).unwrap();
+        assert_eq!(store.load_state().active.as_deref(), Some("game"));
+        // no stray tmp files in the state dir
+        let leftovers: Vec<_> = fs::read_dir(&dir).unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map(|x| x == "tmp").unwrap_or(false))
+            .collect();
+        assert!(leftovers.is_empty(), "tmp leftovers: {leftovers:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn freq_mismatches_are_transient_classified() {
+        assert!(mismatch_is_transient(catalog::Kind::Freq));
+        assert!(mismatch_is_transient(catalog::Kind::FreqMin));
+        assert!(mismatch_is_transient(catalog::Kind::FreqMax));
+        assert!(!mismatch_is_transient(catalog::Kind::Int));
+        assert!(!mismatch_is_transient(catalog::Kind::Mask));
     }
 
     #[test]

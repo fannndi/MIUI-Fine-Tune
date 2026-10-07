@@ -85,6 +85,8 @@ pub fn write(path: &str, value: &str) -> Result<(), String> {
     fs::write(path, value).map_err(|e| format!("{path}: {e}"))
 }
 
+/// Whitespace tokens with the active-scheduler brackets stripped.
+/// Used for governor/scheduler lists AND plain numeric lines alike.
 fn tokenize(s: &str) -> Vec<String> {
     s.split_whitespace()
         .map(|t| t.trim_matches(|c| c == '[' || c == ']').to_string())
@@ -92,12 +94,10 @@ fn tokenize(s: &str) -> Vec<String> {
         .collect()
 }
 
-fn split_numbers(s: &str) -> Vec<String> {
-    s.split_whitespace().map(|t| t.to_string()).collect()
-}
-
+/// `getprop` by absolute path: the binary runs under `su -c` with a minimal
+/// environment (same PATH quirk as `RootBridge.suBin` on the app side).
 fn getprop(name: &str) -> Option<String> {
-    let out = std::process::Command::new("getprop").arg(name).output().ok()?;
+    let out = std::process::Command::new("/system/bin/getprop").arg(name).output().ok()?;
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if s.is_empty() {
         None
@@ -161,7 +161,7 @@ pub fn probe() -> ProbeData {
         .map(|s| tokenize(&s))
         .unwrap_or_default();
     let tcp_cc = read("/proc/sys/net/ipv4/tcp_available_congestion_control")
-        .map(|s| split_numbers(&s))
+        .map(|s| tokenize(&s))
         .unwrap_or_default();
 
     let options = Options {
@@ -192,7 +192,7 @@ pub fn probe() -> ProbeData {
         perfservice: getprop("init.svc.vendor.perfservice"),
         thermal_sconfig: read("/sys/class/thermal/thermal_message/sconfig"),
         msm_perf_locks: read("/sys/module/msm_performance/parameters/cpu_max_freq")
-            .map(|v| split_numbers(&v).into_iter().take(2).collect::<Vec<_>>().join(" ")),
+            .map(|v| tokenize(&v).into_iter().take(2).collect::<Vec<_>>().join(" ")),
         input_boost: read("/sys/module/cpu_boost/parameters/input_boost_freq")
             .map(|v| format!("{v} @{}ms", read("/sys/module/cpu_boost/parameters/input_boost_ms").unwrap_or_default())),
         sched_boost: read("/proc/sys/kernel/sched_boost"),

@@ -56,6 +56,13 @@
 /sys/class/kgsl/kgsl-3d0/force_no_nap
 /sys/class/kgsl/kgsl-3d0/force_rail_on
 /sys/class/kgsl/kgsl-3d0/idle_timer
+# --- perfd WALT library-hint API (lib:perfd strings + kernel cpufreq.c
+# comment "perfd already configure sched_lib_mask_force to 0xf0") ---
+/proc/sys/kernel/sched_lib_name
+/proc/sys/kernel/sched_lib_mask_force
+/proc/sys/kernel/sched_lib_mask_check
+/proc/sys/kernel/sched_freq_aggregate
+
 /dev/cpu_dma_latency
 /sys/kernel/mm/ksm/run
 /sys/kernel/mm/ksm/sleep_millisecs

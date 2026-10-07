@@ -45,6 +45,7 @@ object Tuner {
     suspend fun apply(profileId: String): ApplyReport =
         mutex.withLock { withContext(Dispatchers.IO) { client.apply(profileId) } }
 
+    /** Diagnostics only (read-only drift check); the guard applies directly. */
     suspend fun verify(profileId: String): ApplyReport =
         mutex.withLock { withContext(Dispatchers.IO) { client.verify(profileId) } }
 
@@ -52,10 +53,12 @@ object Tuner {
         mutex.withLock { withContext(Dispatchers.IO) { client.restore() } }
 
     /**
-     * Shared drift guard: every 15 s verify the active profile and re-apply
-     * only when keys drifted (perf HAL boosts, PowerKeeper, network stack).
-     * Idempotent — the first caller's scope owns the job; the loop ends by
-     * itself when nothing is active. Cheap: verify is read-only.
+     * Shared drift guard: every 15 s re-apply the active profile. The engine
+     * skips unchanged keys (plan sees them as Unchanged) and only re-writes
+     * keys the framework drifted (perf HAL boosts, PowerKeeper, network
+     * stack) — one su round-trip per tick, repair decided inside the Rust
+     * core. Idempotent — the first caller's scope owns the job; the loop
+     * ends by itself when nothing is active.
      */
     fun ensureGuard(scope: CoroutineScope) {
         if (guardJob?.isActive == true) return
@@ -63,15 +66,13 @@ object Tuner {
             guardActive.value = true
             while (isActive) {
                 delay(15_000)
-                val st = runCatching { client.status() }.getOrNull() ?: continue
-                val active = st.active ?: break
-                runCatching { mutex.withLock { client.verify(active) } }.onSuccess { rep ->
-                    if (!rep.ok && rep.failed > 0) {
-                        runCatching { mutex.withLock { client.apply(active) } }.onSuccess {
-                            driftFixed.value += rep.failed
-                        }
+                val active = runCatching { client.status().active }.getOrNull() ?: continue
+                val id = active ?: break
+                runCatching { mutex.withLock { client.apply(id) } }
+                    .onSuccess { rep ->
+                        // re-written keys = keys the framework had drifted
+                        if (rep.wrote > 0) driftFixed.value += rep.wrote
                     }
-                }
             }
             guardActive.value = false
         }

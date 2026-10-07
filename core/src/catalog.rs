@@ -44,6 +44,17 @@ pub enum Kind {
     /// Empirically established 2026-10-07: thermal held gold at 1209600 while
     /// apply wanted 1555200.
     FreqMax,
+    /// Frequency floor (`scaling_min_freq`): a read-back **higher** than
+    /// requested is accepted as in-sync — an external boost (perf HAL
+    /// `msm_performance` cpu_min_freq QoS) wins. Kernel mechanism proven in
+    /// `drivers/soc/qcom/msm_performance.c: perf_adjust_notify` →
+    /// `CPUFREQ_ADJUST → cpufreq_verify_within_limits(policy, min, max)`
+    /// clamps `policy->min` before the store; `show_one(scaling_min_freq,
+    /// min)` then reports the clamped value. Verified live 2026-10-07:
+    /// with QoS min 1248000 active, writing 576000 read back 1248000, and
+    /// after removing the QoS the node returned to the written value by
+    /// itself. Lives < want (floor lost) = real drift.
+    FreqMin,
     /// GPU pwrlevel index, clamped to `0..level_count-1`.
     PwrLevel,
     /// Governor name, must be in `scaling_available_governors`.
@@ -78,6 +89,10 @@ pub struct Entry {
     /// For `core_ctl.task_thres`: validate against the cluster's CPU count —
     /// kernel rejects `val < num_cpus` (`core_ctl.c store_task_thres`).
     pub min_cpus_of: Option<&'static str>,
+    /// True for per-scheduler nodes (`/queue/iosched/*`): the directory only
+    /// exists while the owning scheduler is active — apply must re-plan them
+    /// in pass 2 (same mechanism as the schedutil tunables).
+    pub scheduler_dependent: bool,
 }
 
 /// Path prefixes that must never be written — runtime-owned by the framework.
@@ -119,6 +134,29 @@ pub const FORBIDDEN_PREFIXES: &[&str] = &[
     "/sys/class/mmc_host/mmc0/clk_scaling",
     // Qualcomm swap-ratio module param (memory subsystem stays ROM-owned)
     "/proc/sys/vm/swap_ratio",
+    // perfd WALT library-hint nodes (strings libqti-perfd.so "0xf0" writer;
+    // kernel comment in drivers/cpufreq/cpufreq.c: "perfd already configure
+    // sched_lib_mask_force to 0xf0"). Per-app legacy API, never a tunable.
+    "/proc/sys/kernel/sched_lib_name",
+    "/proc/sys/kernel/sched_lib_mask_force",
+    "/proc/sys/kernel/sched_lib_mask_check",
+    // perf HAL sched group minor (commonresourceconfigs.xml): node does not
+    // exist on surya (XML write fails silently) but stay guarded for other
+    // kernels in this family.
+    "/proc/sys/kernel/sched_freq_aggregate",
+    // GPU devfreq Hz view of the pwrlevel limiter — perf HAL writes these at
+    // runtime (tools/perf-hal-runtime-writers.txt, xml:gpu group) and thermal
+    // cooling uses the same limiter; pwrlevel entries are our Baseline view.
+    "/sys/class/kgsl/kgsl-3d0/devfreq/min_freq",
+    "/sys/class/kgsl/kgsl-3d0/devfreq/max_freq",
+    // framework-owned cgroups (init.target.rc / cameraserver / audio HAL):
+    // camera-daemon dir is created+owned by init (uid cameraserver), rt and
+    // audio-app stune groups are populated by the audio/RT task framework.
+    "/dev/cpuset/audio-app",
+    "/dev/cpuset/camera-daemon",
+    "/dev/cpuset/restricted",
+    "/dev/stune/rt",
+    "/dev/stune/audio-app",
     // SELinux / kernel core (never tuning targets)
     "/sys/fs/selinux",
     "/proc/sys/kernel/random",
@@ -133,6 +171,12 @@ pub const FORBIDDEN_KEYS: &[&str] = &[
     "vm.watermark_boost_factor",
     "block.read_ahead_kb",
     "cpu.online",
+    // perfd-owned WALT library-hint API (kernel comment: "perfd already
+    // configure sched_lib_mask_force to 0xf0 from user space")
+    "kernel.sched_lib_name",
+    "kernel.sched_lib_mask_force",
+    "kernel.sched_lib_mask_check",
+    "kernel.sched_freq_aggregate",
 ];
 
 macro_rules! e {
@@ -145,6 +189,7 @@ macro_rules! e {
             scope: $scope,
             range: None,
             min_cpus_of: None,
+            scheduler_dependent: false,
         }
     };
 }
@@ -160,6 +205,7 @@ macro_rules! er {
             scope: $scope,
             range: Some(($min, $max)),
             min_cpus_of: None,
+            scheduler_dependent: false,
         }
     };
 }
@@ -175,6 +221,23 @@ macro_rules! et {
             scope: "",
             range: None,
             min_cpus_of: Some($cluster),
+            scheduler_dependent: false,
+        }
+    };
+}
+
+/// Per-scheduler queue tunable (`/queue/iosched/...`, pass-2 handled).
+macro_rules! ei {
+    ($key:expr, $path:expr, $tier:expr, $min:expr, $max:expr) => {
+        Entry {
+            key: $key,
+            path: $path,
+            tier: $tier,
+            kind: Kind::Int,
+            scope: "",
+            range: Some(($min, $max)),
+            min_cpus_of: None,
+            scheduler_dependent: true,
         }
     };
 }
@@ -186,7 +249,7 @@ pub fn catalog() -> &'static [Entry] {
     static ENTRIES: &[Entry] = &[
         // --- policy0 (Silver cpu0-5) ---
         e!("policy0.scaling_governor", "/sys/devices/system/cpu/cpufreq/policy0/scaling_governor", Baseline, Gov, "policy0"),
-        e!("policy0.scaling_min_freq", "/sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq", Baseline, Freq, "policy0"),
+        e!("policy0.scaling_min_freq", "/sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq", Baseline, FreqMin, "policy0"),
         e!("policy0.scaling_max_freq", "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq", Baseline, FreqMax, "policy0"),
         e!("policy0.schedutil.hispeed_freq", "/sys/devices/system/cpu/cpufreq/policy0/schedutil/hispeed_freq", Baseline, Freq, "policy0"),
         e!("policy0.schedutil.hispeed_load", "/sys/devices/system/cpu/cpufreq/policy0/schedutil/hispeed_load", Baseline, Int, ""),
@@ -200,7 +263,7 @@ pub fn catalog() -> &'static [Entry] {
         e!("policy0.core_ctl.offline_delay_ms", "/sys/devices/system/cpu/cpu0/core_ctl/offline_delay_ms", Baseline, Int, ""),
         // --- policy6 (Gold cpu6-7) ---
         e!("policy6.scaling_governor", "/sys/devices/system/cpu/cpufreq/policy6/scaling_governor", Baseline, Gov, "policy6"),
-        e!("policy6.scaling_min_freq", "/sys/devices/system/cpu/cpufreq/policy6/scaling_min_freq", Baseline, Freq, "policy6"),
+        e!("policy6.scaling_min_freq", "/sys/devices/system/cpu/cpufreq/policy6/scaling_min_freq", Baseline, FreqMin, "policy6"),
         e!("policy6.scaling_max_freq", "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq", Baseline, FreqMax, "policy6"),
         e!("policy6.schedutil.hispeed_freq", "/sys/devices/system/cpu/cpufreq/policy6/schedutil/hispeed_freq", Baseline, Freq, "policy6"),
         e!("policy6.schedutil.hispeed_load", "/sys/devices/system/cpu/cpufreq/policy6/schedutil/hispeed_load", Baseline, Int, ""),
@@ -219,6 +282,23 @@ pub fn catalog() -> &'static [Entry] {
         e!("io.nomerges", "/sys/block/sda/queue/nomerges", Free, Int, ""),
         e!("io.rq_affinity", "/sys/block/sda/queue/rq_affinity", Free, Int, ""),
         e!("io.iostats", "/sys/block/sda/queue/iostats", Free, Int, ""),
+        // --- v0.4: per-scheduler I/O latency tunables (cfq-iosched.c) ---
+        // NOT written by post_boot or any perf XML (verified in ROM v12.0.9 +
+        // strings of libqti-perfd/netd) -> Free. Per-CFQ knobs follow the
+        // same lifecycle as schedutil tunables: their directory only exists
+        // while cfq is the active scheduler (kernel/block/cfq-iosched.c
+        // creates it in cfq_init_queue) — handled by the same pass-2 re-plan
+        // in apply (see main.rs). `scheduler_dependent: true` per entry.
+        ei!("io.cfq.quantum", "/sys/block/sda/queue/iosched/quantum", Free, 1, 64),
+        ei!("io.cfq.fifo_expire_sync", "/sys/block/sda/queue/iosched/fifo_expire_sync", Free, 0, 100000),
+        ei!("io.cfq.fifo_expire_async", "/sys/block/sda/queue/iosched/fifo_expire_async", Free, 0, 10000),
+        ei!("io.cfq.back_seek_max", "/sys/block/sda/queue/iosched/back_seek_max", Free, 0, 1000000),
+        ei!("io.cfq.slice_sync", "/sys/block/sda/queue/iosched/slice_sync", Free, 1, 500),
+        ei!("io.cfq.slice_async", "/sys/block/sda/queue/iosched/slice_async", Free, 1, 500),
+        ei!("io.cfq.slice_idle_us", "/sys/block/sda/queue/iosched/slice_idle_us", Free, 0, 100000),
+        ei!("io.cfq.target_latency_us", "/sys/block/sda/queue/iosched/target_latency_us", Free, 1, 1000000),
+        ei!("io.cfq.group_idle", "/sys/block/sda/queue/iosched/group_idle", Free, 0, 1),
+        ei!("io.cfq.low_latency", "/sys/block/sda/queue/iosched/low_latency", Free, 0, 1),
         // --- scheduler sysctls (NOT written by the moorea post_boot block) ---
         e!("kernel.sched_latency_ns", "/proc/sys/kernel/sched_latency_ns", Free, Int, ""),
         e!("kernel.sched_min_granularity_ns", "/proc/sys/kernel/sched_min_granularity_ns", Free, Int, ""),
@@ -237,6 +317,33 @@ pub fn catalog() -> &'static [Entry] {
         e!("kernel.sched_downmigrate", "/proc/sys/kernel/sched_downmigrate", Baseline, Int, ""),
         e!("kernel.sched_group_upmigrate", "/proc/sys/kernel/sched_group_upmigrate", Baseline, Int, ""),
         e!("kernel.sched_group_downmigrate", "/proc/sys/kernel/sched_group_downmigrate", Baseline, Int, ""),
+        // --- v0.4 additions (igeh evidence: kernel/sysctl.c bounds + writer audit) ---
+        // colocation v3 block in post_boot (51/35 default; game branch writes
+        // 0/0) AND runtime per-opcode by the perf HAL (commonresourceconfigs
+        // minors 0x25/0x26) -> Baseline. Bounds 0..=1000
+        // (extra1=&zero, extra2=&one_thousand, kernel/sysctl.c:389).
+        er!("kernel.sched_min_task_util_for_boost", "/proc/sys/kernel/sched_min_task_util_for_boost", Baseline, Int, "", 0, 1000),
+        er!("kernel.sched_min_task_util_for_colocation", "/proc/sys/kernel/sched_min_task_util_for_colocation", Baseline, Int, "", 0, 1000),
+        // sync-hint group (XML minor 0x28, runtime) — kernel uses plain
+        // proc_dointvec (any count works), we constrain to the 0/1 domain.
+        er!("kernel.sched_sync_hint_enable", "/proc/sys/kernel/sched_sync_hint_enable", Baseline, Int, "", 0, 1),
+        // XML minor 0x27 (runtime). Kernel bound: extra1=&two (>=2),
+        // extra2=&one_thousand (kernel/sched/walt.c:926 default 1000).
+        er!("kernel.sched_many_wakeup_threshold", "/proc/sys/kernel/sched_many_wakeup_threshold", Baseline, Int, "", 2, 1000),
+        // sched_time_avg: proc_dointvec_minmax extra1=&one (>=1 dd)
+        // (kernel/sysctl.c; core.c:76 const_debug default 1000ms).
+        // Free: no ROM/script writer found in post_boot/perf XML.
+        er!("kernel.sched_time_avg_ms", "/proc/sys/kernel/sched_time_avg_ms", Free, Int, "", 1, 10000),
+        // timer_migration_handler, extra1=&zero extra2=&one (kernel/sysctl.c
+        // 1357..1363 and the live node accepts the 0..1 domain); post_boot
+        // writes "power_aware_timer_migration" which does NOT exist in this
+        // kernel (dead write, documented in ROM-HARMONY.md) — timer_migration
+        // itself has no ROM writer -> Free.
+        er!("kernel.timer_migration", "/proc/sys/kernel/timer_migration", Free, Int, "", 0, 1),
+        // sched_rr_handler (kernel/sched/rt.c:2912): writing <=0 RESETS the
+        // timeslice to the default — keep a sane band so a profile never
+        // means "reset".
+        er!("kernel.sched_rr_timeslice_ms", "/proc/sys/kernel/sched_rr_timeslice_ms", Free, Int, "", 1, 1000),
         // --- vm (swappiness/min_free_kbytes/page-cluster are forbidden) ---
         e!("vm.vfs_cache_pressure", "/proc/sys/vm/vfs_cache_pressure", Free, Int, ""),
         e!("vm.dirty_ratio", "/proc/sys/vm/dirty_ratio", Free, Int, ""),

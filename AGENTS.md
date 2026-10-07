@@ -13,7 +13,7 @@ sebagai UI/orchestrator. App offline (tanpa INTERNET), semua eksekusi lewat `su`
 
 | Path | Isi |
 |---|---|
-| `core/src/catalog.rs` | registry 67 node: path, tier (Free/Baseline), kind, range, `FORBIDDEN_*` |
+| `core/src/catalog.rs` | registry **84 node**: path, tier (Free/Baseline), kind, range, `scheduler_dependent`, `FORBIDDEN_*` |
 | `core/src/profile.rs` | parse `profiles.json`, validator + plan, invariant pasangan, `readback_matches` |
 | `core/src/apply.rs` | apply / restore / verify, snapshot, urutan tulis (`ordered_pairs_with`), pass-2 |
 | `core/src/probe.rs` | pembacaan node + Options (governors, OPP, cluster cpus, core_ctl max) |
@@ -64,7 +64,7 @@ sebagai UI/orchestrator. App offline (tanpa INTERNET), semua eksekusi lewat `su`
 
 ```bash
 # host
-cd core && cargo test                       # 28 unit test
+cd core && cargo test                       # 33 unit test
 
 # cross-build arm64 + sync ke asset app (JANGAN LUPA)
 ANDROID_HOME=$HOME/Android/Sdk cargo ndk -t arm64-v8a build --release
@@ -122,10 +122,21 @@ State di device: `/data/adb/mifinetune/{profiles.json,state.json,snapshot.json}`
   rendah (gold `1209600` padahal minta `1555200`), itu **in-sync** — thermal
   menang. Jangan ubah jadi exact-match (dulu itu memicu failure palsu pada
   apply/restore). Cap hilang (live > want) baru dianggap drift.
+- `scaling_min_freq` memakai kind **FreqMin** (v0.4): QoS `msm_performance`
+  menahan floor lebih tinggi = **in-sync** (framework menang); live < want
+  baru drift. Eksperimen live: tulis 576000 saat QoS 1248000 → baca 1248000;
+  QoS lepas → node kembali sendiri ke nilai yang ditulis.
+- `io.scheduler` read-back: hanya token **bracketed** yang dianggap aktif —
+  bug v0.3 terverifikasi: token offered unbracketed salah-positif sehingga
+  apply `deadline` pernah di-skip selamanya.
 - MIUI Game Turbo/perf HAL menulis `core_ctl`, cpusets, stune, GPU pwrlevel,
   QoS `msm_performance` **transient** → wajar terdeteksi drift sesaat.
 - `su` dari app harus **path absolut** (`RootBridge.suBin`) — app tidak
-  mewarisi PATH shell.
+  mewarisi PATH shell. Sama untuk binary engine: `probe.rs` memanggil
+  `/system/bin/getprop` absolut.
+- `dumpsys`/binder TIDAK bisa dipakai dari konteks `su` app (APatch): output
+  kosong/error — peek foreground memakai event-buffer `logcat` (kernel) saja,
+  dan command su jangan memakai pipe/quote (tidak selamat melewati su).
 - `net.tcp_rmem/wmem` direset network stack saat siklus display-off — profile
   tidak menyentuhnya (lihat Hard rule 2).
 
@@ -137,10 +148,14 @@ State di device: `/data/adb/mifinetune/{profiles.json,state.json,snapshot.json}`
 - **Service OFF = restore stock + stop** (tidak intervensi apa pun).
 - Layar mati → profile `sleep` (selalu, ±10 dtk). Wake/unlock → base/mapped.
 - Fresh install: base = Balance; `enabled` default true.
+- Supervisor tick 3 dtk juga **mereonsiliasi screen state** langsung dari
+  `PowerManager.isInteractive` — MIUI kadang menjatuhkan broadcast `SCREEN_ON`,
+  jangan andalkan broadcast saja.
 
 **Komponen**:
 - **`Tuner`** (core/): satu mutex untuk apply/verify/restore dari UI, service,
-  dan drift guard (guard 15 dtk, re-apply hanya key yang drift).
+  dan drift guard (guard 15 dtk = satu call `apply` — engine yang melewati key
+  unchanged, repair diputuskan di core Rust).
 - **`AutomationService`** (FGS senyap, IMPORTANCE_MIN):
   - **Watcher event-driven**: root `logcat -b events -s am_resume_activity:V`
     → switch instan. Supervisor restart (backoff 10 dtk) + fallback

@@ -73,6 +73,8 @@
         "kernel.sched_wakeup_granularity_ns": "2000000",
         "kernel.sched_migration_cost_ns": "500000",
         "kernel.sched_nr_migrate": "32",
+        "kernel.sched_min_task_util_for_boost": "51",
+        "kernel.sched_min_task_util_for_colocation": "35",
         "gpu.max_pwrlevel": "0",
         "gpu.min_pwrlevel": "6",
         "io.scheduler": "cfq",
@@ -143,8 +145,8 @@
     },
     {
       "id": "sleep",
-      "label": "Sleep (layar mati)",
-      "desc": "Mode layar mati: schedutil adaptif + cap moderat + normalisasi cpuset/stune. Telpon & notifikasi tetap responsif; tidak menyentuh net/LMK/swap.",
+      "label": "Sleep",
+      "desc": "Screen-off mode: adaptive schedutil + moderate caps + normalized cpusets/stune. Calls & notifications stay responsive; never touches net/LMK/swap.",
       "hidden": true,
       "params": {
         "policy0.scaling_governor": "schedutil",

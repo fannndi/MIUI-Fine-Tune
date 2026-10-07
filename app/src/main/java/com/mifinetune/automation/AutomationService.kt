@@ -199,7 +199,10 @@ class AutomationService : Service() {
 
     /**
      * Supervises the event stream: while it is down, fall back to a root peek
-     * every tick and try to restart the stream (bounded).
+     * every tick and try to restart the stream (bounded). Also reconciles the
+     * screen state: MIUI sometimes drops the SCREEN_ON broadcast entirely,
+     * so the supervisor re-reads `PowerManager.isInteractive` directly —
+     * broadcast-free truth every tick.
      */
     private fun startSupervisor() {
         if (supervisorJob?.isActive == true) return
@@ -210,6 +213,20 @@ class AutomationService : Service() {
                 ticks++
                 if (ticks % 10 == 0) {
                     Log.d(TAG, "supervisor tick $ticks: watcherAlive=${watcher.isAlive} screenOn=$screenOn locked=$locked lastSeen=$lastSeenPkg")
+                }
+                // screen-state reconciliation (missed SCREEN_ON/OFF recovery)
+                val actualOn = reader.screenOn
+                if (actualOn != screenOn) {
+                    Log.d(TAG, "supervisor reconciled screenOn: $screenOn -> $actualOn")
+                    screenOn = actualOn
+                    if (screenOn) {
+                        sleepJob?.cancel()
+                        locked = reader.keyguardLocked
+                        if (!locked) seedForeground()
+                    } else {
+                        onScreenOff()
+                    }
+                    continue
                 }
                 if (watcher.isAlive) continue
                 if (screenOn && !locked) {

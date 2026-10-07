@@ -124,42 +124,25 @@ fn run(a: &Args) -> Result<(i32, String), String> {
                 .find(|p| p.id == id)
                 .ok_or_else(|| format!("unknown profile '{id}' (have: {})",
                     files.profiles.iter().map(|p| p.id.as_str()).collect::<Vec<_>>().join(", ")))?;
-            let p = probe::probe();
-            let plan = build_plan(profile, &p);
             match a.cmd.as_str() {
                 "plan" => {
+                    let p = probe::probe();
+                    let plan = build_plan(profile, &p);
                     let json = serde_json::to_string_pretty(&plan).map_err(|e| e.to_string())?;
                     let code = if plan.ok { 0 } else { 1 };
                     Ok((code, json))
                 }
                 "verify" => {
+                    let p = probe::probe();
+                    let plan = build_plan(profile, &p);
                     let report = apply::verify_plan(&store, &plan);
                     let json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
                     let code = if report.ok { 0 } else { 2 };
                     Ok((code, json))
                 }
                 _ => {
-                    let mut report = apply::apply_plan(&store, &plan, &p)?;
-                    // Governor switches materialize governor-specific tunables
-                    // (policyN/schedutil/ only exists while schedutil is the
-                    // active governor) — one automatic re-plan pass picks up
-                    // keys that were "missing" under the previous governor.
-                    if report.locked.iter().any(|l| l.reason.contains("node missing")) {
-                        let p2 = probe::probe();
-                        let plan2 = build_plan(profile, &p2);
-                        if plan2.ok {
-                            let r2 = apply::apply_plan(&store, &plan2, &p2)?;
-                            report.wrote += r2.wrote;
-                            report.verified += r2.verified;
-                            report.failed += r2.failed;
-                            report.results.extend(r2.results);
-                            report.locked = r2.locked; // fresh truth per key
-                            report.ok = report.ok && r2.ok;
-                            if r2.active.is_some() {
-                                report.active = r2.active;
-                            }
-                        }
-                    }
+                    // apply probes + plans internally (pass-2 included)
+                    let report = apply::apply_with_pass2(&store, profile)?;
                     let json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
                     let code = if report.ok { 0 } else { 2 };
                     Ok((code, json))

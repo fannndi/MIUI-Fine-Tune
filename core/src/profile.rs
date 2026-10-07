@@ -134,7 +134,7 @@ pub fn validate_value(e: &catalog::Entry, wanted: &str, probe: &ProbeData) -> (S
             }
             _ => locked("not a non-negative integer"),
         },
-        Kind::Freq | Kind::FreqMax => {
+        Kind::Freq | Kind::FreqMin | Kind::FreqMax => {
             let n: u64 = match wanted.parse() {
                 Ok(n) => n,
                 Err(_) => return locked("not a frequency"),
@@ -236,10 +236,18 @@ pub fn readback_matches(kind: Kind, resolved: &str, readback: &str) -> bool {
             a == b
         }
         Kind::IoSched => {
-            // read-back is the offered list with the active one bracketed:
-            // "noop deadline [cfq]" — the resolved value is a single token.
-            rb.split_whitespace()
-                .any(|t| t.trim_matches(|c| c == '[' || c == ']') == resolved)
+            // read-back is the offered list with the ACTIVE one bracketed:
+            // "noop deadline [cfq]" — only the bracketed token counts. A bare
+            // token match would flag any offered-but-inactive scheduler as
+            // in-sync (real bug caught 2026-10-07: an apply of
+            // io.scheduler=deadline while cfq was active reported Unchanged
+            // and never switched the elevator).
+            let active = rb
+                .split_whitespace()
+                .find(|t| t.starts_with('[') && t.ends_with(']'))
+                .map(|t| t.trim_matches(|c| c == '[' || c == ']'))
+                .unwrap_or(rb);
+            active == resolved
         }
         Kind::RepeatInt => {
             // kernel expands one int to per-cpu array: all must equal wanted
@@ -260,6 +268,21 @@ pub fn readback_matches(kind: Kind, resolved: &str, readback: &str) -> bool {
             // (cap lost) must be corrected.
             match (resolved.parse::<i64>(), rb.parse::<i64>()) {
                 (Ok(want), Ok(live)) => live <= want,
+                _ => rb == resolved,
+            }
+        }
+        Kind::FreqMin => {
+            // An external floor (perf HAL msm_performance cpu_min_freq QoS)
+            // above the requested floor is the framework winning, not drift.
+            // Kernel mechanism: msm_performance.c perf_adjust_notify ->
+            // CPUFREQ_ADJUST -> cpufreq_verify_within_limits clamps
+            // policy->min before the store; scaling_min_freq then reports the
+            // clamped value. Verified live 2026-10-07: with QoS min 1248000
+            // active, writing 576000 read back 1248000, and after the QoS was
+            // removed the node returned to the written value by itself.
+            // Only live < want (floor lost) must be corrected.
+            match (resolved.parse::<i64>(), rb.parse::<i64>()) {
+                (Ok(want), Ok(live)) => live >= want,
                 _ => rb == resolved,
             }
         }
@@ -420,8 +443,7 @@ mod tests {
     fn fake_probe() -> ProbeData {
         let mut entries = BTreeMap::new();
         entries.insert("policy0.scaling_governor".into(), entry_state(true, "schedutil"));
-        entries.insert("policy0.scaling_max_freq".into(), entry_state(true, "1804800"));
-        entries.insert("gpu.governor".into(), entry_state(true, "msm-adreno-tz"));
+        entries.insert("policy0.scaling_max_freq".into(), entry_state(true, "1804800"));        entries.insert("gpu.governor".into(), entry_state(true, "msm-adreno-tz"));
         entries.insert("io.scheduler".into(), entry_state(true, "noop deadline [cfq]"));
         entries.insert("vm.dirty_ratio".into(), entry_state(true, "20"));
         entries.insert("cpuset.background.cpus".into(), entry_state(true, "0-5"));
@@ -550,12 +572,28 @@ mod tests {
     }
 
     #[test]
-    fn io_sched_readback_is_token_match() {
+    fn io_sched_readback_requires_active_bracket() {
+        // only the BRACKETED token is the active scheduler; a bare token in
+        // the offered list must NOT count (real bug: "deadline" matched while
+        // cfq was active and the elevator never switched).
         assert!(readback_matches(Kind::IoSched, "cfq", "noop deadline [cfq]"));
         assert!(readback_matches(Kind::IoSched, "deadline", "noop [deadline] cfq"));
+        assert!(!readback_matches(Kind::IoSched, "deadline", "noop deadline [cfq]"));
         assert!(!readback_matches(Kind::IoSched, "cfq", "noop [deadline]"));
-        // plan-time: stock value counts as unchanged for the stock profile
-        let _ = OpStatus::Unchanged;
+        assert!(!readback_matches(Kind::IoSched, "noop", "deadline [cfq]"));
+        // bare (unbracketed) read-backs still compare directly
+        assert!(readback_matches(Kind::IoSched, "cfq", "cfq"));
+    }
+
+    #[test]
+    fn io_sched_plan_detects_real_switch() {
+        // regression: profile wants deadline while live=cfq (bracketed) — the
+        // op must be Ok (to write), never Unchanged.
+        let p = profile(&[("io.scheduler", "deadline")]);
+        let mut probe = fake_probe();
+        probe.entries.insert("io.scheduler".into(), entry_state(true, "noop deadline [cfq]"));
+        let plan = build_plan(&p, &probe);
+        assert_eq!(plan.ops[0].status, OpStatus::Ok, "must plan a real write");
     }
 
     #[test]
@@ -635,6 +673,19 @@ mod tests {
         assert!(!readback_matches(Kind::FreqMax, "1555200", "1804800"));
         // plain Freq (e.g. scaling_min_freq) stays exact
         assert!(!readback_matches(Kind::Freq, "1555200", "1209600"));
+    }
+
+    #[test]
+    fn freq_min_accepts_external_qos_floor() {
+        // perf HAL msm_performance cpu_min_freq QoS holds the effective floor
+        // ABOVE the requested value -> framework wins (harmony rule), in-sync,
+        // not drift. Only live < want (floor lost) is drift.
+        // Live case 2026-10-07: wrote 576000, read back 1248000 under QoS.
+        assert!(readback_matches(Kind::FreqMin, "576000", "1248000"));
+        assert!(readback_matches(Kind::FreqMin, "576000", "576000"));
+        assert!(!readback_matches(Kind::FreqMin, "1094400", "768000"));
+        // and a QoS-held floor must not leak into exact-match kinds
+        assert!(!readback_matches(Kind::Freq, "576000", "1248000"));
     }
 
     #[test]
