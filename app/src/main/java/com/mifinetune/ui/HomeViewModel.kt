@@ -162,7 +162,11 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     error = null,
                 )
             }
-            if (status.active != null) Tuner.ensureGuard(viewModelScope)
+            // manual-only drift protection (same rule as apply(); the
+            // automation service owns its own periodic re-assert)
+            if (status.active != null && !config.enabled) {
+                Tuner.ensureGuard(viewModelScope)
+            }
         }.onFailure { e ->
             _state.update {
                 it.copy(
@@ -216,7 +220,13 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update {
                     it.copy(busy = null, report = report, status = status, cards = cards)
                 }
-                if (status.active != null) Tuner.ensureGuard(viewModelScope)
+                // manual-only drift protection: when automation is off, the
+                // periodic guard keeps the hand-chosen profile intact (same
+                // profile as state.active — no arbitration conflicts). With
+                // automation on, the service loop owns drift handling.
+                if (status.active != null && !config.enabled) {
+                    Tuner.ensureGuard(viewModelScope)
+                }
             }.onFailure { e ->
                 _state.update {
                     it.copy(busy = null, error = "Apply failed: ${e.message ?: e}")

@@ -19,6 +19,8 @@ class AutomationConfig private constructor(context: Context) {
         private const val K_ENABLED = "enabled"
         private const val K_BASE = "base_profile"
         private const val K_APP_MAP = "app_map"
+        private const val K_SYNC_PERF = "sync_miui_perf"
+        private const val K_GMODE_CHECKER = "game_mode_checker"
 
         /** Fresh installs start with Balance as the universal base. */
         const val DEFAULT_BASE = "balance"
@@ -41,6 +43,28 @@ class AutomationConfig private constructor(context: Context) {
         set(v) {
             sp.edit().putBoolean(K_ENABLED, v).apply()
             _enabled.value = v
+        }
+
+    // --- MIUI bridge switches (v0.5) -------------------------------------
+
+    private val _syncMiuiPerf = MutableStateFlow(sp.getBoolean(K_SYNC_PERF, true))
+    /** Game in front → MIUI's own Performance switch follows our profile. */
+    val syncMiuiPerfFlow: StateFlow<Boolean> = _syncMiuiPerf
+    var syncMiuiPerf: Boolean
+        get() = _syncMiuiPerf.value
+        set(v) {
+            sp.edit().putBoolean(K_SYNC_PERF, v).apply()
+            _syncMiuiPerf.value = v
+        }
+
+    private val _gameModeChecker = MutableStateFlow(sp.getBoolean(K_GMODE_CHECKER, true))
+    /** Warn when MIUI Game Booster still boosts a game mapped to us. */
+    val gameModeCheckerFlow: StateFlow<Boolean> = _gameModeChecker
+    var gameModeChecker: Boolean
+        get() = _gameModeChecker.value
+        set(v) {
+            sp.edit().putBoolean(K_GMODE_CHECKER, v).apply()
+            _gameModeChecker.value = v
         }
 
     /** The universal base: the last manually selected profile. */

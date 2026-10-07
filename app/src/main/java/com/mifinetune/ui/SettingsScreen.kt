@@ -25,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -33,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mifinetune.core.Status
 
 /**
@@ -41,11 +43,17 @@ import com.mifinetune.core.Status
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(status: Status?, onBack: () -> Unit) {
+fun SettingsScreen(
+    status: Status?,
+    onBack: () -> Unit,
+    vm: AutomationViewModel? = null,
+) {
     val context = LocalContext.current
     val version = runCatching {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName
     }.getOrNull() ?: "?"
+    val syncPerf = vm?.syncMiuiPerf?.collectAsStateWithLifecycle()?.value
+    val gmodeChecker = vm?.gameModeChecker?.collectAsStateWithLifecycle()?.value
 
     Scaffold(
         topBar = {
@@ -89,6 +97,52 @@ fun SettingsScreen(status: Status?, onBack: () -> Unit) {
                         actionLabel = "Open",
                         onAction = { openAppSettings(context) },
                     )
+                }
+            }
+
+            if (vm != null) {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("MIUI bridge", style = MaterialTheme.typography.titleMedium)
+                        if (syncPerf != null) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Sync MIUI Performance mode", style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        "Mapped game in front → MIUI's own switch follows",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(checked = syncPerf, onCheckedChange = vm::setSyncMiuiPerf)
+                            }
+                        }
+                        if (gmodeChecker != null) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Game-mode checker", style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        "Warn when MIUI Game Booster still boosts a mapped game",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(checked = gmodeChecker, onCheckedChange = vm::setGameModeChecker)
+                            }
+                        }
+                        Text(
+                            "Ultra battery saver: MiFineTune retires automatically " +
+                                "(restore + stop) — that mode belongs to MIUI.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 

@@ -16,6 +16,10 @@ data class ArbiterInput(
     val appMap: Map<String, String>,
     val baseProfile: String,
     val sleepProfile: String,
+    /** MIUI battery saver / Android battery saver — forces the frugal base. */
+    val saverOn: Boolean = false,
+    /** MIUI Ultra battery saver — framework owns the device; we retire. */
+    val ultraSaver: Boolean = false,
 )
 
 sealed interface Decision {
@@ -24,11 +28,17 @@ sealed interface Decision {
 
     /** Apply [profileId]; [reason] is a UI/notification label. */
     data class Apply(val profileId: String, val reason: String) : Decision
+
+    /** Meaty retirement: the framework owns tuning (Ultra battery saver). */
+    data object Retire : Decision
 }
 
 object ModeArbiter {
 
     const val SLEEP_PROFILE = "sleep"
+
+    /** MIUI/Android battery saver forces the frugal base. */
+    const val SAVER_PROFILE = "powersave"
 
     /**
      * Packages that must not trigger a switch: system chrome and dialogs
@@ -53,6 +63,11 @@ object ModeArbiter {
     fun decide(input: ArbiterInput): Decision {
         if (!input.automationEnabled) return Decision.None
 
+        // MIUI Ultra battery saver owns the whole device (its own CPU/GPU/
+        // network regime, whitelisted apps only). Neither our baselines nor
+        // mapped overrides belong here — retire with a full restore.
+        if (input.ultraSaver) return Decision.Retire
+
         if (!input.screenOn) {
             return Decision.Apply(input.sleepProfile, "screen off")
         }
@@ -63,7 +78,10 @@ object ModeArbiter {
         if (isTransient(pkg)) return Decision.None
 
         val mapped = input.appMap[pkg]
+        // MIUI battery saver: the unmapped universe is forced to the frugal
+        // base — mapped apps still win (the user may game under saver).
+        val effectiveBase = if (input.saverOn) SAVER_PROFILE else input.baseProfile
         return if (mapped != null) Decision.Apply(mapped, "app")
-        else Decision.Apply(input.baseProfile, "base")
+        else Decision.Apply(effectiveBase, "base")
     }
 }

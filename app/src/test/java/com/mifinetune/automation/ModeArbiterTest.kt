@@ -15,6 +15,8 @@ class ModeArbiterTest {
         map: Map<String, String> = emptyMap(),
         base: String = "balance",
         sleep: String = "sleep",
+        saverOn: Boolean = false,
+        ultraSaver: Boolean = false,
     ) = ArbiterInput(
         automationEnabled = enabled,
         screenOn = screenOn,
@@ -23,6 +25,8 @@ class ModeArbiterTest {
         appMap = map,
         baseProfile = base,
         sleepProfile = sleep,
+        saverOn = saverOn,
+        ultraSaver = ultraSaver,
     )
 
     @Test
@@ -84,5 +88,28 @@ class ModeArbiterTest {
         assertTrue(ModeArbiter.isTransient("com.sohu.inputmethod.sogou.xiaomi"))
         assertTrue(ModeArbiter.isTransient("com.baidu.input_mi"))
         assertTrue(ModeArbiter.isTransient("com.iflytek.inputmethod.miui"))
+    }
+
+    // --- MIUI bridge rules ------------------------------------------------
+
+    @Test
+    fun saver_on_forces_powersave_base_but_mapping_still_wins() {
+        val d = ModeArbiter.decide(input(saverOn = true))
+        assertEquals(Decision.Apply("powersave", "base"), d)
+
+        val d2 = ModeArbiter.decide(
+            input(saverOn = true, fg = "com.YoStarEN.AzurLane", map = mapOf("com.YoStarEN.AzurLane" to "game")),
+        )
+        assertEquals(Decision.Apply("game", "app"), d2)
+    }
+
+    @Test
+    fun extreme_saver_retires_the_service() {
+        assertEquals(Decision.Retire, ModeArbiter.decide(input(ultraSaver = true)))
+        // retire wins over everything, even screen-off
+        assertEquals(
+            Decision.Retire,
+            ModeArbiter.decide(input(ultraSaver = true, screenOn = false)),
+        )
     }
 }

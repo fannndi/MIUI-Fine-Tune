@@ -104,9 +104,11 @@ fun HomeScreen(vm: HomeViewModel) {
             AppsProfileScreen(vm = avm, onBack = { dest = HomeDest.HOME })
         }
         HomeDest.SETTINGS -> {
+            val avm: AutomationViewModel = viewModel()
             SettingsScreen(
                 status = state.status,
                 onBack = { dest = HomeDest.HOME },
+                vm = avm,
             )
         }
         HomeDest.HOME -> {

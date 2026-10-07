@@ -44,6 +44,10 @@ class AutomationViewModel(app: Application) : AndroidViewModel(app) {
 
     val appMap: StateFlow<Map<String, String>> = config.appMapFlow
 
+    /** MIUI bridge switches (Settings page). */
+    val syncMiuiPerf: StateFlow<Boolean> = config.syncMiuiPerfFlow
+    val gameModeChecker: StateFlow<Boolean> = config.gameModeCheckerFlow
+
     private val _state = MutableStateFlow(AutomationUiState())
     val state: StateFlow<AutomationUiState> = _state.asStateFlow()
 
@@ -56,6 +60,14 @@ class AutomationViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setAppProfile(pkg: String, profileId: String?) {
         config.setAppProfile(pkg, profileId)
+    }
+
+    fun setSyncMiuiPerf(v: Boolean) {
+        config.syncMiuiPerf = v
+    }
+
+    fun setGameModeChecker(v: Boolean) {
+        config.gameModeChecker = v
     }
 
     fun checkRoot() {
