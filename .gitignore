@@ -1,0 +1,17 @@
+# MiFineTune — build artifacts
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Rust
+core/target/
+
+# APKs
+*.apk
+*.aab

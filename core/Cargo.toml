@@ -1,0 +1,25 @@
+[package]
+name = "mifinetune-core"
+version = "0.1.0"
+edition = "2021"
+description = "MIUI-harmonized profile switcher core (POCO X3 NFC / surya, MIUI 12)"
+license = "Apache-2.0"
+
+[lib]
+name = "mifinetune_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "miui-ft"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
