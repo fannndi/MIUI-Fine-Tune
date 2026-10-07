@@ -39,10 +39,12 @@ sebagai UI/orchestrator. App offline (tanpa INTERNET), semua eksekusi lewat `su`
    → **jangan dipakai di profile sama sekali** (ada test otomatis untuk ini).
 3. **Validator berbasis source**: setiap invariant baru harus menyertakan
    kutipan kernel (`file:line`), lihat tabel di `docs/ROM-HARMONY.md`.
-4. **Asset sync (bug klasik v0.1)**: `app/src/main/assets/miui-ft` **menimpa**
-   binary di device saat launch (banding ukuran). Setiap rebuild core WAJIB
-   ikut meng-copy binary ke assets, kalau tidak app diam-diam balik ke katalog
-   lama. (Kejadian nyata: katalog 67 → 59 tanpa error.)
+4. **Asset sync (bug klasik v0.1 & v0.3)**: `app/src/main/assets/{miui-ft,profiles.json}`
+   **menimpa** binary + profile pack di device saat launch (banding ukuran/isi).
+   Sekarang **otomatis** lewat Gradle task `syncCore` (preBuild menyalin dari
+   `core/`), tapi kalau mengubah alur build: pastikan `assembleDebug` tetap
+   menyalin keduanya. Kejadian nyata: binary lama → katalog 67→59; profiles
+   lama → `apply sleep` gagal "unknown profile" saat layar mati.
 5. **Snapshot semantics**: apply pertama menyimpan snapshot state live.
    `restore` hanya "finalisasi" (hapus snapshot + active=None) bila
    `failed == 0`; kalau ada yang gagal, snapshot **sengaja dipertahankan**

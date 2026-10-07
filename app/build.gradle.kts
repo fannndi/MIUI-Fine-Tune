@@ -11,8 +11,8 @@ android {
         applicationId = "com.mifinetune"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     buildTypes {
@@ -33,6 +33,21 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+// Keep the bundled engine + profiles in lockstep with core/ (hard rule #4:
+// a stale asset silently reverts the device binary/profiles on every launch).
+val syncCore by tasks.registering(Copy::class) {
+    from(rootProject.file("core/profiles.json"))
+    val bin = rootProject.file("core/target/aarch64-linux-android/release/miui-ft")
+    if (bin.exists()) {
+        from(bin)
+    }
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+
+tasks.named("preBuild") {
+    dependsOn(syncCore)
 }
 
 dependencies {

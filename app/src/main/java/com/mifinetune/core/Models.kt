@@ -107,6 +107,8 @@ data class Profile(
     val id: String,
     val label: String,
     val desc: String,
+    /** Hidden from the home cards (e.g. the screen-off "sleep" profile). */
+    val hidden: Boolean = false,
     val params: Map<String, String>,
 )
 
@@ -228,6 +230,7 @@ fun parseProfiles(json: JSONObject): ProfilesFile {
             id = p.optString("id"),
             label = p.optString("label"),
             desc = p.optString("desc", ""),
+            hidden = p.optBoolean("hidden", false),
             params = params,
         )
     })

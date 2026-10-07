@@ -3,18 +3,18 @@ package com.mifinetune.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mifinetune.automation.AutomationConfig
+import com.mifinetune.automation.AutomationService
+import com.mifinetune.automation.AutomationState
 import com.mifinetune.core.ApplyReport
-import com.mifinetune.core.FtClient
 import com.mifinetune.core.LockedKey
 import com.mifinetune.core.Plan
 import com.mifinetune.core.Profile
 import com.mifinetune.core.RootBridge
 import com.mifinetune.core.Status
+import com.mifinetune.core.Tuner
 import com.mifinetune.core.parseProfiles
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,10 +25,10 @@ import org.json.JSONObject
 
 /**
  * UI state machine: boot-time deploy + probe, profile cards with live plans,
- * apply/restore with report dialogs.
+ * apply/restore with report dialogs, automation status mirror.
  *
- * Responsibility: orchestrating FtClient calls and exposing [HomeUiState].
- * Non-goals: tuning logic (Rust core owns it).
+ * Responsibility: orchestrating [Tuner] calls and exposing [HomeUiState].
+ * Non-goals: tuning logic (Rust core), automation decisions (ModeArbiter).
  */
 data class ProfileCard(
     val profile: Profile,
@@ -52,6 +52,13 @@ data class HomeUiState(
     val guardActive: Boolean = false,
     /** Number of drifted keys corrected by the guard since app start. */
     val driftFixed: Int = 0,
+    // --- automation mirror ---
+    val automationEnabled: Boolean = false,
+    val automationRunning: Boolean = false,
+    val automationReason: String? = null,
+    val defaultProfile: String = AutomationConfig.DEFAULT_PROFILE,
+    val sleepEnabled: Boolean = true,
+    val mappedCount: Int = 0,
 ) {
     val canAct: Boolean get() = !loading && busy == null
 }
@@ -60,21 +67,47 @@ data class LockedDetail(val title: String, val items: List<LockedKey>)
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val bridge = RootBridge()
-    private val client = FtClient(bridge)
-    private var guardJob: Job? = null
+    private val config = AutomationConfig.get(app)
 
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
     init {
+        observeAutomation()
         refresh()
+    }
+
+    private fun observeAutomation() {
+        viewModelScope.launch {
+            config.enabledFlow.collect { v -> _state.update { it.copy(automationEnabled = v) } }
+        }
+        viewModelScope.launch {
+            config.defaultProfileFlow.collect { v -> _state.update { it.copy(defaultProfile = v) } }
+        }
+        viewModelScope.launch {
+            config.sleepEnabledFlow.collect { v -> _state.update { it.copy(sleepEnabled = v) } }
+        }
+        viewModelScope.launch {
+            config.appMapFlow.collect { v -> _state.update { it.copy(mappedCount = v.size) } }
+        }
+        viewModelScope.launch {
+            AutomationState.running.collect { v -> _state.update { it.copy(automationRunning = v) } }
+        }
+        viewModelScope.launch {
+            AutomationState.reason.collect { v -> _state.update { it.copy(automationReason = v) } }
+        }
+        viewModelScope.launch {
+            Tuner.guardActive.collect { v -> _state.update { it.copy(guardActive = v) } }
+        }
+        viewModelScope.launch {
+            Tuner.driftFixed.collect { v -> _state.update { it.copy(driftFixed = v) } }
+        }
     }
 
     fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            val deployError = bridge.deploy(getApplication())
+            val deployError = Tuner.deploy(getApplication())
             if (deployError != null) {
                 _state.update { it.copy(loading = false, error = deployError) }
                 return@launch
@@ -85,16 +118,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun loadAll() = withContext(Dispatchers.IO) {
         runCatching {
-            val status = client.status()
-            val profiles = loadBundledProfiles()
-            val cards = profiles.map { p ->
-                val res = runCatching { client.plan(p.id) }
-                ProfileCard(
-                    profile = p,
-                    plan = res.getOrNull(),
-                    planError = res.exceptionOrNull()?.message,
-                )
-            }
+            val status = Tuner.status()
+            val profiles = loadBundledProfiles().filter { !it.hidden }
+            val cards = profiles.map { p -> planCard(p) }
             val packRom = runCatching {
                 getApplication<Application>().assets
                     .open(RootBridge.ASSET_PROFILES)
@@ -110,13 +136,18 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     error = null,
                 )
             }
-            if (status.active != null) startDriftGuard()
+            if (status.active != null) Tuner.ensureGuard(viewModelScope)
+            // resilience: if automation is enabled but the service is gone
+            // (app update, MIUI kill), bring it back on next open
+            if (config.enabled && !AutomationState.running.value) {
+                runCatching { AutomationService.start(getApplication()) }
+            }
         }.onFailure { e ->
             _state.update {
                 it.copy(
                     loading = false,
                     error = "Probe failed: ${e.message ?: e}" +
-                        if (!bridge.isRoot()) " (root not granted?)" else "",
+                        if (!Tuner.bridge.isRoot()) " (root not granted?)" else "",
                 )
             }
         }
@@ -129,26 +160,62 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         return parseProfiles(JSONObject(json)).profiles
     }
 
+    private suspend fun planCard(p: Profile): ProfileCard {
+        val res = runCatching { Tuner.plan(p.id) }
+        return ProfileCard(
+            profile = p,
+            plan = res.getOrNull(),
+            planError = res.exceptionOrNull()?.message,
+        )
+    }
+
+    private suspend fun refreshPlans(): List<ProfileCard> =
+        _state.value.cards.map { planCard(it.profile) }
+
     fun apply(profileId: String) {
         if (_state.value.busy != null) return
         _state.update { it.copy(busy = profileId, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                val report = client.apply(profileId)
-                report to client.status()
+                val report = Tuner.apply(profileId)
+                report to Tuner.status()
             }.onSuccess { (report, status) ->
-                val cards = _state.value.cards.map { c ->
-                    c.copy(plan = runCatching { client.plan(c.profile.id) }.getOrNull())
-                }
+                // Manual tap while automation runs = temporary override, it
+                // does not change the daily default (consumed at next trigger).
+                if (config.enabled) AutomationState.overrideProfile = profileId
+                val cards = refreshPlans()
                 _state.update {
                     it.copy(busy = null, report = report, status = status, cards = cards)
                 }
-                if (status.active != null) startDriftGuard()
+                if (status.active != null) Tuner.ensureGuard(viewModelScope)
             }.onFailure { e ->
                 _state.update {
                     it.copy(busy = null, error = "Apply failed: ${e.message ?: e}")
                 }
             }
+        }
+    }
+
+    fun setDefaultProfile(id: String) {
+        config.defaultProfile = id
+        if (config.enabled) {
+            runCatching { AutomationService.refresh(getApplication()) }
+        }
+    }
+
+    fun setAutomationEnabled(v: Boolean) {
+        if (v) {
+            runCatching {
+                config.enabled = true
+                AutomationService.start(getApplication())
+            }.onFailure { e ->
+                config.enabled = false
+                _state.update { it.copy(error = "Gagal menyalakan automasi: ${e.message}") }
+            }
+        } else {
+            config.enabled = false
+            AutomationState.overrideProfile = null
+            AutomationService.stop(getApplication())
         }
     }
 
@@ -165,63 +232,26 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(busy = "restore", confirmRestore = false, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                val report = client.restore()
-                report to client.status()
+                val report = Tuner.restore()
+                report to Tuner.status()
             }.onSuccess { (report, status) ->
-                val cards = _state.value.cards.map { c ->
-                    c.copy(plan = runCatching { client.plan(c.profile.id) }.getOrNull())
+                if (report.ok) {
+                    // Restore = explicit "stop touching my phone": pause automation.
+                    config.enabled = false
+                    AutomationState.overrideProfile = null
+                    runCatching { AutomationService.stop(getApplication()) }
                 }
+                val cards = refreshPlans()
                 _state.update {
                     it.copy(busy = null, report = report, status = status, cards = cards)
                 }
-                stopDriftGuard()
+                Tuner.stopGuard()
             }.onFailure { e ->
                 _state.update {
                     it.copy(busy = null, error = "Restore failed: ${e.message ?: e}")
                 }
             }
         }
-    }
-
-    /**
-     * Periodic verify loop while a profile is active: every 15 s re-check all
-     * profile keys against the live device and re-apply ONLY when something
-     * drifted (perf HAL boost restore, PowerKeeper cpuset writes, ...).
-     * Cheap: verify is read-only (~59 reads); apply writes only drifted keys.
-     */
-    private fun startDriftGuard() {
-        if (guardJob?.isActive == true) return
-        guardJob = viewModelScope.launch(Dispatchers.IO) {
-            _state.update { it.copy(guardActive = true) }
-            while (isActive) {
-                delay(15_000)
-                val active = _state.value.status?.active ?: break
-                if (_state.value.busy != null) continue
-                runCatching { client.verify(active) }.onSuccess { rep ->
-                    if (!rep.ok && rep.failed > 0) {
-                        runCatching {
-                            client.apply(active)
-                            client.status()
-                        }.onSuccess { st ->
-                            _state.update {
-                                it.copy(
-                                    status = st,
-                                    driftFixed = it.driftFixed + rep.failed,
-                                )
-                            }
-                        }
-                    }
-                }
-                // verify failures (transient root/shell issues) just retry
-            }
-            _state.update { it.copy(guardActive = false) }
-        }
-    }
-
-    private fun stopDriftGuard() {
-        guardJob?.cancel()
-        guardJob = null
-        _state.update { it.copy(guardActive = false) }
     }
 
     fun dismissReport() = _state.update { it.copy(report = null) }
