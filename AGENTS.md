@@ -129,32 +129,40 @@ State di device: `/data/adb/mifinetune/{profiles.json,state.json,snapshot.json}`
 - `net.tcp_rmem/wmem` direset network stack saat siklus display-off — profile
   tidak menyentuhnya (lihat Hard rule 2).
 
-## Automasi (v0.3)
+## Automasi (v0.3 final)
 
+**Model perilaku** (dikonfirmasi user):
+- Tap kartu = apply sekarang + jadi **BASE universal** (dipakai semua app yang
+  tidak dipetakan). App terpetakan menimpa base saat di depan; keluar → base.
+- **Service OFF = restore stock + stop** (tidak intervensi apa pun).
+- Layar mati → profile `sleep` (selalu, ±10 dtk). Wake/unlock → base/mapped.
+- Fresh install: base = Balance; `enabled` default true.
+
+**Komponen**:
 - **`Tuner`** (core/): satu mutex untuk apply/verify/restore dari UI, service,
-  dan drift guard; guard re-apply hanya key yang drift (15 dtk).
-- **`AutomationService`**: foreground service senyap (channel IMPORTANCE_MIN),
-  broadcast layar (SCREEN_ON/OFF/USER_PRESENT/POWER), poll 1,5 dtk saat layar
-  nyala & terbuka:
-  - **UsageStats = fast-path** — di MIUI event resume jarang dikirim, jadi
-    **root-peek (`dumpsys window`) tiap 2 tick (±3 dtk) adalah tulang
-    punggung**. Jangan hapus root-peek; jangan andalkan UsageStats saja.
-  - `seedForeground()` saat wake/unlock & saat service start (event resume
-    sering absen di kedua momen itu).
-- **`ModeArbiter`** (murni, 12 test JVM): layar mati → sleep (delay 10 dtk);
-  app terpetakan → profile-nya; lainnya → default; SystemUI/IME/app sendiri/
-  dialog izin = transient (jangan switch); launcher = sinyal balik ke default;
-  keyguard = jangan sentuh.
-- **Override sekali**: tap kartu home saat automasi ON → `AutomationState.overrideProfile`;
-  service mengonsumsinya di trigger berikutnya (default harian tidak berubah).
-- **Restore** = stock + automasi pause. **BootReceiver** = best-effort re-apply.
-  Service self-heal saat app dibuka (`maybeStartService` di `refresh()`, SEBELUM
-  loadAll — start FGS dari background akan ditolak OS).
-- **Sleep**: profile `sleep` (hidden), tidak menyentuh net/LMK/swap; skip musik/
-  charging opsional; diterapkan ±10 dtk setelah layar mati.
-- **Screens**: Home (grid profil + kartu automasi + navigasi), Apps Profile
-  (search + list + bottom sheet), Sleep, Setup — satu controller per layar
-  (`HomeViewModel`, `AutomationViewModel`), label di `ProfileLabels`.
+  dan drift guard (guard 15 dtk, re-apply hanya key yang drift).
+- **`AutomationService`** (FGS senyap, IMPORTANCE_MIN):
+  - **Watcher event-driven**: root `logcat -b events -s am_resume_activity:V`
+    → switch instan. Supervisor restart (backoff 10 dtk) + fallback
+    `peekEvents()` (logcat -d, event terakhir) saat stream mati.
+  - **PENTING: jangan pakai `dumpsys` dari su app** — di APatch, binder tidak
+    bisa diakses dari konteks su app (output kosong/27 char). Gunakan `logcat`
+    (kernel buffer) untuk peek; jangan tambahkan pipe/quotes di command su
+    (tidak selamat).
+  - **Coalescing**: burst event (task restore/keyguard) → satu apply setelah
+    settle 700 ms; apply berjalan tidak menumpuk (`pendingDecision` supersede).
+  - **Retry sekali** untuk apply & restore yang gagal transient (race QoS
+    Game Turbo/PowerKeeper, thermal) + log key yang gagal.
+  - Seed wake/unlock: `peekEvents()` + `lastRealPkg` (paket non-transient
+    terakhir) → selalu evaluate sekali setelah unlock.
+- **`ModeArbiter`** (murni, test JVM): layar mati → sleep; app terpetakan →
+  profile-nya; lainnya → base; SystemUI/IME/app sendiri/dialog izin =
+  transient (jangan switch); launcher = sinyal balik ke base; keyguard = no-op.
+- **UsageStats TIDAK dipakai** (MIUI jarang mengirim event resume; permission
+  PACKAGE_USAGE_STATS sudah dihapus dari manifest).
+- **Screens** (English only): Home (3 baris profile + Detail, Apps Profile,
+  Service switch) · Apps Profile (search + bottom sheet) · Settings (izin +
+  diagnostik). Hapus/restore = switch Service (confirm bila ada snapshot).
 - **Gradle `syncCore`**: menyalin `core/profiles.json` + binary rilis ke
   `app/src/main/assets/` pada setiap build (mencegah bug asset basi).
 

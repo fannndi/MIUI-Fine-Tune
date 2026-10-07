@@ -11,8 +11,7 @@ import android.content.Intent
 class AutomationBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
-        val config = AutomationConfig.get(context)
-        if (config.enabled && config.bootApply) {
+        if (AutomationConfig.get(context).enabled) {
             AutomationService.start(context)
         }
     }

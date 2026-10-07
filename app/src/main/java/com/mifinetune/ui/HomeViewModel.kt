@@ -27,8 +27,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
- * UI state machine: boot-time deploy + probe, profile cards with live plans,
- * apply/restore with report dialogs, automation status mirror.
+ * UI state machine: boot-time deploy + probe, profile rows with live plans,
+ * apply/service-off with report dialogs, automation status mirror.
  *
  * Responsibility: orchestrating [Tuner] calls and exposing [HomeUiState].
  * Non-goals: tuning logic (Rust core), automation decisions (ModeArbiter).
@@ -43,11 +43,11 @@ data class HomeUiState(
     val loading: Boolean = true,
     val status: Status? = null,
     val cards: List<ProfileCard> = emptyList(),
-    /** Profile id (or "restore") while a root action runs. */
+    /** Profile id (or "service-off") while a root action runs. */
     val busy: String? = null,
     val error: String? = null,
     val report: ApplyReport? = null,
-    val confirmRestore: Boolean = false,
+    val confirmServiceOff: Boolean = false,
     val lockedDetail: LockedDetail? = null,
     /** ROM the bundled profile pack was built/audited against. */
     val packRom: String? = null,
@@ -59,8 +59,6 @@ data class HomeUiState(
     val automationEnabled: Boolean = false,
     val automationRunning: Boolean = false,
     val automationReason: String? = null,
-    val defaultProfile: String = AutomationConfig.DEFAULT_PROFILE,
-    val sleepEnabled: Boolean = true,
     val mappedCount: Int = 0,
 ) {
     val canAct: Boolean get() = !loading && busy == null
@@ -85,16 +83,13 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             config.enabledFlow.collect { v -> _state.update { it.copy(automationEnabled = v) } }
         }
         viewModelScope.launch {
-            config.defaultProfileFlow.collect { v -> _state.update { it.copy(defaultProfile = v) } }
-        }
-        viewModelScope.launch {
-            config.sleepEnabledFlow.collect { v -> _state.update { it.copy(sleepEnabled = v) } }
-        }
-        viewModelScope.launch {
             config.appMapFlow.collect { v -> _state.update { it.copy(mappedCount = v.size) } }
         }
         viewModelScope.launch {
             AutomationState.running.collect { v -> _state.update { it.copy(automationRunning = v) } }
+        }
+        viewModelScope.launch {
+            AutomationState.reason.collect { v -> _state.update { it.copy(automationReason = v) } }
         }
         viewModelScope.launch {
             AutomationState.appliedProfile.collect { id ->
@@ -110,9 +105,6 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             }
-        }
-        viewModelScope.launch {
-            AutomationState.reason.collect { v -> _state.update { it.copy(automationReason = v) } }
         }
         viewModelScope.launch {
             Tuner.guardActive.collect { v -> _state.update { it.copy(guardActive = v) } }
@@ -141,8 +133,6 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         runCatching {
             val status = Tuner.status()
             val profiles = loadBundledProfiles().filter { !it.hidden }
-            // plans run in parallel: three `su` round-trips at once instead of
-            // serializing them keeps app-open under ~6 s
             val cards = coroutineScope { profiles.map { async { planCard(it) } }.awaitAll() }
             val packRom = runCatching {
                 getApplication<Application>().assets
@@ -192,6 +182,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         return coroutineScope { cards.map { async { planCard(it.profile) } }.awaitAll() }
     }
 
+    /** Manual tap: apply now and remember it as the universal base. */
     fun apply(profileId: String) {
         if (_state.value.busy != null) return
         _state.update { it.copy(busy = profileId, error = null) }
@@ -200,9 +191,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 val report = Tuner.apply(profileId)
                 report to Tuner.status()
             }.onSuccess { (report, status) ->
-                // Manual tap while automation runs = temporary override, it
-                // does not change the daily default (consumed at next trigger).
-                if (config.enabled) AutomationState.overrideProfile = profileId
+                if (report.ok) config.baseProfile = profileId
                 val cards = refreshPlans()
                 _state.update {
                     it.copy(busy = null, report = report, status = status, cards = cards)
@@ -216,71 +205,64 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setDefaultProfile(id: String) {
-        config.defaultProfile = id
-        if (config.enabled) {
-            runCatching { AutomationService.refresh(getApplication()) }
+    /** Switch toggle: ON starts the service; OFF restores stock and stops. */
+    fun onServiceToggle(v: Boolean) {
+        if (v) {
+            setServiceEnabled(true)
+        } else if (_state.value.status?.snapshot != null) {
+            _state.update { it.copy(confirmServiceOff = true) }
+        } else {
+            setServiceEnabled(false)
         }
     }
 
-    /** Bring the service back if automation is on but the service is gone. */
-    private fun maybeStartService() {
-        if (config.enabled && !AutomationState.running.value) {
-            runCatching { AutomationService.start(getApplication()) }
-                .onFailure { e ->
-                    android.util.Log.w("MiFineTune", "automation service start failed: $e")
-                }
-        }
+    fun confirmServiceOff() {
+        _state.update { it.copy(confirmServiceOff = false) }
+        setServiceEnabled(false)
     }
 
-    fun setAutomationEnabled(v: Boolean) {
+    fun cancelServiceOff() {
+        _state.update { it.copy(confirmServiceOff = false) }
+    }
+
+    private fun setServiceEnabled(v: Boolean) {
         if (v) {
             runCatching {
                 config.enabled = true
                 AutomationService.start(getApplication())
             }.onFailure { e ->
                 config.enabled = false
-                _state.update { it.copy(error = "Gagal menyalakan automasi: ${e.message}") }
+                _state.update { it.copy(error = "Failed to start service: ${e.message}") }
             }
-        } else {
+            return
+        }
+        // OFF = no intervention: restore stock, then stop everything
+        viewModelScope.launch(Dispatchers.IO) {
+            _state.update { it.copy(busy = "service-off", error = null) }
             config.enabled = false
-            AutomationState.overrideProfile = null
-            AutomationService.stop(getApplication())
+            var report = runCatching { Tuner.restore() }.getOrNull()
+            if (report?.ok == false) {
+                // transient race with MIUI/thermal writes -> one retry
+                kotlinx.coroutines.delay(1_500)
+                report = runCatching { Tuner.restore() }.getOrNull() ?: report
+            }
+            runCatching { AutomationService.stop(getApplication()) }
+            Tuner.stopGuard()
+            val status = runCatching { Tuner.status() }.getOrNull()
+            val cards = refreshPlans()
+            _state.update {
+                it.copy(busy = null, report = report, status = status, cards = cards)
+            }
         }
     }
 
-    fun askRestore() {
-        _state.update { it.copy(confirmRestore = true) }
-    }
-
-    fun cancelRestore() {
-        _state.update { it.copy(confirmRestore = false) }
-    }
-
-    fun restore() {
-        if (_state.value.busy != null) return
-        _state.update { it.copy(busy = "restore", confirmRestore = false, error = null) }
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                val report = Tuner.restore()
-                report to Tuner.status()
-            }.onSuccess { (report, status) ->
-                if (report.ok) {
-                    // Restore = explicit "stop touching my phone": pause automation.
-                    config.enabled = false
-                    AutomationState.overrideProfile = null
-                    runCatching { AutomationService.stop(getApplication()) }
+    /** Bring the service back if it is enabled but gone (update, MIUI kill). */
+    private fun maybeStartService() {
+        if (config.enabled && !AutomationState.running.value) {
+            runCatching { AutomationService.start(getApplication()) }
+                .onFailure { e ->
+                    android.util.Log.w("MiFineTune", "service start failed: $e")
                 }
-                val cards = refreshPlans()
-                _state.update {
-                    it.copy(busy = null, report = report, status = status, cards = cards)
-                }
-                Tuner.stopGuard()
-            }.onFailure { e ->
-                _state.update {
-                    it.copy(busy = null, error = "Restore failed: ${e.message ?: e}")
-                }
-            }
         }
     }
 

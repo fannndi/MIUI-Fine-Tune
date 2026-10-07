@@ -13,26 +13,16 @@ class ModeArbiterTest {
         locked: Boolean = false,
         fg: String? = "com.example.app",
         map: Map<String, String> = emptyMap(),
-        default: String = "balance",
-        sleepEnabled: Boolean = true,
-        sleepProfile: String = "sleep",
-        skipMusic: Boolean = false,
-        music: Boolean = false,
-        skipCharging: Boolean = false,
-        charging: Boolean = false,
+        base: String = "balance",
+        sleep: String = "sleep",
     ) = ArbiterInput(
         automationEnabled = enabled,
         screenOn = screenOn,
         keyguardLocked = locked,
         foregroundPkg = fg,
         appMap = map,
-        defaultProfile = default,
-        sleepEnabled = sleepEnabled,
-        sleepProfile = sleepProfile,
-        skipOnMusic = skipMusic,
-        musicActive = music,
-        skipOnCharging = skipCharging,
-        charging = charging,
+        baseProfile = base,
+        sleepProfile = sleep,
     )
 
     @Test
@@ -42,32 +32,9 @@ class ModeArbiterTest {
 
     @Test
     fun screenOff_appliesSleep() {
-        assertEquals(Decision.Apply("sleep", "layar mati"), ModeArbiter.decide(input(screenOn = false)))
-    }
-
-    @Test
-    fun screenOff_sleepDisabled_isNone() {
-        assertEquals(Decision.None, ModeArbiter.decide(input(screenOn = false, sleepEnabled = false)))
-    }
-
-    @Test
-    fun screenOff_skipOnMusic_respected() {
         assertEquals(
-            Decision.None,
-            ModeArbiter.decide(input(screenOn = false, skipMusic = true, music = true)),
-        )
-        // music not playing -> sleep still applies
-        assertEquals(
-            Decision.Apply("sleep", "layar mati"),
-            ModeArbiter.decide(input(screenOn = false, skipMusic = true, music = false)),
-        )
-    }
-
-    @Test
-    fun screenOff_skipOnCharging_respected() {
-        assertEquals(
-            Decision.None,
-            ModeArbiter.decide(input(screenOn = false, skipCharging = true, charging = true)),
+            Decision.Apply("sleep", "screen off"),
+            ModeArbiter.decide(input(screenOn = false)),
         )
     }
 
@@ -85,15 +52,15 @@ class ModeArbiterTest {
     }
 
     @Test
-    fun unmappedApp_appliesDefault() {
-        val d = ModeArbiter.decide(input(fg = "com.whatsapp", default = "powersave"))
-        assertEquals(Decision.Apply("powersave", "default"), d)
+    fun unmappedApp_appliesBase() {
+        val d = ModeArbiter.decide(input(fg = "com.whatsapp", base = "powersave"))
+        assertEquals(Decision.Apply("powersave", "base"), d)
     }
 
     @Test
-    fun launcher_revertsToDefault() {
-        val d = ModeArbiter.decide(input(fg = "com.miui.home", default = "powersave"))
-        assertEquals(Decision.Apply("powersave", "default"), d)
+    fun launcher_revertsToBase() {
+        val d = ModeArbiter.decide(input(fg = "com.miui.home", base = "powersave"))
+        assertEquals(Decision.Apply("powersave", "base"), d)
     }
 
     @Test

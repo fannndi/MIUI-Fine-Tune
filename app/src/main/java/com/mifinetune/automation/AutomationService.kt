@@ -27,8 +27,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Foreground service that runs the automation loop:
- * screen events -> sleep profile, foreground app -> mapped/default profile.
+ * Foreground service running the automation loop:
+ * screen events -> sleep profile, foreground app -> mapped/base profile.
+ *
+ * Foreground detection is event-driven: a root `logcat -b events` stream of
+ * `am_resume_activity` events (instant), with a dumpsys peek as fallback when
+ * the stream is down.
  *
  * Responsibility: lifecycle + timers + applying the arbiter's decision.
  * Non-goals: deciding (ModeArbiter), engine IO (Tuner), persistence (AutomationConfig).
@@ -40,11 +44,12 @@ class AutomationService : Service() {
         private const val NOTIF_ID = 41
         private const val CHANNEL_ID = "automation"
         private const val SLEEP_DELAY_MS = 10_000L
-        private const val POLL_MS = 1_500L
+        private const val SETTLE_MS = 700L
+        private const val SUPERVISE_MS = 3_000L
+        private const val WATCHER_RESTART_MS = 10_000L
 
         const val ACTION_START = "com.mifinetune.action.START"
         const val ACTION_STOP = "com.mifinetune.action.STOP"
-        const val ACTION_REFRESH = "com.mifinetune.action.REFRESH"
 
         fun start(context: Context) {
             val i = Intent(context, AutomationService::class.java).setAction(ACTION_START)
@@ -55,42 +60,33 @@ class AutomationService : Service() {
         fun stop(context: Context) {
             context.stopService(Intent(context, AutomationService::class.java))
         }
-
-        /** Re-evaluate now (used after the user changes config from the UI). */
-        fun refresh(context: Context) {
-            context.startService(
-                Intent(context, AutomationService::class.java).setAction(ACTION_REFRESH),
-            )
-        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private lateinit var config: AutomationConfig
-    private lateinit var detector: ForegroundDetector
+    private lateinit var watcher: ForegroundWatcher
     private lateinit var reader: DeviceContextReader
 
-    private var pollJob: Job? = null
     private var sleepJob: Job? = null
+    private var supervisorJob: Job? = null
+    private var applyWorker: Job? = null
+    private var pendingDecision: Decision.Apply? = null
     private var screenOn = true
     private var locked = false
-    private var charging = false
-    private var pollTick = 0
     private var lastSeenPkg: String? = null
+    private var lastRealPkg: String? = null
+    private var lastWatcherRestart = 0L
     private val labelCache = mutableMapOf<String, String>()
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            Log.d(TAG, "receiver: ${intent.action}")
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> onScreenOff()
                 Intent.ACTION_SCREEN_ON -> onScreenOn()
                 Intent.ACTION_USER_PRESENT -> {
                     locked = false
                     seedForeground()
-                    startPolling()
-                }
-                Intent.ACTION_POWER_CONNECTED, Intent.ACTION_POWER_DISCONNECTED -> {
-                    charging = reader.charging()
-                    evaluate("power")
                 }
             }
         }
@@ -100,54 +96,43 @@ class AutomationService : Service() {
         super.onCreate()
         config = AutomationConfig.get(this)
         reader = DeviceContextReader(this)
-        detector = ForegroundDetector(this, Tuner.bridge)
+        watcher = ForegroundWatcher(Tuner.bridge)
 
         createChannel()
-        startForeground(NOTIF_ID, buildNotification("menunggu…"))
+        startForeground(NOTIF_ID, buildNotification("starting…"))
         AutomationState.running.value = true
 
         screenOn = reader.screenOn
         locked = reader.keyguardLocked
-        charging = reader.charging()
+        Log.d(TAG, "service created: screenOn=$screenOn locked=$locked")
 
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
-            addAction(Intent.ACTION_POWER_CONNECTED)
-            addAction(Intent.ACTION_POWER_DISCONNECTED)
         }
         ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
+        watcher.start(scope) { pkg -> onForegroundEvent(pkg) }
+
         scope.launch(Dispatchers.IO) {
-            detector.ensureUsageAccess(Tuner.bridge)
-            detector.reset()
-            if (screenOn && !locked) {
-                // seed the current foreground so a service that starts while
-                // an app is already in front makes the right decision at once
-                seedForeground()
-                startPolling()
-            } else {
-                evaluate("start")
-            }
+            if (screenOn && !locked) seedForeground() else evaluate("start")
         }
+        startSupervisor()
         Tuner.ensureGuard(scope)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
-                stopSelf()
-                return START_NOT_STICKY
-            }
-            ACTION_REFRESH -> scope.launch { evaluate("refresh") }
-            else -> {}
+        if (intent?.action == ACTION_STOP) {
+            stopSelf()
+            return START_NOT_STICKY
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
         runCatching { unregisterReceiver(receiver) }
+        watcher.stop()
         scope.cancel()
         AutomationState.running.value = false
         AutomationState.reason.value = null
@@ -160,12 +145,14 @@ class AutomationService : Service() {
 
     private fun onScreenOff() {
         screenOn = false
-        stopPolling()
-        lastSeenPkg = null
-        AutomationState.lastForeground.value = null
+        // keep tracking the foreground (events still arrive while locked) so
+        // the unlock decision has the freshest non-transient package
         sleepJob = scope.launch {
             delay(SLEEP_DELAY_MS)
-            if (!screenOn) evaluate("sleep")
+            if (!screenOn) {
+                Log.d(TAG, "sleep timer fired")
+                evaluate("sleep")
+            }
         }
     }
 
@@ -173,55 +160,74 @@ class AutomationService : Service() {
         screenOn = true
         sleepJob?.cancel()
         locked = reader.keyguardLocked
-        if (!locked) {
-            seedForeground()
-            startPolling()
-        }
+        if (!locked) seedForeground()
     }
 
     /**
-     * Right after wake/unlock the UsageStats stream may not carry a fresh
-     * resume event (the activity was only paused). Seed the foreground once
-     * via the root shell so the decision is deterministic.
+     * Right after wake/unlock the event stream may not carry a fresh resume
+     * (the activity was only paused). Seed the foreground once via a root peek
+     * so the decision is deterministic.
      */
     private fun seedForeground() {
         scope.launch(Dispatchers.IO) {
-            val fg = runCatching { detector.peekRoot() }.getOrNull() ?: return@launch
-            if (fg != AutomationState.lastForeground.value) {
-                AutomationState.lastForeground.value = fg
-                lastSeenPkg = fg
+            val peeked = runCatching { watcher.peekEvents() }.getOrNull()
+            val best = when {
+                peeked != null && !ModeArbiter.isTransient(peeked) -> peeked
+                lastRealPkg != null -> lastRealPkg
+                else -> peeked
             }
-            evaluate("seed")
+            Log.d(TAG, "seed: peeked=$peeked best=$best")
+            if (best != null) {
+                AutomationState.lastForeground.value = best
+                lastSeenPkg = best
+            }
+            // Always re-evaluate after wake/unlock: a later resume event will
+            // correct the guess instantly if it was wrong.
+            evaluate("unlock")
         }
     }
 
-    // --- foreground polling ----------------------------------------------
+    // --- foreground events ------------------------------------------------
 
-    private fun startPolling() {
-        if (pollJob?.isActive == true) return
-        pollJob = scope.launch {
+    private fun onForegroundEvent(pkg: String) {
+        if (!ModeArbiter.isTransient(pkg)) lastRealPkg = pkg
+        if (pkg == lastSeenPkg) return
+        lastSeenPkg = pkg
+        AutomationState.lastForeground.value = pkg
+        if (screenOn && !locked) evaluate("event")
+    }
+
+    /**
+     * Supervises the event stream: while it is down, fall back to a root peek
+     * every tick and try to restart the stream (bounded).
+     */
+    private fun startSupervisor() {
+        if (supervisorJob?.isActive == true) return
+        supervisorJob = scope.launch {
+            var ticks = 0
             while (isActive) {
-                delay(POLL_MS)
-                if (!screenOn || locked) continue
-                pollTick++
-                // UsageStats is a cheap fast path, but MIUI rarely delivers
-                // resume events -> root-peek (dumpsys) every 2nd tick (~3 s)
-                // is the dependable backbone.
-                val fast = detector.poll()
-                val fg = fast ?: if (pollTick % 2 == 0) detector.peekRoot() else null
-                if (fg == null) continue
-                AutomationState.lastForeground.value = fg
-                if (fg != lastSeenPkg) {
-                    lastSeenPkg = fg
-                    evaluate("app")
+                delay(SUPERVISE_MS)
+                ticks++
+                if (ticks % 10 == 0) {
+                    Log.d(TAG, "supervisor tick $ticks: watcherAlive=${watcher.isAlive} screenOn=$screenOn locked=$locked lastSeen=$lastSeenPkg")
+                }
+                if (watcher.isAlive) continue
+                if (screenOn && !locked) {
+                    val fg = runCatching { watcher.peekEvents() }.getOrNull()
+                    if (fg != null && fg != lastSeenPkg) {
+                        lastSeenPkg = fg
+                        AutomationState.lastForeground.value = fg
+                        evaluate("peek")
+                    }
+                }
+                val now = System.currentTimeMillis()
+                if (now - lastWatcherRestart > WATCHER_RESTART_MS) {
+                    lastWatcherRestart = now
+                    Log.w(TAG, "foreground stream down — restarting")
+                    watcher.start(scope) { pkg -> onForegroundEvent(pkg) }
                 }
             }
         }
-    }
-
-    private fun stopPolling() {
-        pollJob?.cancel()
-        pollJob = null
     }
 
     // --- decision + apply -------------------------------------------------
@@ -231,72 +237,88 @@ class AutomationService : Service() {
             stopSelf()
             return
         }
-
-        // A manual card tap while automation runs sets overrideProfile; it
-        // lasts until the next trigger, then the normal rules resume.
-        val override = AutomationState.overrideProfile
-        if (override != null) {
-            AutomationState.overrideProfile = null
-            Log.d(TAG, "manual override consumed ($override) at $trigger")
-            return
-        }
-
         val input = ArbiterInput(
             automationEnabled = true,
             screenOn = screenOn,
             keyguardLocked = locked,
             foregroundPkg = AutomationState.lastForeground.value,
             appMap = config.appMap(),
-            defaultProfile = config.defaultProfile,
-            sleepEnabled = config.sleepEnabled,
-            sleepProfile = config.sleepProfile,
-            skipOnMusic = config.skipOnMusic,
-            musicActive = reader.musicActive,
-            skipOnCharging = config.skipOnCharging,
-            charging = charging,
+            baseProfile = config.baseProfile,
+            sleepProfile = ModeArbiter.SLEEP_PROFILE,
         )
-
         when (val d = ModeArbiter.decide(input)) {
-            is Decision.None -> Unit
-            is Decision.Apply -> applyDecision(d)
+            is Decision.None -> Log.d(TAG, "evaluate($trigger): no-op")
+            is Decision.Apply -> {
+                Log.d(TAG, "evaluate($trigger): -> ${d.profileId} (${d.reason})")
+                enqueue(d)
+            }
         }
     }
 
-    private fun applyDecision(d: Decision.Apply) {
-        scope.launch {
-            val reasonText = describe(d)
-            val current = runCatching { Tuner.status().active }.getOrNull()
-            if (current == d.profileId) {
-                // already in place — only refresh visible state
-                AutomationState.appliedProfile.value = d.profileId
-                AutomationState.reason.value = reasonText
-                updateNotification(d.profileId, reasonText)
-                return@launch
+    /**
+     * Coalescing worker: bursts of foreground events (task restores, keyguard
+     * transitions) collapse into a single apply of the *latest* decision after
+     * a short settle window. While an apply runs, newer decisions supersede
+     * the pending one instead of queueing behind it.
+     */
+    private fun enqueue(d: Decision.Apply) {
+        pendingDecision = d
+        if (applyWorker?.isActive == true) return
+        applyWorker = scope.launch {
+            while (true) {
+                delay(SETTLE_MS)
+                val decision = pendingDecision ?: break
+                pendingDecision = null
+                performApply(decision)
             }
-            runCatching { Tuner.apply(d.profileId) }
-                .onSuccess { rep ->
-                    if (rep.ok) {
-                        AutomationState.appliedProfile.value = d.profileId
-                        AutomationState.reason.value = reasonText
-                        updateNotification(d.profileId, reasonText)
-                        Tuner.ensureGuard(scope)
-                    } else {
-                        Log.w(TAG, "apply ${d.profileId} finished with failed=${rep.failed}")
-                        AutomationState.reason.value = "gagal apply (${rep.failed} error)"
-                        updateNotification(d.profileId, "gagal apply — cek aplikasi")
-                    }
-                }
-                .onFailure { e ->
-                    Log.w(TAG, "apply ${d.profileId} error: $e")
-                    AutomationState.reason.value = "error: ${e.message}"
-                    updateNotification(d.profileId, "error — cek aplikasi")
-                }
         }
+    }
+
+    private suspend fun performApply(d: Decision.Apply) {
+        val reasonText = describe(d)
+        val current = runCatching { Tuner.status().active }.getOrNull()
+        if (current == d.profileId) {
+            // already in place — only refresh visible state
+            AutomationState.appliedProfile.value = d.profileId
+            AutomationState.reason.value = reasonText
+            updateNotification(d.profileId, reasonText)
+            return
+        }
+        runCatching { Tuner.apply(d.profileId) }
+            .onSuccess { rep ->
+                val finalRep = if (rep.ok) rep else {
+                    // MIUI (Game Turbo/PowerKeeper) can race the apply with
+                    // its own transient writes -> one retry usually wins.
+                    Log.w(
+                        TAG,
+                        "apply ${d.profileId} failed=${rep.failed}: " +
+                            rep.results.filter { it.error != null }
+                                .joinToString { "${it.key}=${it.resolved}: ${it.error}" },
+                    )
+                    delay(2_000)
+                    runCatching { Tuner.apply(d.profileId) }.getOrNull() ?: rep
+                }
+                if (finalRep.ok) {
+                    AutomationState.appliedProfile.value = d.profileId
+                    AutomationState.reason.value = reasonText
+                    updateNotification(d.profileId, reasonText)
+                    Tuner.ensureGuard(scope)
+                } else {
+                    Log.w(TAG, "apply ${d.profileId} failed after retry (${finalRep.failed})")
+                    AutomationState.reason.value = "apply failed (${finalRep.failed})"
+                    updateNotification(d.profileId, "apply failed — open the app")
+                }
+            }
+            .onFailure { e ->
+                Log.w(TAG, "apply ${d.profileId} error: $e")
+                AutomationState.reason.value = "error: ${e.message}"
+                updateNotification(d.profileId, "error — open the app")
+            }
     }
 
     private fun describe(d: Decision.Apply): String = when (d.reason) {
-        "default" -> "default harian"
-        "layar mati" -> "layar mati"
+        "base" -> "base"
+        "screen off" -> "screen off"
         else -> AutomationState.lastForeground.value?.let { labelFor(it) } ?: d.profileId
     }
 
@@ -313,10 +335,10 @@ class AutomationService : Service() {
         val nm = getSystemService(NotificationManager::class.java)
         val ch = NotificationChannel(
             CHANNEL_ID,
-            "Automation",
+            "Service",
             NotificationManager.IMPORTANCE_MIN,
         ).apply {
-            description = "Status automasi profile (senyap)"
+            description = "Automation status (silent)"
             setShowBadge(false)
             enableVibration(false)
             setSound(null, null)
@@ -342,13 +364,13 @@ class AutomationService : Service() {
             .setOngoing(true)
             .setShowWhen(false)
             .setContentIntent(openPi)
-            .addAction(0, "Matikan automasi", stopPi)
+            .addAction(0, "Turn off", stopPi)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
     }
 
     private fun updateNotification(profileId: String, reason: String) {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIF_ID, buildNotification("auto · $profileId · $reason"))
+        nm.notify(NOTIF_ID, buildNotification("active · $profileId · $reason"))
     }
 }

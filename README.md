@@ -70,20 +70,28 @@ core/  (Rust — satu-satunya writer)
 
 Cara pakai singkat:
 
-1. Ikon **Automasi** (kanan atas) → nyalakan switch.
-2. **Izin & setup**: akses penggunaan (otomatis via root), Autostart MIUI,
-   Hemat baterai → Tanpa batasan, kunci app di recent apps.
-3. **Default harian**: profile untuk app yang tidak dipetakan (mis. Power Save).
-4. **Apps Profile**: cari app/game → tap → pilih profile (mis. Azur Lane → Game).
-5. **Sleep (layar mati)**: aktif default, ±10 dtk setelah layar mati.
+1. **Service** (bawah, switch): ON = otomatis penuh; OFF = kembali stock.
+2. **Kartu profile**: tap = pakai sekarang + jadi *base universal* untuk semua
+   app yang tidak dipetakan.
+3. **Apps Profile**: cari app/game → tap → pilih profile (mis. Azur Lane → Game).
+4. **Settings** (ikon gerigi): izin root/autostart/baterai + diagnostik.
 
-Perilaku: app terpetakan → profile-nya (≤4 dtk) · keluar → balik Default ·
-layar mati → Sleep · unlock → kembali sesuai app. Kartu di home = override
-sementara (default tidak berubah). Restore = stock + automasi pause.
+Perilaku (terverifikasi di device):
+
+| Kondisi | Hasil |
+|---|---|
+| Baru install / Service OFF | Stock (tanpa intervensi) |
+| App biasa (WA, YouTube, dll) | Base (yang terakhir kamu tap; default Balance) |
+| App terpetakan dibuka | profile-nya, otomatis (≤2 dtk via event system) |
+| Keluar dari app terpetakan | balik ke base |
+| Layar mati (±10 dtk) | Sleep |
+| Unlock | base / profile app di depan |
+| Service OFF | semua nilai ditulis balik ke stock + service berhenti |
 
 Notifikasi & telpon tetap masuk saat Sleep: profile ini tidak menyentuh
 jaringan, LMK, swap, atau cpuset (diuji: ping lolos, doze normal, cap CPU
-moderat 1.2–1.5 GHz).
+moderat 1.2–1.5 GHz). Deteksi app memakai event system Android (bukan
+polling) sehingga perpindahan profile terasa instan.
 
 ### Detail & drift (v0.2)
 

@@ -2,15 +2,19 @@ package com.mifinetune.automation
 
 import android.app.KeyguardManager
 import android.content.Context
-import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import com.mifinetune.core.RootBridge
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
- * Screen/keyguard/charging/audio context readers for the arbiter.
+ * Screen/keyguard context readers for the arbiter.
  *
- * Responsibility: turning Android services + one root probe into plain values.
+ * Responsibility: turning Android services into plain values.
  * Non-goals: decisions (ModeArbiter), lifecycle (AutomationService).
  */
 class DeviceContextReader(private val context: Context) {
@@ -19,94 +23,85 @@ class DeviceContextReader(private val context: Context) {
         context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
     private val power =
         context.getSystemService(Context.POWER_SERVICE) as PowerManager
-    private val audio =
-        context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
 
     val screenOn: Boolean get() = power.isInteractive
     val keyguardLocked: Boolean get() = keyguard.isKeyguardLocked
-    val musicActive: Boolean get() = runCatching { audio.isMusicActive }.getOrDefault(false)
-
-    fun charging(): Boolean = runCatching {
-        val battery = context.registerReceiver(
-            null,
-            android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED),
-        )
-        val status = battery?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
-        status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
-            status == android.os.BatteryManager.BATTERY_STATUS_FULL
-    }.getOrDefault(false)
 }
 
 /**
- * Foreground-package detector: UsageStats events as the primary source,
- * root `dumpsys window` as fallback.
+ * Foreground detection, event-driven:
  *
- * Responsibility: answer "which package is in front" cheaply.
- * Non-goals: deciding what to do with it.
+ *  - Primary: a root `logcat -b events -s am_resume_activity:V` stream.
+ *    Every activity resume emits an event line within the same second —
+ *    instant, reliable and cheap (no polling).
+ *  - Fallback: a one-shot `dumpsys window` root peek (used to seed the
+ *    foreground after wake/unlock and while the stream is down).
  */
-class ForegroundDetector(private val context: Context, private val bridge: RootBridge) {
+class ForegroundWatcher(private val bridge: RootBridge) {
 
     companion object {
         private const val TAG = "MiFineTune"
+        private val RESUME_RE =
+            Regex("am_resume_activity: \\[\\d+,\\d+,\\d+,([^\\s/]+)/")
     }
 
-    private val usm =
-        context.getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+    private var process: Process? = null
+    private var readerJob: Job? = null
 
-    private var lastTs = System.currentTimeMillis()
-
-    /** Grant PACKAGE_USAGE_STATS app-op through root (idempotent). */
-    fun ensureUsageAccess(bridge: RootBridge): Boolean {
-        val pkg = context.packageName
-        val current = runCatching { bridge.sh("appops get $pkg GET_USAGE_STATS") }.getOrNull()
-        if (current?.out?.contains("allow") == true) return true
-        val set = runCatching { bridge.sh("appops set $pkg GET_USAGE_STATS allow") }.getOrNull()
-        val ok = set?.ok == true
-        if (!ok) Log.w(TAG, "usage-access grant failed: ${set?.out}")
-        return ok
-    }
-
-    fun reset() {
-        lastTs = System.currentTimeMillis()
-    }
+    /** True while the event stream is up. */
+    val isAlive: Boolean get() = process?.isAlive == true
 
     /**
-     * UsageStats fast path: last package that came to the foreground since the
-     * previous call, or null. On MIUI this stream is unreliable (resume events
-     * are rarely delivered), so the service always pairs it with [peekRoot].
+     * Starts streaming resume events; [onPackage] fires for every resumed
+     * package (duplicates included — the caller dedupes). Safe to call again
+     * to restart after a death.
      */
-    fun poll(): String? {
-        val now = System.currentTimeMillis()
-        val events = try {
-            usm.queryEvents(lastTs.coerceAtLeast(now - 10_000), now)
-        } catch (e: Exception) {
-            lastTs = now
-            return null
+    fun start(scope: CoroutineScope, onPackage: (String) -> Unit) {
+        stop()
+        val p = runCatching {
+            bridge.stream("logcat -b events -s am_resume_activity:V")
+        }.getOrNull() ?: run {
+            Log.w(TAG, "foreground watcher: failed to spawn logcat")
+            return
         }
-        lastTs = now
-        var last: String? = null
-        val ev = android.app.usage.UsageEvents.Event()
-        while (events.hasNextEvent()) {
-            events.getNextEvent(ev)
-            if (ev.eventType == EVENT_RESUMED) last = ev.packageName
+        process = p
+        Log.d(TAG, "watcher started")
+        readerJob = scope.launch(Dispatchers.IO) {
+            try {
+                p.inputStream.bufferedReader().useLines { lines ->
+                    for (line in lines) {
+                        if (!isActive) break
+                        val pkg = RESUME_RE.find(line)?.groupValues?.get(1) ?: continue
+                        onPackage(pkg)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "foreground watcher stream ended: $e")
+            } finally {
+                if (process === p) process = null
+            }
         }
-        return last
     }
 
-    private fun pollRoot(): String? = runCatching {
-        val r = bridge.sh("dumpsys window 2>/dev/null | grep -m1 mCurrentFocus")
-        val m = Regex("u\\d+ ([A-Za-z0-9_.]+)/").find(r.out)
-        m?.groupValues?.get(1)
-    }.getOrNull()
+    fun stop() {
+        readerJob?.cancel()
+        readerJob = null
+        process?.destroy()
+        process = null
+    }
 
-    /** One-shot root peek, used to seed the foreground right after unlock. */
-    fun peekRoot(): String? = pollRoot()
-
-    private val EVENT_RESUMED: Int
-        get() = if (Build.VERSION.SDK_INT >= 29) {
-            android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED
-        } else {
-            @Suppress("DEPRECATION")
-            android.app.usage.UsageEvents.Event.MOVE_TO_FOREGROUND
-        }
+    /** One-shot root peek of the focused window (fallback + wake seeding). */
+    /**
+     * One-shot peek of the most recent resume event via the event-log buffer.
+     * Uses `logcat` (kernel buffer) on purpose: `dumpsys` (binder) is not
+     * usable from this app's su context on APatch, while logcat works.
+     */
+    fun peekEvents(): String? {
+        val out = runCatching {
+            bridge.sh("logcat -b events -d -s am_resume_activity:V").out
+        }.getOrDefault("")
+        val pkg = RESUME_RE.findAll(out).lastOrNull()?.groupValues?.get(1)
+        Log.d(TAG, "peek: pkg=$pkg (len=${out.length})")
+        return pkg
+    }
 }

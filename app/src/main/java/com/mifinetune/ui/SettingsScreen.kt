@@ -20,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,31 +29,31 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mifinetune.core.Status
 
-/** Permissions & MIUI background setup checklist + boot apply. */
+/**
+ * Settings: permissions/background checklist and a small diagnostics block.
+ * Turning the service off (on Home) is the restore-to-stock control.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SetupScreen(vm: AutomationViewModel, onBack: () -> Unit) {
-    val state by vm.state.collectAsStateWithLifecycle()
-    val bootApply by vm.bootApply.collectAsStateWithLifecycle()
+fun SettingsScreen(status: Status?, onBack: () -> Unit) {
     val context = LocalContext.current
-
-    LaunchedEffect(Unit) { vm.checkSetup() }
+    val version = runCatching {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+    }.getOrNull() ?: "?"
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Izin & setup") },
+                title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
             )
@@ -70,47 +69,47 @@ fun SetupScreen(vm: AutomationViewModel, onBack: () -> Unit) {
         ) {
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        "Latar belakang (MIUI)",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
+                    Text("Background", style = MaterialTheme.typography.titleMedium)
                     SetupRow(
                         title = "Root",
-                        subtitle = "Wajib — semua tuning lewat su",
-                        ok = state.rootGranted,
+                        subtitle = "Required — tuning goes through su",
+                        ok = status?.root,
                     )
                     SetupRow(
-                        title = "Akses penggunaan",
-                        subtitle = "Deteksi app di depan (otomatis via root)",
-                        ok = state.usageAccess,
-                        actionLabel = if (state.usageAccess == true) null else "Izinkan",
-                        onAction = vm::grantUsageAccess,
-                    )
-                    SetupRow(
-                        title = "Autostart MIUI",
-                        subtitle = "Agar service tidak dimatikan sistem",
+                        title = "MIUI Autostart",
+                        subtitle = "Keeps the service alive",
                         ok = null,
-                        actionLabel = "Buka",
+                        actionLabel = "Open",
                         onAction = { openMiuiAutostart(context) },
                     )
                     SetupRow(
-                        title = "Hemat baterai: tanpa batasan",
-                        subtitle = "Pengaturan aplikasi → Hemat baterai → Tanpa batasan",
+                        title = "Battery saver: no restrictions",
+                        subtitle = "App info → Battery saver → No restrictions",
                         ok = null,
-                        actionLabel = "Buka",
+                        actionLabel = "Open",
                         onAction = { openAppSettings(context) },
                     )
                 }
             }
 
             ElevatedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    ToggleRow("Re-apply setelah reboot", bootApply, vm::setBootApply)
-                    HorizontalDivider()
-                    Spacer(Modifier.size(8.dp))
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FrameworkDot("thermal", status?.framework?.miThermald)
+                        FrameworkDot("perf", status?.framework?.perfHal)
+                        FrameworkDot("root", if (status?.root == true) "granted" else null)
+                    }
+                    status?.let { st ->
+                        Text(
+                            "${st.catalog.total} nodes · ${st.catalog.free} free · " +
+                                "${st.catalog.present} present",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Text(
-                        "Tips: kunci MiFineTune di recent apps (ikon gembok) supaya " +
-                            "MIUI tidak membersihkan service saat layar mati.",
+                        "MiFineTune $version · surya",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -157,6 +156,24 @@ private fun SetupRow(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
+    }
+}
+
+@Composable
+private fun FrameworkDot(label: String, value: String?) {
+    val ok = value == "running" || value == "granted"
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Surface(
+            modifier = Modifier.size(8.dp),
+            shape = CircleShape,
+            color = if (ok) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.error,
+        ) {}
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

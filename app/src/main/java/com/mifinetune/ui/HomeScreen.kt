@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,19 +14,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AutoMode
 import androidx.compose.material.icons.filled.Balance
 import androidx.compose.material.icons.filled.BatterySaver
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sports
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,12 +69,11 @@ import com.mifinetune.core.Op
 import com.mifinetune.core.Status
 
 /**
- * Home: active-profile grid (tap = apply / temporary override), the automation
- * card (master switch + default + entries), and small diagnostics.
- * Simple by design — settings live in the dedicated sub-screens.
+ * Home: compact profile rows (tap = apply + base), the Apps Profile entry and
+ * the Service switch. Everything else lives in Settings.
  */
 
-private enum class HomeDest { HOME, APPS, SLEEP, SETUP }
+private enum class HomeDest { HOME, APPS, SETTINGS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,31 +97,20 @@ fun HomeScreen(vm: HomeViewModel) {
             val avm: AutomationViewModel = viewModel()
             AppsProfileScreen(vm = avm, onBack = { dest = HomeDest.HOME })
         }
-        HomeDest.SLEEP -> {
-            val avm: AutomationViewModel = viewModel()
-            SleepScreen(vm = avm, onBack = { dest = HomeDest.HOME })
-        }
-        HomeDest.SETUP -> {
-            val avm: AutomationViewModel = viewModel()
-            SetupScreen(vm = avm, onBack = { dest = HomeDest.HOME })
+        HomeDest.SETTINGS -> {
+            SettingsScreen(
+                status = state.status,
+                onBack = { dest = HomeDest.HOME },
+            )
         }
         HomeDest.HOME -> {
             Scaffold(
                 topBar = {
                     TopAppBar(
-                        title = {
-                            Column {
-                                Text("MiFineTune", style = MaterialTheme.typography.titleLarge)
-                                Text(
-                                    "MIUI-harmonized profiles",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        },
+                        title = { Text("MiFineTune", style = MaterialTheme.typography.titleLarge) },
                         actions = {
-                            IconButton(onClick = vm::refresh, enabled = state.canAct) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                            IconButton(onClick = { dest = HomeDest.SETTINGS }) {
+                                Icon(Icons.Default.Settings, contentDescription = "Settings")
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
@@ -142,36 +131,30 @@ fun HomeScreen(vm: HomeViewModel) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        state.status?.let { st ->
-                            item(key = "status") { StatusStrip(st, state) }
-                        }
-                        item(key = "profiles-header") {
-                            SectionHeader(
-                                "Profile aktif",
-                                trailing = state.status?.active ?: "stock",
+                        items(state.cards, key = { it.profile.id }) { card ->
+                            ProfileRow(
+                                card = card,
+                                active = state.status?.active == card.profile.id,
+                                busy = state.busy == card.profile.id,
+                                enabled = state.canAct,
+                                onApply = { vm.apply(card.profile.id) },
+                                onDetail = { detailProfileId = card.profile.id },
                             )
                         }
-                        item(key = "grid") {
-                            ProfileGrid(
+                        item(key = "apps") {
+                            AppsRow(
+                                mappedCount = state.mappedCount,
+                                onClick = { dest = HomeDest.APPS },
+                            )
+                        }
+                        item(key = "service") {
+                            ServiceRow(
                                 state = state,
-                                onApply = vm::apply,
-                                onDetail = { detailProfileId = it },
-                                onRestore = vm::askRestore,
+                                onToggle = vm::onServiceToggle,
                             )
                         }
-                        item(key = "automation") {
-                            AutomationCard(
-                                state = state,
-                                onToggle = vm::setAutomationEnabled,
-                                onDefault = vm::setDefaultProfile,
-                                onNavApps = { dest = HomeDest.APPS },
-                                onNavSleep = { dest = HomeDest.SLEEP },
-                                onNavSetup = { dest = HomeDest.SETUP },
-                            )
-                        }
-                        item(key = "footnote") { FootNote(state) }
                     }
                 }
             }
@@ -189,226 +172,48 @@ fun HomeScreen(vm: HomeViewModel) {
             ProfileDetailDialog(card = card, onDismiss = { detailProfileId = null })
         } ?: run { detailProfileId = null }
     }
-    if (state.confirmRestore) {
+    if (state.confirmServiceOff) {
         AlertDialog(
-            onDismissRequest = vm::cancelRestore,
-            title = { Text("Kembalikan ke stock?") },
+            onDismissRequest = vm::cancelServiceOff,
+            title = { Text("Turn off service?") },
             text = {
                 Text(
-                    "Tulis balik semua nilai snapshot (kondisi sebelum apply pertama) " +
-                        "dan matikan automasi. Profile aktif dihapus."
+                    "All tuned values will be written back to stock and the " +
+                        "service will stop. Nothing will be modified until you " +
+                        "turn it on again."
                 )
             },
             confirmButton = {
-                Button(onClick = vm::restore) { Text("Restore") }
+                Button(onClick = vm::confirmServiceOff) { Text("Turn off") }
             },
             dismissButton = {
-                TextButton(onClick = vm::cancelRestore) { Text("Batal") }
+                TextButton(onClick = vm::cancelServiceOff) { Text("Cancel") }
             },
         )
     }
 }
 
-// --- status strip ------------------------------------------------------------
+// --- profile row -------------------------------------------------------------
 
-@Composable
-private fun StatusStrip(st: Status, state: HomeUiState) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconCircle(Icons.Default.Memory)
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text(st.device.model, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "MIUI ${st.device.rom} · ${st.device.kernel}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SuggestionPill(
-                    st.active ?: "stock",
-                    if (st.active != null) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceVariant,
-                    if (st.active != null) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (state.automationRunning) {
-                    SuggestionPill(
-                        "auto" + (state.automationReason?.let { " · $it" } ?: ""),
-                        MaterialTheme.colorScheme.tertiaryContainer,
-                        MaterialTheme.colorScheme.onTertiaryContainer,
-                    )
-                }
-            }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FrameworkDot("thermal", st.framework.miThermald)
-                    FrameworkDot("perf", st.framework.perfHal)
-                    FrameworkDot("root", if (st.root) "granted" else null)
-                }
-                Text(
-                    "${st.catalog.total} node · ${st.catalog.free} free · ${st.catalog.present} present",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (st.active != null && state.guardActive) {
-                Text(
-                    if (state.driftFixed > 0) "Drift guard: watching · corrected ${state.driftFixed}"
-                    else "Drift guard: watching (verify tiap 15 dtk)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            if (state.packRom != null && state.packRom != st.device.rom) {
-                Text(
-                    "⚠ Profile pack diaudit untuk ${state.packRom}, device jalan ${st.device.rom} — " +
-                        "jalankan tools/owner-map-audit.sh untuk kepastian.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-            }
-        }
-    }
+private fun iconFor(id: String): ImageVector = when (id) {
+    "powersave" -> Icons.Default.BatterySaver
+    "balance" -> Icons.Default.Balance
+    else -> Icons.Default.Sports
 }
 
 @Composable
-private fun FrameworkDot(label: String, value: String?) {
-    val ok = value == "running" || value == "granted"
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Surface(
-            modifier = Modifier.size(8.dp),
-            shape = CircleShape,
-            color = if (ok) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.error,
-        ) {}
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun SectionHeader(title: String, trailing: String) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            trailing,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-// --- profile grid ------------------------------------------------------------
-
-@Composable
-private fun ProfileGrid(
-    state: HomeUiState,
-    onApply: (String) -> Unit,
-    onDetail: (String) -> Unit,
-    onRestore: () -> Unit,
-) {
-    val byId = state.cards.associateBy { it.profile.id }
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            CellFor("powersave", byId, state, onApply, onDetail)
-            CellFor("balance", byId, state, onApply, onDetail)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            CellFor("game", byId, state, onApply, onDetail)
-            StockCell(state, onRestore)
-        }
-    }
-}
-
-@Composable
-private fun RowScope.CellFor(
-    id: String,
-    byId: Map<String, ProfileCard>,
-    state: HomeUiState,
-    onApply: (String) -> Unit,
-    onDetail: (String) -> Unit,
-) {
-    val card = byId[id] ?: return
-    val plan = card.plan
-    val planLine = when {
-        plan == null -> card.planError ?: "—"
-        !plan.ok -> "ditolak"
-        plan.pending == 0 -> "✓ in sync"
-        else -> "${plan.pending} perubahan"
-    }
-    ProfileCell(
-        modifier = Modifier.weight(1f),
-        icon = when (id) {
-            "powersave" -> Icons.Default.BatterySaver
-            "balance" -> Icons.Default.Balance
-            else -> Icons.Default.Sports
-        },
-        title = card.profile.label,
-        desc = card.profile.desc,
-        planLine = planLine,
-        active = state.status?.active == id,
-        isDefault = state.automationEnabled && state.defaultProfile == id,
-        busy = state.busy == id,
-        enabled = state.canAct && plan?.ok == true,
-        onApply = { onApply(id) },
-        onDetail = { onDetail(id) },
-    )
-}
-
-@Composable
-private fun RowScope.StockCell(state: HomeUiState, onRestore: () -> Unit) {
-    val snapshot = state.status?.snapshot
-    ProfileCell(
-        modifier = Modifier.weight(1f),
-        icon = Icons.Default.History,
-        title = "Stock",
-        desc = "Kembalikan nilai asli ROM",
-        planLine = if (snapshot != null) "${snapshot.keys} nilai tersimpan" else "belum ada snapshot",
-        active = false,
-        isDefault = false,
-        busy = state.busy == "restore",
-        enabled = state.canAct && snapshot != null,
-        onApply = onRestore,
-        onDetail = null,
-    )
-}
-
-@Composable
-private fun ProfileCell(
-    modifier: Modifier,
-    icon: ImageVector,
-    title: String,
-    desc: String,
-    planLine: String,
+private fun ProfileRow(
+    card: ProfileCard,
     active: Boolean,
-    isDefault: Boolean,
     busy: Boolean,
     enabled: Boolean,
     onApply: () -> Unit,
-    onDetail: (() -> Unit)?,
+    onDetail: () -> Unit,
 ) {
+    val plan = card.plan
     Card(
-        modifier = modifier
-            .height(150.dp)
+        modifier = Modifier
+            .fillMaxWidth()
             .clickable(enabled = enabled && !busy, onClick = onApply),
         colors = if (active) {
             CardDefaults.cardColors(
@@ -419,163 +224,130 @@ private fun ProfileCell(
             CardDefaults.cardColors()
         },
     ) {
-        Column(
+        Row(
             Modifier
-                .padding(12.dp)
-                .fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    modifier = Modifier.size(32.dp),
-                    shape = CircleShape,
-                    color = if (active) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.primaryContainer,
-                ) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        modifier = Modifier.padding(7.dp),
-                        tint = if (active) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
+            Surface(
+                modifier = Modifier.size(36.dp),
+                shape = CircleShape,
+                color = if (active) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.primaryContainer,
+            ) {
+                Icon(
+                    iconFor(card.profile.id),
+                    contentDescription = null,
+                    modifier = Modifier.padding(8.dp),
+                    tint = if (active) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onPrimaryContainer,
                 )
-                if (busy) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                } else if (onDetail != null) {
-                    IconButton(
-                        onClick = onDetail,
-                        modifier = Modifier.size(26.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Info,
-                            contentDescription = "Detail",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        card.profile.label,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (active) {
+                        Spacer(Modifier.width(8.dp))
+                        SuggestionPill(
+                            "ACTIVE",
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.onPrimary,
                         )
                     }
                 }
-            }
-            Text(
-                desc,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (active) MaterialTheme.colorScheme.onPrimaryContainer
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                minLines = 2,
-            )
-            Spacer(Modifier.weight(1f))
-            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    planLine,
+                    ProfileLabels.shortDesc(card.profile.id),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (active) MaterialTheme.colorScheme.onPrimaryContainer
                     else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
                     maxLines = 1,
                 )
-                if (active) {
-                    SuggestionPill(
-                        "AKTIF",
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.onPrimary,
-                    )
-                }
-                if (isDefault) {
-                    Spacer(Modifier.width(4.dp))
-                    SuggestionPill(
-                        "DEFAULT",
-                        MaterialTheme.colorScheme.tertiaryContainer,
-                        MaterialTheme.colorScheme.onTertiaryContainer,
-                    )
-                }
+            }
+            when {
+                busy -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                plan != null && !plan.ok -> Text(
+                    "Unavailable",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                else -> TextButton(onClick = onDetail) { Text("Detail") }
             }
         }
     }
 }
 
-// --- automation card ---------------------------------------------------------
+// --- apps entry + service ----------------------------------------------------
 
 @Composable
-private fun AutomationCard(
-    state: HomeUiState,
-    onToggle: (Boolean) -> Unit,
-    onDefault: (String) -> Unit,
-    onNavApps: () -> Unit,
-    onNavSleep: () -> Unit,
-    onNavSetup: () -> Unit,
-) {
+private fun AppsRow(mappedCount: Int, onClick: () -> Unit) {
     ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconCircle(Icons.Default.AutoMode)
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Automasi", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        when {
-                            state.automationRunning ->
-                                "Aktif" + (state.automationReason?.let { " · $it" } ?: "")
-                            state.automationEnabled -> "Menunggu service…"
-                            else -> "Nonaktif"
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (state.automationRunning) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(checked = state.automationEnabled, onCheckedChange = onToggle)
-            }
-            Text(
-                "Layar mati → Sleep · app terpetakan → profile-nya · lainnya → Default harian.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (state.automationEnabled) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconCircle(Icons.Default.Apps)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Apps Profile", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Default harian",
-                    style = MaterialTheme.typography.labelMedium,
+                    if (mappedCount > 0) "Per-app rules · $mappedCount apps"
+                    else "Per-app rules",
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                ProfileChips(
-                    ids = listOf("powersave", "balance", "game"),
-                    selected = state.defaultProfile,
-                    onPick = onDefault,
-                )
             }
-            HorizontalDivider(Modifier.padding(vertical = 4.dp))
-            NavRow(
-                "Apps Profile",
-                if (state.mappedCount > 0) "${state.mappedCount} app dipetakan" else "Belum ada app dipetakan",
-                onNavApps,
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            NavRow(
-                "Sleep (layar mati)",
-                if (state.sleepEnabled) "aktif ±10 dtk setelah layar mati" else "nonaktif",
-                onNavSleep,
-            )
-            NavRow("Izin & setup", "Root · akses penggunaan · autostart MIUI", onNavSetup)
         }
     }
 }
 
 @Composable
-private fun FootNote(state: HomeUiState) {
-    Text(
-        "Tap kartu = apply langsung (override sementara saat automasi aktif). " +
-            "Framework runtime nodes (thermal, perf locks, game cpuset, LMK, zRAM, charge) " +
-            "tidak pernah ditulis oleh engine.",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+private fun ServiceRow(state: HomeUiState, onToggle: (Boolean) -> Unit) {
+    val active = state.status?.active
+    val statusText = when {
+        state.automationRunning && active != null -> {
+            val reason = state.automationReason
+            val suffix = if (reason.isNullOrEmpty() || reason == "base") null else reason
+            "Active · ${ProfileLabels.of(active)}" + (suffix?.let { " · $it" } ?: "")
+        }
+        state.automationRunning -> "On · stock"
+        state.automationEnabled -> "Starting…"
+        else -> "Off · stock"
+    }
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconCircle(Icons.Default.AutoMode)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Service", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (state.automationRunning) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = state.automationEnabled, onCheckedChange = onToggle)
+        }
+    }
 }
 
 // --- dialogs -----------------------------------------------------------------
@@ -620,14 +392,14 @@ private fun ReportDialog(report: ApplyReport, onDismiss: () -> Unit) {
                 }
                 if (report.results.isEmpty() && report.locked.isEmpty()) {
                     Text(
-                        "Semua sudah in sync — tidak ada yang ditulis.",
+                        "Everything already in sync — nothing to write.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Tutup") }
+            TextButton(onClick = onDismiss) { Text("Close") }
         },
     )
 }
@@ -680,7 +452,7 @@ private fun ProfileDetailDialog(card: ProfileCard, onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Tutup") }
+            TextButton(onClick = onDismiss) { Text("Close") }
         },
     )
 }
@@ -789,7 +561,7 @@ private fun LockedDialog(detail: LockedDetail, onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Tutup") }
+            TextButton(onClick = onDismiss) { Text("Close") }
         },
     )
 }

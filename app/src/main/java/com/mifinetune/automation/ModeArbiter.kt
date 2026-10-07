@@ -4,8 +4,9 @@ package com.mifinetune.automation
  * Pure decision logic: given the device context, which profile should be
  * active right now?
  *
- * Priority: screen off -> sleep  >  mapped app -> its profile  >  default.
- * Never decides *how* to apply — the service does that through the engine.
+ * Model: the last manually chosen profile is the universal BASE; apps with a
+ * per-app mapping override it while they are in front; screen-off always
+ * applies the sleep profile.
  */
 data class ArbiterInput(
     val automationEnabled: Boolean,
@@ -13,13 +14,8 @@ data class ArbiterInput(
     val keyguardLocked: Boolean,
     val foregroundPkg: String?,
     val appMap: Map<String, String>,
-    val defaultProfile: String,
-    val sleepEnabled: Boolean,
+    val baseProfile: String,
     val sleepProfile: String,
-    val skipOnMusic: Boolean,
-    val musicActive: Boolean,
-    val skipOnCharging: Boolean,
-    val charging: Boolean,
 )
 
 sealed interface Decision {
@@ -32,11 +28,13 @@ sealed interface Decision {
 
 object ModeArbiter {
 
+    const val SLEEP_PROFILE = "sleep"
+
     /**
      * Packages that must not trigger a switch: system chrome and dialogs
      * appear "in front" of the real foreground app. IMEs are matched by
      * substring. The launcher is NOT transient — it is the signal that the
-     * user left an app (-> back to default).
+     * user left an app (-> back to base).
      */
     val TRANSIENT_PACKAGES = setOf(
         "com.android.systemui",
@@ -56,10 +54,7 @@ object ModeArbiter {
         if (!input.automationEnabled) return Decision.None
 
         if (!input.screenOn) {
-            if (!input.sleepEnabled) return Decision.None
-            if (input.skipOnMusic && input.musicActive) return Decision.None
-            if (input.skipOnCharging && input.charging) return Decision.None
-            return Decision.Apply(input.sleepProfile, "layar mati")
+            return Decision.Apply(input.sleepProfile, "screen off")
         }
 
         if (input.keyguardLocked) return Decision.None
@@ -69,6 +64,6 @@ object ModeArbiter {
 
         val mapped = input.appMap[pkg]
         return if (mapped != null) Decision.Apply(mapped, "app")
-        else Decision.Apply(input.defaultProfile, "default")
+        else Decision.Apply(input.baseProfile, "base")
     }
 }

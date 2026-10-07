@@ -44,6 +44,14 @@ class RootBridge {
         return Sh(process.exitValue(), out)
     }
 
+    /**
+     * Starts `<su> -c <cmd>` as a long-lived streaming process (caller reads
+     * stdout lines and destroys it). Used by the foreground watcher.
+     */
+    fun stream(cmd: String): Process = ProcessBuilder(suBin, "-c", cmd)
+        .redirectErrorStream(true)
+        .start()
+
     /** True when `su` gives us uid 0. */
     fun isRoot(): Boolean = sh("id -u 2>/dev/null").out.trim() == "0"
 

@@ -2,7 +2,6 @@ package com.mifinetune.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,7 +20,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,15 +43,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
- * Apps Profile — the simple per-app configuration: search, list, tap an app,
- * pick a profile in a bottom sheet. Nothing else.
+ * Apps Profile: search, list, tap an app, pick a profile in a bottom sheet.
+ * Nothing else.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppsProfileScreen(vm: AutomationViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val appMap by vm.appMap.collectAsStateWithLifecycle()
-    val showSystem by vm.showSystemApps.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<AppEntry?>(null) }
 
     Scaffold(
@@ -62,7 +59,7 @@ fun AppsProfileScreen(vm: AutomationViewModel, onBack: () -> Unit) {
                 title = { Text("Apps Profile") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
             )
@@ -73,12 +70,6 @@ fun AppsProfileScreen(vm: AutomationViewModel, onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            Text(
-                "Pilih profile yang dipakai otomatis saat app ini dibuka.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
             OutlinedTextField(
                 value = state.query,
                 onValueChange = vm::setQuery,
@@ -86,26 +77,10 @@ fun AppsProfileScreen(vm: AutomationViewModel, onBack: () -> Unit) {
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 singleLine = true,
-                placeholder = { Text("Cari aplikasi…") },
+                placeholder = { Text("Search apps…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             )
-            Row(
-                Modifier.padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FilterChip(
-                    selected = state.onlyMapped,
-                    onClick = { vm.setOnlyMapped(!state.onlyMapped) },
-                    label = { Text("Dipetakan") },
-                )
-                FilterChip(
-                    selected = showSystem,
-                    onClick = { vm.setShowSystemApps(!showSystem) },
-                    label = { Text("Sistem") },
-                )
-            }
-            Spacer(Modifier.size(4.dp))
-            if (state.loadingApps) {
+            if (state.loading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
                 }
@@ -181,12 +156,6 @@ private fun AppRow(app: AppEntry, mapped: String?, onClick: () -> Unit) {
                     }
                 }
             }
-            Text(
-                app.pkg,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
         }
         Spacer(Modifier.width(8.dp))
         Surface(
@@ -233,7 +202,7 @@ private fun MappingSheet(app: AppEntry, current: String?, onPick: (String?) -> U
             }
         }
         Spacer(Modifier.size(12.dp))
-        SheetOption("Default (ikut default harian)", current == null) { onPick(null) }
+        SheetOption("Default (follow base)", current == null) { onPick(null) }
         listOf("powersave", "balance", "game").forEach { id ->
             SheetOption(ProfileLabels.of(id), current == id) { onPick(id) }
         }
