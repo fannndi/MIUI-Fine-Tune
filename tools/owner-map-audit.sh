@@ -93,4 +93,30 @@ if violations:
         print("  " + v)
     sys.exit(1)
 print("OK: no FREE-tier node is written at boot or at runtime by this ROM")
+
+# --- candidates for future exploration ---------------------------------
+# ROM write targets that are NOT in the catalog at all: every path the ROM
+# touches is either framework-owned (ignore) or a candidate knob that has
+# never been audited. Curated prefixes keep the list actionable.
+catalog_paths = {normalize(e["path"]) for e in catalog}
+interesting = ("/proc/sys/kernel/", "/proc/sys/vm/", "/proc/sys/net/",
+               "/dev/stune/", "/dev/cpuset/", "/queue/iosched/")
+cand = sorted(w for w in rom_norm
+              if w.startswith(interesting)
+              and w not in catalog_paths
+              and not any(w.startswith(p) for p in [
+                  # known framework-owned zones (never candidates)
+                  "/proc/sys/kernel/sched_boost", "/proc/sys/kernel/sched_lib",
+                  "/proc/sys/kernel/sched_freq_aggregate",
+                  "/proc/sys/vm/swappiness", "/proc/sys/vm/min_free_kbytes",
+                  "/proc/sys/vm/page-cluster", "/proc/sys/vm/watermark_boost_factor",
+                  "/proc/sys/vm/swap_ratio",
+                  "/dev/cpuset/game", "/dev/cpuset/gamelite", "/dev/cpuset/vr",
+                  "/dev/cpuset/audio-app", "/dev/cpuset/camera-daemon",
+                  "/dev/cpuset/restricted", "/dev/stune/rt", "/dev/stune/audio-app",
+              ]))
+if cand:
+    print(f"candidates not in catalog ({len(cand)}) — audit tier before ever using:")
+    for c in cand:
+        print("  ? " + c)
 PY
