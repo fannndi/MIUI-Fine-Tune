@@ -61,6 +61,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mifinetune.core.ApplyReport
@@ -89,6 +91,10 @@ fun HomeScreen(vm: HomeViewModel) {
             vm.clearError()
         }
     }
+
+    // keep the status fresh when the app comes back to the foreground (the
+    // service may have switched profiles while we were away)
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshLight() }
 
     BackHandler(enabled = dest != HomeDest.HOME) { dest = HomeDest.HOME }
 

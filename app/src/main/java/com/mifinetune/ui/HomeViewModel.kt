@@ -114,6 +114,19 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Quiet status+plans refresh (on resume) — no spinner, no deploy. */
+    fun refreshLight() {
+        if (_state.value.loading || _state.value.busy != null) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val st = Tuner.status()
+                st to refreshPlans()
+            }.onSuccess { (st, cards) ->
+                _state.update { it.copy(status = st, cards = cards) }
+            }
+        }
+    }
+
     fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
