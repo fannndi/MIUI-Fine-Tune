@@ -97,6 +97,21 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             AutomationState.running.collect { v -> _state.update { it.copy(automationRunning = v) } }
         }
         viewModelScope.launch {
+            AutomationState.appliedProfile.collect { id ->
+                // the service switched profile in the background while this
+                // screen is open -> keep status + plans fresh
+                val cur = _state.value.status?.active
+                if (id != null && id != cur && _state.value.busy == null) {
+                    runCatching {
+                        val st = Tuner.status()
+                        st to refreshPlans()
+                    }.onSuccess { (st, cards) ->
+                        _state.update { it.copy(status = st, cards = cards) }
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
             AutomationState.reason.collect { v -> _state.update { it.copy(automationReason = v) } }
         }
         viewModelScope.launch {
