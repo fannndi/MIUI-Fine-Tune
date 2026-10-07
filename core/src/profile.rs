@@ -134,7 +134,7 @@ pub fn validate_value(e: &catalog::Entry, wanted: &str, probe: &ProbeData) -> (S
             }
             _ => locked("not a non-negative integer"),
         },
-        Kind::Freq => {
+        Kind::Freq | Kind::FreqMax => {
             let n: u64 = match wanted.parse() {
                 Ok(n) => n,
                 Err(_) => return locked("not a frequency"),
@@ -254,6 +254,15 @@ pub fn readback_matches(kind: Kind, resolved: &str, readback: &str) -> bool {
             }
         }
         Kind::FlagYN => rb.eq_ignore_ascii_case(resolved) || matches!((rb, resolved), ("0", "N") | ("N", "0") | ("1", "Y") | ("Y", "1")),
+        Kind::FreqMax => {
+            // A stricter external cap (thermal cooling / freq-QoS) below the
+            // requested cap is thermal winning, not drift. Only live > want
+            // (cap lost) must be corrected.
+            match (resolved.parse::<i64>(), rb.parse::<i64>()) {
+                (Ok(want), Ok(live)) => live <= want,
+                _ => rb == resolved,
+            }
+        }
         _ => rb == resolved,
     }
 }
@@ -613,6 +622,36 @@ mod tests {
         for prof in &file.profiles {
             for key in prof.params.keys() {
                 assert!(catalog::find(key).is_some(), "{}: unknown key {key}", prof.id);
+            }
+        }
+    }
+
+    #[test]
+    fn freq_max_accepts_stricter_external_cap() {
+        // thermal cooling holds scaling_max below the requested cap -> thermal
+        // wins (harmony rule), reported as in-sync, not as drift.
+        assert!(readback_matches(Kind::FreqMax, "1555200", "1209600"));
+        assert!(readback_matches(Kind::FreqMax, "1555200", "1555200"));
+        assert!(!readback_matches(Kind::FreqMax, "1555200", "1804800"));
+        // plain Freq (e.g. scaling_min_freq) stays exact
+        assert!(!readback_matches(Kind::Freq, "1555200", "1209600"));
+    }
+
+    #[test]
+    fn embedded_profiles_do_not_fight_the_network_stack() {
+        // ConnectivityService + netd rewrite tcp buffers from the carrier's
+        // LinkProperties.TcpBufferSizes on network re-apply (observed across
+        // display-off cycles, 2026-10-07). The network stack owns these nodes;
+        // profiles must not ship values for them.
+        let json = include_str!("../profiles.json");
+        let file = parse_profiles(json).expect("parse");
+        for p in &file.profiles {
+            for k in ["net.tcp_rmem", "net.tcp_wmem"] {
+                assert!(
+                    !p.params.contains_key(k),
+                    "profile {} must not tune {k} (ConnectivityService+netd own it)",
+                    p.id
+                );
             }
         }
     }

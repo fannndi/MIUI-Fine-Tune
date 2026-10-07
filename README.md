@@ -64,20 +64,30 @@ core/  (Rust — satu-satunya writer)
   re-apply hanya key yang drift (counter terlihat di status card).
 - **Compat gate**: warning bila `ro.build.version.incremental` berbeda dengan
   ROM tempat profile pack diaudit.
-- **Owner-map audit tool**: `tools/owner-map-audit.sh <rom-dir>` memverifikasi
-  seluruh tier katalog terhadap ROM unpacked (post_boot + perf HAL) — menangkap
-  `sched_migration_cost_ns` (tulis perf HAL) dan `watermark_scale_factor`
-  (tulis post_boot) yang salah tier saat pengembangan.
+- **Owner-map audit tool v2**: `tools/owner-map-audit.sh <rom-dir>` memverifikasi
+  tier katalog terhadap ROM unpacked (post_boot + perf HAL) **dan** terhadap
+  `tools/perf-hal-runtime-writers.txt` (runtime writer: strings `libqti-perfd.so`,
+  netd, major group XML). Temuan yang ditangkap saat pengembangan:
+  `sched_migration_cost_ns` (perf HAL), `watermark_scale_factor` (post_boot),
+  dan `net.tcp_rmem/wmem` (network stack — sekarang tidak dipakai profile).
+- **Uji display-off empiris**: `tools/display-off-diff.sh` (baca 67 node, matikan
+  layar lewat power-key, diff) — membuktikan hanya `net.tcp_rmem/wmem` yang
+  berubah saat layar mati di kondisi stock (reset oleh ConnectivityService→netd,
+  nilai `TcpBufferSizes` carrier terlihat di `dumpsys connectivity`).
 - **Kernel-verified validator** (branch `surya-q-oss`): aturan pair
   `upmigrate ≥ downmigrate`, `task_thres ≥ num_cpus`, `min_cpus` pre-clamp,
-  `max_pwrlevel ≤ min_pwrlevel`, `stune boost 0..100` — lihat
-  `docs/ROM-HARMONY.md` untuk kutipan source-nya.
+  `max_pwrlevel ≤ min_pwrlevel`, `stune boost 0..100`, dan cap freq `FreqMax`
+  (thermal lebih ketat = menang, bukan failure) — lihat `docs/ROM-HARMONY.md`
+  untuk kutipan source-nya.
 
 ## Build & test
 
 ```bash
 # audit Owner Map terhadap ROM unpacked (jalankan setiap ganti ROM/kernel)
 tools/owner-map-audit.sh ~/Downloads/MIO-KITCHEN-*/miui_SURYAGlobal_*_10.0
+
+# uji empiris perilaku layar-mati (stock): diff 67 node + node framework
+tools/display-off-diff.sh 60
 
 # Rust core (host tests + cross build arm64)
 cd core && cargo test

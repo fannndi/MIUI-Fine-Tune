@@ -20,7 +20,8 @@ Kontrak kepemilikan untuk POCO X3 NFC. Ditulis dari tiga bukti:
 | `vm.*` kecuali swappiness/min_free/page-cluster/watermark_scale | ✗ | ✗ | – | **Free** |
 | `vm.swappiness`, `min_free_kbytes`, `page-cluster` | ✓ (`configure_memory_parameters`) | lmkd | ROM | **Forbidden** |
 | `vm.watermark_scale_factor` | ✓ semua target di-set `1` ("we are using efk"; ROM sendiri menulis rentang 1..1000) | – | ROM | **Baseline** (temuan audit tool) |
-| `net.*` (tcp_rmem/wmem/cc/fin_timeout/fastopen/...) | ✗ | ✗ | – | **Free** |
+| `net.tcp_rmem/wmem` | ✗ | ✓ **network stack**: ConnectivityService mengirim `LinkProperties.TcpBufferSizes` (nilai carrier, terlihat di `dumpsys connectivity`) ke netd → tulis procfs; ter-reset di siklus display-off | framework | **Baseline** (tidak dipakai profile; temuan empiris 2026-10-07) |
+| `net.*` lainnya (cc/fin_timeout/fastopen/mtu_probing/slow_start) | ✗ | ✗ | – | **Free** |
 | `io.scheduler` / `nr_requests` / `nomerges` / `iostats` / `rq_affinity` | ✗ (hanya `read_ahead_kb` yang ditulis) | ✗ | – | **Free** |
 | `stune/*/schedtune.*` | ✓ `top-app/prefer_idle` | ✓ perf HAL `top-app` | ROM + perf HAL | **Baseline** |
 | cpuset `background/system-background/foreground/top-app` | ✓ (bg/system-bg) + `writepid` | ✓ perf HAL + framework API | ROM + PowerKeeper | **Baseline** |
@@ -28,6 +29,7 @@ Kontrak kepemilikan untuk POCO X3 NFC. Ditulis dari tiga bukti:
 | GPU `min/max/default_pwrlevel` + `devfreq/min|max_freq` | ✗ | ✓ perf HAL + **thermal cooling** (`thermal-devfreq-0`) | perf HAL + thermal | **Baseline** (hati-hati: dua tampilan limiter sama — lihat "Drift" di bawah) |
 | `gpu.devfreq/governor` | ✗ | ✗ | – | **Baseline** — realita device: hanya `msm-adreno-tz` diterima kgsl |
 | `thermal_message/*`, cooling devices, `msm_performance/*`, `cpu_boost/*`, charge, zRAM | ✗ | ✓ mi_thermald / perf HAL / micharge | framework | **Forbidden** (guard path) |
+| perf HAL runtime-only (`/dev/cpuset/foreground/boost/cpus`, `/dev/cpu_dma_latency`, `/sys/kernel/mm/ksm/*`, kgsl `force_no_nap/clk_on/rail_on/idle_timer`, `mmc0/clk_scaling`, `proc_reclaim`, `swap_ratio`, `/proc/%d/sched_group_id`) | ✗ | ✓ libqti-perfd (OptsHandler) / PowerKeeper | framework | **Forbidden** |
 | `workqueue.power_efficient` | – | – | **kernel** (0444 hardcoded) | **Tidak pernah dikatalog** (`kernel/workqueue.c:294`) |
 
 **Identitas lintas-versi (terbukti):** `post_boot.sh`, kelima `vendor/etc/perf/*.xml`,
@@ -37,6 +39,32 @@ untuk keluarga surya-Q MIUI 12.
 
 **Q tidak punya `millet_monitor`** (freeze = framework API PowerKeeper) dan
 tidak punya `cmd game` (Game Mode API MIUI 14 tidak ada di sini).
+
+**Temuan audit 2026-10-07 (v0.3):**
+
+- **Perf HAL punya event display off/on sendiri** (`perfboostsconfig.xml` Id
+  `0x1040`/`0x1041` → opcode `0x40000000`; grup `display off` di
+  commonresourceconfigs). **Uji empiris dengan `tools/display-off-diff.sh`**
+  (stock, 60 dtk): satu-satunya node katalog yang berubah saat layar mati adalah
+  `net.tcp_rmem/wmem` (reset oleh network stack, lihat baris tabel) — tidak ada
+  node katalog lain yang disentuh; MIUI tidak memarkir frekuensi pada display-off
+  selain jalur thermal biasa.
+- **Daftar runtime writer definitif** ada di `tools/perf-hal-runtime-writers.txt`
+  (strings `libqti-perfd.so` + XML major groups + `netd`); audit tool v2 gagal
+  bila ada node tier Free yang bertabrakan dengannya.
+- **`schedutil/*` runtime**: XML perf HAL menunjuk path legacy
+  `/sys/devices/system/cpu/cpufreq/schedutil/*` yang **tidak ada di surya**
+  (hanya `policy0/policy6`) → tulisan tersebut gagal senyap; tunable schedutil
+  kita murni Baseline dari post_boot.
+- **Dead code terverifikasi**: `pm2/idle_sleep_mode` hanya cabang target msm7630
+  kuno; `app_setting` + `sched_lib_*` (ditulis perf HAL) tidak ada di kernel
+  OSS maupun device → tidak ada yang perlu diharmonikan di sana.
+- **Thermal clamp pada cap freq (kind `FreqMax`)**: `scaling_max_freq` dianggap
+  **in-sync bila live ≤ permintaan** — cap eksternal yang lebih ketat (thermal
+  cooling / freq-QoS) = thermal menang, sesuai filosofi harmoni. Live > permintaan
+  (cap hilang) baru dianggap drift dan dipulihkan guard. Sebelum semantik ini
+  (exact-match), apply/restore melaporkan failure palsu saat thermal aktif —
+  kejadian nyata 2026-10-07: gold ter-hold `1209600` vs `1555200` yang diminta.
 
 ## Invariant kernel (dari source `surya-q-oss`, diverifikasi device)
 
@@ -49,6 +77,7 @@ tidak punya `cmd game` (Game Mode API MIUI 14 tidak ada di sini).
 | `gpu.max_pwrlevel` | `kgsl_pwrctrl_max_pwrlevel_store` (`kgsl_pwrctrl.c:692`): `level > min_pwrlevel → level = min_pwrlevel` — **clamp senyap** | invariant `max ≤ min` (sama-sama boleh); read-back verify menangkap clamp (pernah terjadi saat dev: tulis 4 → baca 3) |
 | `stune/*/boost` | `boost_write` (`tune.c:619`): `boost < 0 \|\| boost > 100 → -EINVAL` | rentang 0..=100 |
 | `vm.watermark_scale_factor` | `extra1=&one, extra2=&one_thousand` (`kernel/sysctl.c:1648`) | rentang 1..=1000 |
+| `scaling_max_freq` (cap) | thermal cooling/freq-QoS dapat memegang cap **lebih rendah** dari permintaan — itu bukan error | kind `FreqMax`: live ≤ want = in-sync; live > want = drift |
 
 ## Urutan tulis (keamanan)
 
@@ -63,16 +92,23 @@ di-reorder sesuai aturan di atas. Restore memakai urutan yang sama.
 - Karena skenario *app-launch/game boost* belum teruji, app menjalankan
   **drift guard**: verify read-only tiap 15 dtk saat profile aktif → re-apply
   **hanya key yang drift** → terlihat di status card ("Drift guard").
-- Risiko teoritis: perf HAL boost menulis `devfreq/min|max_freq` (Hz) yang
-  adalah tampilan lain dari `min|max_pwrlevel` (mapping di
-  `kgsl_pwrscale`/`kgsl_pwrctrl.c:839-865`) → cap GPU bisa ter-reset oleh
-  boost restore; guard menutup skenario ini.
+- Risiko terkonfirmasi (runtime writer list): perf HAL boost menulis
+  `devfreq/min|max_freq` (Hz) — tampilan lain dari `min|max_pwrlevel` (mapping
+  di `kgsl_pwrscale`/`kgsl_pwrctrl.c:839-865`) — plus `core_ctl` lock
+  min/max_cores, cpusets, stune, dan QoS `msm_performance`; guard menutup
+  semuanya (20 entri Baseline overlap tercetak oleh audit tool v2).
+- Siklus display-off (stock): network stack me-reset `net.tcp_rmem/wmem`;
+  profile tidak lagi menyentuhnya supaya tidak melawan framework.
 
 ## Verifikasi
 
 ```bash
 # audit Owner Map terhadap ROM unpacked mana pun (jalankan tiap ganti ROM/kernel)
 tools/owner-map-audit.sh <unpacked-rom-dir>
+
+# uji empiris perilaku layar-mati (baca 67 node + node framework, matikan
+# layar lewat power-key, diff otomatis)
+tools/display-off-diff.sh 60
 
 # di device
 su -c /data/local/tmp/mifinetune/miui-ft probe --json   # baca semua node
@@ -82,4 +118,4 @@ su -c /data/local/tmp/mifinetune/miui-ft restore        # kembali stock
 
 **Aturan lama yang tetap berlaku**: engine menulis baseline, bukan merebut
 kepemilikan; thermal selalu menang di `scaling_max`; restore mengembalikan
-snapshot100% (termasuk quirk `hispeed 1324600` yang bukan OPP).
+snapshot 100% (termasuk quirk `hispeed 1324600` yang bukan OPP).

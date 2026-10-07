@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# owner-map-audit.sh — verify MiFineTune's catalog tiers against a real ROM.
+# owner-map-audit.sh — verify MiFineTune's catalog tiers against a real ROM
+# and against the perf HAL / framework runtime writer list.
 #
-# Extracts every node the ROM writes at boot (init.qcom.post_boot.sh) and at
-# runtime (perf HAL configs) and asserts:
-#   1. no FREE-tier catalog path is written by the ROM (post_boot or perf XML)
-#   2. cpu-policy paths are normalized (policy0 <-> cpu0/cpufreq) before match
+# Checks:
+#   1. no FREE-tier catalog path is written at boot (init.qcom.post_boot.sh)
+#      or by the perf HAL configs (vendor/etc/perf/*.xml, powerhint.xml)
+#   2. no FREE-tier catalog path matches tools/perf-hal-runtime-writers.txt
+#      (runtime writers: libqti-perfd.so strings, netd, XML major groups)
+#   3. cpu-policy paths are normalized (policy0 <-> cpu0/cpufreq) before match
+#   4. Baseline overlap with runtime writers is reported (informational only)
 #
 # usage: tools/owner-map-audit.sh <unpacked-rom-dir>
 #   e.g. tools/owner-map-audit.sh ~/Downloads/MIO-KITCHEN-*/miui_SURYAGlobal_*_10.0
@@ -17,9 +21,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 POSTBOOT="$ROM/vendor/bin/init.qcom.post_boot.sh"
 PERF_DIR="$ROM/vendor/etc/perf"
 POWERHINT="$ROM/vendor/etc/powerhint.xml"
+RUNTIME="$ROOT/tools/perf-hal-runtime-writers.txt"
 
 [ -f "$POSTBOOT" ] || { echo "missing: $POSTBOOT"; exit 2; }
 [ -d "$PERF_DIR" ] || { echo "missing: $PERF_DIR"; exit 2; }
+[ -f "$RUNTIME" ] || { echo "missing: $RUNTIME"; exit 2; }
 
 TMPDIR_AUDIT="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_AUDIT"' EXIT
@@ -33,39 +39,58 @@ grep -ohE '/(proc|sys|dev)/[A-Za-z0-9_./,@-]+' "$PERF_DIR"/*.xml "$POWERHINT" 2>
     >> "$TMPDIR_AUDIT/writes.txt" || true
 sort -u "$TMPDIR_AUDIT/writes.txt" -o "$TMPDIR_AUDIT/writes.txt"
 echo "rom write targets: $(wc -l < "$TMPDIR_AUDIT/writes.txt")"
+echo "runtime writer entries: $(grep -c -v -E '^[[:space:]]*(#|$)' "$RUNTIME" || true)"
 
 CATALOG_FILE="$TMPDIR_AUDIT/catalog.json" \
 WRITES_FILE="$TMPDIR_AUDIT/writes.txt" \
+RUNTIME_FILE="$RUNTIME" \
 python3 - <<'PY'
 import json, os, re, sys
 
 catalog = json.load(open(os.environ["CATALOG_FILE"]))
 rom_writes = set(open(os.environ["WRITES_FILE"]).read().split())
 
+runtime = []  # (compiled regex, raw pattern)
+for line in open(os.environ["RUNTIME_FILE"]):
+    line = line.split("#", 1)[0].strip()
+    if not line:
+        continue
+    pat = re.escape(line).replace("%d", r"\d+").replace("%s", r"\d+")
+    runtime.append((re.compile("^" + pat + "(/|$)"), line))
+
 def normalize(p: str) -> str:
-    p = re.sub(r"/sys/devices/system/cpu/cpufreq/policy(\d+)",
-               r"/sys/devices/system/cpu/cpu\1/cpufreq", p)
-    return p
+    # cpu policy symlink equivalence: .../cpufreq/policy0 == .../cpu0/cpufreq
+    return re.sub(r"/sys/devices/system/cpu/cpufreq/policy(\d+)",
+                  r"/sys/devices/system/cpu/cpu\1/cpufreq", p)
 
 rom_norm = {normalize(w) for w in rom_writes if "*" not in w}
 
-violations, free_checked, baseline = [], 0, 0
+violations, infos, free_checked, baseline = [], [], 0, 0
 for e in catalog:
     path = normalize(e["path"])
-    written = any(w == path or w.startswith(path + "/") or path.startswith(w + "/")
-                  for w in rom_norm)
+    boot_written = any(w == path or w.startswith(path + "/") or path.startswith(w + "/")
+                       for w in rom_norm)
+    rt_hits = [raw for rx, raw in runtime if rx.match(path)]
     if e["tier"] == "free":
         free_checked += 1
-        if written:
-            violations.append(f"FREE but written by ROM: {e['key']} -> {e['path']}")
+        if boot_written:
+            violations.append(f"FREE but boot-written by ROM: {e['key']} -> {e['path']}")
+        if rt_hits:
+            violations.append(f"FREE but runtime-written [{rt_hits[0]}]: {e['key']} -> {e['path']}")
     else:
         baseline += 1
+        if rt_hits:
+            infos.append(f"{e['key']} -> {e['path']}  [{rt_hits[0]}]")
 
 print(f"catalog: {len(catalog)} entries ({free_checked} free checked, {baseline} baseline)")
+if infos:
+    print(f"baseline overlap with runtime writers ({len(infos)}) — coexist, drift-guard protected:")
+    for i in infos:
+        print("  ~ " + i)
 if violations:
     print("VIOLATIONS:")
     for v in violations:
         print("  " + v)
     sys.exit(1)
-print("OK: no FREE-tier node is written by this ROM (post_boot + perf HAL)")
+print("OK: no FREE-tier node is written at boot or at runtime by this ROM")
 PY

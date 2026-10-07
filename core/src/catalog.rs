@@ -38,6 +38,12 @@ pub enum Kind {
     RepeatInt,
     /// CPU frequency, clamped to the policy's real OPP list.
     Freq,
+    /// Frequency cap (`scaling_max_freq`): a read-back **lower** than requested
+    /// is accepted as in-sync — an external stricter cap (thermal cooling,
+    /// freq-QoS) wins, per the harmony rule. Read-back higher = real drift.
+    /// Empirically established 2026-10-07: thermal held gold at 1209600 while
+    /// apply wanted 1555200.
+    FreqMax,
     /// GPU pwrlevel index, clamped to `0..level_count-1`.
     PwrLevel,
     /// Governor name, must be in `scaling_available_governors`.
@@ -101,6 +107,18 @@ pub const FORBIDDEN_PREFIXES: &[&str] = &[
     // perf HAL transient boost globals (perfboostsconfig.xml writes these)
     "/proc/sys/kernel/sched_boost",
     "/sys/devices/system/cpu/cpu0/sched_static_cpu_pwr_cost",
+    // runtime-owned by the perf HAL (strings: libqti-perfd.so, 2026-10-07):
+    // boost cpuset, PM QoS latency, KSM, GPU nap/rail/clk holds, storage clkscale
+    "/dev/cpuset/foreground/boost",
+    "/dev/cpu_dma_latency",
+    "/sys/kernel/mm/ksm",
+    "/sys/class/kgsl/kgsl-3d0/force_no_nap",
+    "/sys/class/kgsl/kgsl-3d0/force_clk_on",
+    "/sys/class/kgsl/kgsl-3d0/force_rail_on",
+    "/sys/class/kgsl/kgsl-3d0/idle_timer",
+    "/sys/class/mmc_host/mmc0/clk_scaling",
+    // Qualcomm swap-ratio module param (memory subsystem stays ROM-owned)
+    "/proc/sys/vm/swap_ratio",
     // SELinux / kernel core (never tuning targets)
     "/sys/fs/selinux",
     "/proc/sys/kernel/random",
@@ -169,7 +187,7 @@ pub fn catalog() -> &'static [Entry] {
         // --- policy0 (Silver cpu0-5) ---
         e!("policy0.scaling_governor", "/sys/devices/system/cpu/cpufreq/policy0/scaling_governor", Baseline, Gov, "policy0"),
         e!("policy0.scaling_min_freq", "/sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq", Baseline, Freq, "policy0"),
-        e!("policy0.scaling_max_freq", "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq", Baseline, Freq, "policy0"),
+        e!("policy0.scaling_max_freq", "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq", Baseline, FreqMax, "policy0"),
         e!("policy0.schedutil.hispeed_freq", "/sys/devices/system/cpu/cpufreq/policy0/schedutil/hispeed_freq", Baseline, Freq, "policy0"),
         e!("policy0.schedutil.hispeed_load", "/sys/devices/system/cpu/cpufreq/policy0/schedutil/hispeed_load", Baseline, Int, ""),
         e!("policy0.schedutil.up_rate_limit_us", "/sys/devices/system/cpu/cpufreq/policy0/schedutil/up_rate_limit_us", Baseline, Int, ""),
@@ -183,7 +201,7 @@ pub fn catalog() -> &'static [Entry] {
         // --- policy6 (Gold cpu6-7) ---
         e!("policy6.scaling_governor", "/sys/devices/system/cpu/cpufreq/policy6/scaling_governor", Baseline, Gov, "policy6"),
         e!("policy6.scaling_min_freq", "/sys/devices/system/cpu/cpufreq/policy6/scaling_min_freq", Baseline, Freq, "policy6"),
-        e!("policy6.scaling_max_freq", "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq", Baseline, Freq, "policy6"),
+        e!("policy6.scaling_max_freq", "/sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq", Baseline, FreqMax, "policy6"),
         e!("policy6.schedutil.hispeed_freq", "/sys/devices/system/cpu/cpufreq/policy6/schedutil/hispeed_freq", Baseline, Freq, "policy6"),
         e!("policy6.schedutil.hispeed_load", "/sys/devices/system/cpu/cpufreq/policy6/schedutil/hispeed_load", Baseline, Int, ""),
         e!("policy6.schedutil.up_rate_limit_us", "/sys/devices/system/cpu/cpufreq/policy6/schedutil/up_rate_limit_us", Baseline, Int, ""),
@@ -233,8 +251,14 @@ pub fn catalog() -> &'static [Entry] {
         e!("vm.extra_free_kbytes", "/proc/sys/vm/extra_free_kbytes", Free, Int, ""),
         // --- net (no ROM writer confirmed) ---
         e!("net.tcp_congestion_control", "/proc/sys/net/ipv4/tcp_congestion_control", Free, TcpCc, ""),
-        e!("net.tcp_rmem", "/proc/sys/net/ipv4/tcp_rmem", Free, Ints, ""),
-        e!("net.tcp_wmem", "/proc/sys/net/ipv4/tcp_wmem", Free, Ints, ""),
+        // ConnectivityService applies LinkProperties.TcpBufferSizes (carrier
+        // config, visible in `dumpsys connectivity`) through netd's
+        // setTcpBufferSizes -> rewrites these on every network re-apply.
+        // Empirically observed across display-off cycles (2026-10-07,
+        // tools/display-off-diff.sh): the network stack owns them, so they are
+        // baseline tier and no shipped profile writes them (profile.rs test).
+        e!("net.tcp_rmem", "/proc/sys/net/ipv4/tcp_rmem", Baseline, Ints, ""),
+        e!("net.tcp_wmem", "/proc/sys/net/ipv4/tcp_wmem", Baseline, Ints, ""),
         e!("net.tcp_slow_start_after_idle", "/proc/sys/net/ipv4/tcp_slow_start_after_idle", Free, Int, ""),
         e!("net.tcp_mtu_probing", "/proc/sys/net/ipv4/tcp_mtu_probing", Free, Int, ""),
         e!("net.tcp_fin_timeout", "/proc/sys/net/ipv4/tcp_fin_timeout", Free, Int, ""), // proc_dointvec_jiffies, no minmax
@@ -351,5 +375,19 @@ mod tests {
         // perf HAL transient globals stay forbidden
         assert!(guard_path("/proc/sys/kernel/sched_boost").is_err());
         assert!(guard_path("/sys/devices/system/cpu/cpu0/sched_static_cpu_pwr_cost").is_err());
+        // runtime-owned perf HAL nodes (libqti-perfd.so strings) stay forbidden
+        for p in [
+            "/dev/cpuset/foreground/boost/cpus",
+            "/dev/cpu_dma_latency",
+            "/sys/kernel/mm/ksm/run",
+            "/sys/class/kgsl/kgsl-3d0/force_no_nap",
+            "/sys/class/kgsl/kgsl-3d0/force_clk_on",
+            "/sys/class/kgsl/kgsl-3d0/force_rail_on",
+            "/sys/class/kgsl/kgsl-3d0/idle_timer",
+            "/sys/class/mmc_host/mmc0/clk_scaling/enable",
+            "/proc/sys/vm/swap_ratio",
+        ] {
+            assert!(guard_path(p).is_err(), "{p} must be forbidden (perf HAL runtime-owned)");
+        }
     }
 }

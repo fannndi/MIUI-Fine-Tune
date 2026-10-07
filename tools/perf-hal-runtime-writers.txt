@@ -1,0 +1,75 @@
+# perf HAL / framework RUNTIME writers — surya (audited 2026-10-07, V12.0.7.0.QJGIDXM)
+#
+# Nodes MIUI's userspace (perf HAL, netd/framework) rewrites at runtime.
+# owner-map-audit.sh consumes this file:
+#   - a FREE-tier catalog entry matching any pattern here = VIOLATION (fail)
+#   - a Baseline entry matching = informational (coexist; drift-guard fixes)
+#
+# Provenance:
+#   xml:sched|cpufreq|gpu|misc  = vendor/etc/perf/commonresourceconfigs.xml major groups
+#   xml:boost                   = vendor/etc/perf/perfboostsconfig.xml (transient boost configs)
+#   lib:perfd                   = strings vendor/lib64/libqti-perfd.so (OptsHandler implementations)
+#   netd                        = /system/bin/netd (only literal tcp_rmem in the ROM) called by
+#                                 ConnectivityService with LinkProperties.TcpBufferSizes
+#                                 (visible in `dumpsys connectivity`; empirically rewritten
+#                                 across display-off cycles — tools/display-off-diff.sh)
+#
+# ---------------------------------------------------------------------------
+
+# --- perf HAL: sched group (xml:sched) ---
+/proc/sys/kernel/sched_boost
+/proc/sys/kernel/sched_migration_cost_ns
+/proc/sys/kernel/sched_upmigrate
+/proc/sys/kernel/sched_downmigrate
+/proc/sys/kernel/sched_group_upmigrate
+/proc/sys/kernel/sched_group_downmigrate
+/proc/sys/kernel/sched_little_cluster_coloc_fmin_khz
+/dev/stune/top-app/schedtune.prefer_idle
+/dev/stune/top-app/schedtune.boost
+/dev/cpuset/top-app/cpus
+/dev/cpuset/foreground/cpus
+/dev/cpuset/system-background/cpus
+/dev/cpuset/background/cpus
+
+# --- perf HAL: cpufreq QoS (xml:cpufreq) ---
+/sys/module/msm_performance/parameters/cpu_min_freq
+/sys/module/msm_performance/parameters/cpu_max_freq
+
+# --- perf HAL: gpu (xml:gpu) — pwrlevel and devfreq freq are two views of one limiter ---
+/sys/class/kgsl/kgsl-3d0/default_pwrlevel
+/sys/class/kgsl/kgsl-3d0/min_pwrlevel
+/sys/class/kgsl/kgsl-3d0/max_pwrlevel
+/sys/class/kgsl/kgsl-3d0/devfreq/min_freq
+/sys/class/kgsl/kgsl-3d0/devfreq/max_freq
+
+# --- perf HAL: misc (xml:misc) ---
+/sys/module/cpu_boost/parameters/input_boost_freq
+/proc/sys/vm/swap_ratio
+/sys/module/process_reclaim/parameters/enable_process_reclaim
+
+# --- perf HAL special nodes (lib:perfd strings) ---
+/dev/cpuset/foreground/boost/cpus
+/proc/sys/kernel/sched_freq_aggregate
+/sys/devices/system/cpu/cpu%d/core_ctl/min_cpus
+/sys/devices/system/cpu/cpu%d/core_ctl/max_cpus
+/sys/class/kgsl/kgsl-3d0/force_clk_on
+/sys/class/kgsl/kgsl-3d0/force_no_nap
+/sys/class/kgsl/kgsl-3d0/force_rail_on
+/sys/class/kgsl/kgsl-3d0/idle_timer
+/dev/cpu_dma_latency
+/sys/kernel/mm/ksm/run
+/sys/kernel/mm/ksm/sleep_millisecs
+/sys/kernel/mm/ksm/pages_to_scan
+/sys/class/mmc_host/mmc0/clk_scaling/enable
+
+# --- schedutil tunables: the XML lists the LEGACY single-instance path, which
+#     does not exist on surya (device has only policy0/policy6 dirs) -> perf HAL
+#     writes fail silently; listed to document intent, NOT a live runtime writer.
+/sys/devices/system/cpu/cpufreq/schedutil/hispeed_freq
+/sys/devices/system/cpu/cpufreq/schedutil/hispeed_load
+/sys/devices/system/cpu/cpufreq/schedutil/down_rate_limit_us
+/sys/devices/system/cpu/cpufreq/schedutil/rtg_boost_freq
+
+# --- network stack (netd) ---
+/proc/sys/net/ipv4/tcp_rmem
+/proc/sys/net/ipv4/tcp_wmem
