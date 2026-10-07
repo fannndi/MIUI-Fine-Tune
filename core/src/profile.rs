@@ -105,7 +105,33 @@ pub fn validate_value(e: &catalog::Entry, wanted: &str, probe: &ProbeData) -> (S
     let locked = |msg: &str| (wanted.to_string(), Some(msg.to_string()));
     match e.kind {
         Kind::Int | Kind::RepeatInt => match wanted.parse::<i64>() {
-            Ok(v) if v >= 0 => (v.to_string(), None),
+            Ok(v) if v >= 0 => {
+                if let Some(scope) = e.min_cpus_of {
+                    // kernel: if (val < state->num_cpus) return -EINVAL
+                    let n = probe.options.cluster_cpus.get(scope).copied().unwrap_or(0);
+                    if n > 0 && (v as usize) < n {
+                        return locked(&format!("must be >= {n} (cluster CPU count, core_ctl.c)"));
+                    }
+                }
+                if let Some((lo, hi)) = e.range {
+                    if v < lo || v > hi {
+                        return locked(&format!("out of range {lo}..={hi} (kernel bound)"));
+                    }
+                }
+                (v.to_string(), None)
+            }
+            _ => locked("not a non-negative integer"),
+        },
+        Kind::MinCpus => match wanted.parse::<i64>() {
+            Ok(v) if v >= 0 => {
+                // kernel clamps silently: min(val, max_cpus) — pre-clamp so
+                // read-back verification matches instead of flagging drift.
+                let max = probe.options.core_ctl_max.get(e.scope).copied();
+                match max {
+                    Some(m) => (v.min(m).to_string(), None),
+                    None => (v.to_string(), None),
+                }
+            }
             _ => locked("not a non-negative integer"),
         },
         Kind::Freq => {
@@ -327,14 +353,15 @@ pub fn build_plan(profile: &Profile, probe: &ProbeData) -> Plan {
         }
     }
 
-    // GPU pwrlevel invariant: min_pwrlevel (slowest floor) > max_pwrlevel
-    // (fastest cap) — the kgsl driver clamps writes that violate it.
+    // GPU pwrlevel invariant: max_pwrlevel <= min_pwrlevel — the kgsl driver
+    // silently clamps `level > min_pwrlevel` to min (kgsl_pwrctrl.c:692),
+    // equality is legal (single allowed level).
     if let (Some(maxl), Some(minl)) = (profile.params.get("gpu.max_pwrlevel"),
                                        profile.params.get("gpu.min_pwrlevel")) {
         match (maxl.trim().parse::<i64>(), minl.trim().parse::<i64>()) {
-            (Ok(mx), Ok(mn)) if mx < mn => {}
+            (Ok(mx), Ok(mn)) if mx <= mn => {}
             (Ok(mx), Ok(mn)) => errors.push(format!(
-                "gpu pwrlevel pair invalid: min_pwrlevel ({mn}) must be > max_pwrlevel ({mx})"
+                "gpu pwrlevel pair invalid: min_pwrlevel ({mn}) must be >= max_pwrlevel ({mx}) — kgsl would clamp"
             )),
             _ => {}
         }
@@ -390,6 +417,8 @@ mod tests {
         entries.insert("vm.dirty_ratio".into(), entry_state(true, "20"));
         entries.insert("cpuset.background.cpus".into(), entry_state(true, "0-5"));
         entries.insert("stune.top-app.boost".into(), entry_state(true, "0"));
+        entries.insert("policy0.core_ctl.task_thres".into(), entry_state(true, "8"));
+        entries.insert("policy0.core_ctl.min_cpus".into(), entry_state(true, "4"));
         entries.insert("workqueue.power_efficient".into(), entry_state(true, "N"));
         entries.insert("net.tcp_rmem".into(), entry_state(true, "524288\t1048576\t5505024"));
 
@@ -409,6 +438,18 @@ mod tests {
                 io_schedulers: vec!["noop".into(), "deadline".into(), "cfq".into()],
                 tcp_cc: vec!["cubic".into(), "reno".into()],
                 cpu_count: 8,
+                cluster_cpus: {
+                    let mut m = std::collections::BTreeMap::new();
+                    m.insert("policy0".to_string(), 6usize);
+                    m.insert("policy6".to_string(), 2usize);
+                    m
+                },
+                core_ctl_max: {
+                    let mut m = std::collections::BTreeMap::new();
+                    m.insert("policy0".to_string(), 6i64);
+                    m.insert("policy6".to_string(), 2i64);
+                    m
+                },
             },
             framework: FrameworkEvidence::default(),
         }
@@ -515,6 +556,50 @@ mod tests {
         assert_eq!(normalize_snapshot(Kind::Mask, "0-5"), "0-5");
         assert_eq!(normalize_snapshot(Kind::FlagYN, "n"), "N");
         assert_eq!(normalize_snapshot(Kind::Int, " 65 "), "65");
+    }
+
+    #[test]
+    fn stune_boost_range_enforced() {
+        let p = profile(&[("stune.top-app.boost", "101")]);
+        let plan = build_plan(&p, &fake_probe());
+        assert!(matches!(plan.ops[0].status, OpStatus::Locked(_)), "101 must be locked");
+
+        let p = profile(&[("stune.top-app.boost", "100")]);
+        let plan = build_plan(&p, &fake_probe());
+        assert_eq!(plan.ops[0].status, OpStatus::Ok);
+    }
+
+    #[test]
+    fn task_thres_bound_is_cluster_cpu_count() {
+        // kernel core_ctl.c store_task_thres: val < num_cpus -> EINVAL
+        let p = profile(&[("policy0.core_ctl.task_thres", "4")]);
+        let plan = build_plan(&p, &fake_probe());
+        assert!(matches!(plan.ops[0].status, OpStatus::Locked(_)), "4 < 6 must be locked");
+
+        let p = profile(&[("policy0.core_ctl.task_thres", "6")]);
+        let plan = build_plan(&p, &fake_probe());
+        assert_eq!(plan.ops[0].status, OpStatus::Ok);
+    }
+
+    #[test]
+    fn min_cpus_preclamps_to_max_cpus() {
+        // kernel core_ctl.c store_min_cpus: min(val, max_cpus) — silent clamp
+        let p = profile(&[("policy0.core_ctl.min_cpus", "9")]);
+        let plan = build_plan(&p, &fake_probe());
+        assert_eq!(plan.ops[0].resolved, "6", "pre-clamped to live max_cpus");
+        assert_eq!(plan.ops[0].status, OpStatus::Ok);
+    }
+
+    #[test]
+    fn gpu_pwrlevel_pair_allows_equality() {
+        // kgsl_pwrctrl.c:692 clamps level > min_pwrlevel to min; equality OK
+        let p = profile(&[("gpu.max_pwrlevel", "4"), ("gpu.min_pwrlevel", "4")]);
+        let plan = build_plan(&p, &fake_probe());
+        assert!(plan.ok, "max == min must be valid: {:?}", plan.errors);
+
+        let p = profile(&[("gpu.max_pwrlevel", "5"), ("gpu.min_pwrlevel", "3")]);
+        let plan = build_plan(&p, &fake_probe());
+        assert!(!plan.ok, "max > min must be rejected");
     }
 
     #[test]

@@ -51,6 +51,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mifinetune.core.ApplyReport
 import com.mifinetune.core.LockedKey
+import com.mifinetune.core.Op
 import com.mifinetune.core.Status
 
 /**
@@ -73,6 +76,7 @@ import com.mifinetune.core.Status
 fun HomeScreen(vm: HomeViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    var detailProfileId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(state.error) {
         state.error?.let {
@@ -129,7 +133,14 @@ fun HomeScreen(vm: HomeViewModel) {
                     item { StatusShimmer() }
                 } else {
                     state.status?.let { st ->
-                        item(key = "status") { StatusCard(st) }
+                        item(key = "status") {
+                            StatusCard(
+                                st = st,
+                                packRom = state.packRom,
+                                guardActive = state.guardActive,
+                                driftFixed = state.driftFixed,
+                            )
+                        }
                     }
                     item(key = "section") {
                         SectionHeader("Profiles", trailing = sectionSummary(state))
@@ -144,6 +155,7 @@ fun HomeScreen(vm: HomeViewModel) {
                             onLockedClick = { title, items ->
                                 vm.showLocked(title, items)
                             },
+                            onDetail = { detailProfileId = card.profile.id },
                         )
                     }
                     item(key = "footnote") { FootNote(state) }
@@ -157,6 +169,13 @@ fun HomeScreen(vm: HomeViewModel) {
     }
     state.lockedDetail?.let { detail ->
         LockedDialog(detail = detail, onDismiss = vm::dismissLocked)
+    }
+    detailProfileId?.let { id ->
+        // re-derive from live state so an apply finished while the dialog was
+        // open shows the refreshed plan (never a stale snapshot)
+        state.cards.firstOrNull { it.profile.id == id }?.let { card ->
+            ProfileDetailDialog(card = card, onDismiss = { detailProfileId = null })
+        } ?: run { detailProfileId = null }
     }
     if (state.confirmRestore) {
         AlertDialog(
@@ -218,7 +237,12 @@ private fun StatusShimmer() {
 }
 
 @Composable
-private fun StatusCard(st: Status) {
+private fun StatusCard(
+    st: Status,
+    packRom: String?,
+    guardActive: Boolean,
+    driftFixed: Int,
+) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -262,6 +286,35 @@ private fun StatusCard(st: Status) {
                     FrameworkDot("perf", st.framework.perfHal)
                     FrameworkDot("root", if (st.root) "granted" else null)
                 }
+            }
+
+            // Drift guard visibility (only meaningful while a profile runs)
+            if (st.active != null && guardActive) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Drift guard", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (driftFixed > 0) "watching · corrected $driftFixed"
+                        else "watching · every 15 s",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+
+            // Profile-pack compatibility (audit proven: 12.0.7 ID == 12.0.9 MIX
+            // post_boot/perf configs, but a differing ROM still deserves a flag)
+            if (packRom != null && packRom != st.device.rom) {
+                Text(
+                    "⚠ Profile pack audited for $packRom, device runs ${st.device.rom}. " +
+                        "Base verified identical for this family — re-run " +
+                        "tools/owner-map-audit.sh for exact certainty.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
             }
 
             Text(
@@ -334,6 +387,7 @@ private fun ProfileCardView(
     enabled: Boolean,
     onApply: () -> Unit,
     onLockedClick: (String, List<LockedKey>) -> Unit,
+    onDetail: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -440,6 +494,8 @@ private fun ProfileCardView(
                     Spacer(Modifier.width(10.dp))
                 }
                 val planOk = plan?.ok == true
+                OutlinedButton(onClick = onDetail) { Text("Detail") }
+                Spacer(Modifier.width(8.dp))
                 if (active) {
                     OutlinedButton(onClick = onApply, enabled = enabled && !busy && planOk) {
                         Text(if (busy) "Applying…" else "Re-apply")
@@ -523,6 +579,112 @@ private fun ReportDialog(report: ApplyReport, onDismiss: () -> Unit) {
             TextButton(onClick = onDismiss) { Text("Close") }
         },
     )
+}
+
+@Composable
+private fun ProfileDetailDialog(card: ProfileCard, onDismiss: () -> Unit) {
+    val plan = card.plan
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("${card.profile.label} — detail")
+                Text(
+                    card.profile.desc,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        text = {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .height(400.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                if (plan == null) {
+                    Text(
+                        card.planError ?: "Plan unavailable",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else if (!plan.ok) {
+                    plan.errors.forEach {
+                        Text(it, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                } else {
+                    Text(
+                        "${plan.ops.size} params · ${plan.pending} to write · " +
+                            "${plan.inSync} in sync · ${plan.locked.size} locked",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    plan.ops.forEach { op ->
+                        OpDetailRow(op)
+                        HorizontalDivider(Modifier.padding(vertical = 2.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+    )
+}
+
+@Composable
+private fun OpDetailRow(op: Op) {
+    Column(Modifier.padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                op.key,
+                style = MaterialTheme.typography.labelMedium,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            TierBadge(op.tier)
+        }
+        when (op.status.kind) {
+            "locked" -> Text(
+                "⚠ ${op.status.reason ?: "locked"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            "unchanged" -> Text(
+                "✓ in sync: ${op.resolved}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            else -> Text(
+                "→ ${op.resolved}" + (op.current?.let { "   (now: $it)" } ?: ""),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TierBadge(tier: String) {
+    val container = when (tier) {
+        "free" -> MaterialTheme.colorScheme.tertiaryContainer
+        else -> MaterialTheme.colorScheme.secondaryContainer
+    }
+    val onContainer = when (tier) {
+        "free" -> MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.onSecondaryContainer
+    }
+    Surface(color = container, shape = MaterialTheme.shapes.small) {
+        Text(
+            tier,
+            Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = onContainer,
+        )
+    }
 }
 
 @Composable

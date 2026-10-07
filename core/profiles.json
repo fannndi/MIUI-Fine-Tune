@@ -43,7 +43,8 @@
         "cpuset.background.cpus": "0-3",
         "cpuset.system-background.cpus": "0-3",
         "cpuset.foreground.cpus": "0-5",
-        "cpuset.top-app.cpus": "0-5"
+        "cpuset.top-app.cpus": "0-5",
+        "policy0.core_ctl.max_cpus": "4"
       }
     },
     {

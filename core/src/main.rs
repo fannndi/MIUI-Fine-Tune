@@ -10,16 +10,9 @@ use mifinetune_core::profile::build_plan;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Out {
-    /// JSON is the only output format; `--json` is accepted as a no-op flag.
-    Json,
-}
-
 struct Args {
     cmd: String,
     id: Option<String>,
-    out: Out,
     state_dir: PathBuf,
     profiles: Option<PathBuf>,
 }
@@ -27,14 +20,13 @@ struct Args {
 fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut cmd: Option<String> = None;
     let mut id: Option<String> = None;
-    let mut out = Out::Json;
     let mut state_dir = apply::default_state_dir();
     let mut profiles: Option<PathBuf> = None;
     let mut i = 0;
     while i < argv.len() {
         let a = &argv[i];
         match a.as_str() {
-            "--json" => out = Out::Json,
+            "--json" => {} // JSON is the only output format (accepted for compatibility)
             "--state-dir" => {
                 i += 1;
                 let v = argv.get(i).ok_or("--state-dir needs a value")?;
@@ -64,7 +56,6 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     Ok(Args {
         cmd: cmd.ok_or_else(|| USAGE.to_string())?,
         id,
-        out,
         state_dir,
         profiles,
     })
@@ -79,6 +70,7 @@ commands:
   restore               write snapshot back (root)
   verify <id>           check live values vs profile, detect drift
   status                active profile, snapshot, framework evidence
+  catalog               dump the full parameter catalog as JSON
   apply runs one automatic re-plan pass when a governor switch reveals
                       previously hidden governor-specific nodes";
 
@@ -100,10 +92,6 @@ fn require_root() -> Result<(), String> {
     } else {
         Err("root required for this command".into())
     }
-}
-
-fn emit_json<T: serde::Serialize>(v: &T) {
-    println!("{}", serde_json::to_string_pretty(v).expect("serialize"));
 }
 
 fn run(a: &Args) -> Result<(i32, String), String> {
@@ -185,6 +173,22 @@ fn run(a: &Args) -> Result<(i32, String), String> {
             let json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
             let code = if report.ok { 0 } else { 2 };
             Ok((code, json))
+        }
+        "catalog" => {
+            // Full parameter catalog (used by tools/owner-map-audit.sh and
+            // for UI debugging): every writable key with tier + constraints.
+            let entries: Vec<serde_json::Value> = catalog::catalog()
+                .iter()
+                .map(|e| {
+                    serde_json::json!({
+                        "key": e.key, "path": e.path, "tier": e.tier,
+                        "kind": format!("{:?}", e.kind), "scope": e.scope,
+                        "range": e.range, "min_cpus_of": e.min_cpus_of,
+                    })
+                })
+                .collect();
+            let payload = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
+            Ok((0, payload))
         }
         "status" => {
             let state = store.load_state();

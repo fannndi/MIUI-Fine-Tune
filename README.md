@@ -55,9 +55,30 @@ core/  (Rust — satu-satunya writer)
   ditolak kernel/SELinux/ROM (mis. `workqueue.power_efficient` = 444 di ROM ini,
   governor GPU selain `msm-adreno-tz` = EINVAL) muncul sebagai chip⚠ + alasan.
 
+### Detail & drift (v0.2)
+
+- **Tombol Detail** di tiap kartu profile → dialog daftar lengkap parameter
+  yang akan di-apply: key + badge tier (`free`/`baseline`) + `→ target (now: current)`
+  + status (in-sync/locked + alasan).
+- **Drift guard**: saat profile aktif, app verify read-only tiap 15 dtk dan
+  re-apply hanya key yang drift (counter terlihat di status card).
+- **Compat gate**: warning bila `ro.build.version.incremental` berbeda dengan
+  ROM tempat profile pack diaudit.
+- **Owner-map audit tool**: `tools/owner-map-audit.sh <rom-dir>` memverifikasi
+  seluruh tier katalog terhadap ROM unpacked (post_boot + perf HAL) — menangkap
+  `sched_migration_cost_ns` (tulis perf HAL) dan `watermark_scale_factor`
+  (tulis post_boot) yang salah tier saat pengembangan.
+- **Kernel-verified validator** (branch `surya-q-oss`): aturan pair
+  `upmigrate ≥ downmigrate`, `task_thres ≥ num_cpus`, `min_cpus` pre-clamp,
+  `max_pwrlevel ≤ min_pwrlevel`, `stune boost 0..100` — lihat
+  `docs/ROM-HARMONY.md` untuk kutipan source-nya.
+
 ## Build & test
 
 ```bash
+# audit Owner Map terhadap ROM unpacked (jalankan setiap ganti ROM/kernel)
+tools/owner-map-audit.sh ~/Downloads/MIO-KITCHEN-*/miui_SURYAGlobal_*_10.0
+
 # Rust core (host tests + cross build arm64)
 cd core && cargo test
 ANDROID_HOME=$HOME/Android/Sdk cargo ndk -t arm64-v8a build --release

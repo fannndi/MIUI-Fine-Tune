@@ -26,8 +26,13 @@ pub enum Tier {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
-    /// Plain integer (single value, exact read-back).
+    /// Plain integer (single value, exact read-back). Optional `range`
+    /// validates against kernel-confirmed bounds (see Entry.range).
     Int,
+    /// core_ctl `min_cpus`: kernel silently clamps to `max_cpus`
+    /// (`core_ctl.c store_min_cpus` -> `min(val, state->max_cpus)`) — we
+    /// pre-clamp to the live max so read-back matches.
+    MinCpus,
     /// Integer written to a per-CPU array node (kernel expands it, e.g.
     /// `core_ctl/busy_up_thres` -> `60 60 60 ...`); verify all equal.
     RepeatInt,
@@ -61,6 +66,12 @@ pub struct Entry {
     pub kind: Kind,
     /// Scope for value lookup: "policy0" | "policy6" | "" (no clamp source).
     pub scope: &'static str,
+    /// Kernel-confirmed inclusive bounds for `Kind::Int`
+    /// (source-cited where enforced).
+    pub range: Option<(i64, i64)>,
+    /// For `core_ctl.task_thres`: validate against the cluster's CPU count —
+    /// kernel rejects `val < num_cpus` (`core_ctl.c store_task_thres`).
+    pub min_cpus_of: Option<&'static str>,
 }
 
 /// Path prefixes that must never be written — runtime-owned by the framework.
@@ -87,6 +98,9 @@ pub const FORBIDDEN_PREFIXES: &[&str] = &[
     "/dev/cpuset/game",
     "/dev/cpuset/gamelite",
     "/dev/cpuset/vr",
+    // perf HAL transient boost globals (perfboostsconfig.xml writes these)
+    "/proc/sys/kernel/sched_boost",
+    "/sys/devices/system/cpu/cpu0/sched_static_cpu_pwr_cost",
     // SELinux / kernel core (never tuning targets)
     "/sys/fs/selinux",
     "/proc/sys/kernel/random",
@@ -98,7 +112,6 @@ pub const FORBIDDEN_KEYS: &[&str] = &[
     "vm.swappiness",
     "vm.min_free_kbytes",
     "vm.page-cluster",
-    "vm.extra_free_kbytes",
     "vm.watermark_boost_factor",
     "block.read_ahead_kb",
     "cpu.online",
@@ -106,12 +119,47 @@ pub const FORBIDDEN_KEYS: &[&str] = &[
 
 macro_rules! e {
     ($key:expr, $path:expr, $tier:expr, $kind:expr, $scope:expr) => {
-        Entry { key: $key, path: $path, tier: $tier, kind: $kind, scope: $scope }
+        Entry {
+            key: $key,
+            path: $path,
+            tier: $tier,
+            kind: $kind,
+            scope: $scope,
+            range: None,
+            min_cpus_of: None,
+        }
     };
 }
 
-const P0: &str = "/sys/devices/system/cpu/cpufreq/policy0";
-const P6: &str = "/sys/devices/system/cpu/cpufreq/policy6";
+/// Entry with a kernel-confirmed inclusive integer range.
+macro_rules! er {
+    ($key:expr, $path:expr, $tier:expr, $kind:expr, $scope:expr, $min:expr, $max:expr) => {
+        Entry {
+            key: $key,
+            path: $path,
+            tier: $tier,
+            kind: $kind,
+            scope: $scope,
+            range: Some(($min, $max)),
+            min_cpus_of: None,
+        }
+    };
+}
+
+/// Entry validated against a cluster's CPU count (core_ctl task_thres).
+macro_rules! et {
+    ($key:expr, $path:expr, $tier:expr, $cluster:expr) => {
+        Entry {
+            key: $key,
+            path: $path,
+            tier: $tier,
+            kind: Kind::Int,
+            scope: "",
+            range: None,
+            min_cpus_of: Some($cluster),
+        }
+    };
+}
 
 /// The full writable catalog for surya (POCO X3 NFC, MIUI 12).
 pub fn catalog() -> &'static [Entry] {
@@ -126,10 +174,12 @@ pub fn catalog() -> &'static [Entry] {
         e!("policy0.schedutil.hispeed_load", "/sys/devices/system/cpu/cpufreq/policy0/schedutil/hispeed_load", Baseline, Int, ""),
         e!("policy0.schedutil.up_rate_limit_us", "/sys/devices/system/cpu/cpufreq/policy0/schedutil/up_rate_limit_us", Baseline, Int, ""),
         e!("policy0.schedutil.down_rate_limit_us", "/sys/devices/system/cpu/cpufreq/policy0/schedutil/down_rate_limit_us", Baseline, Int, ""),
-        e!("policy0.core_ctl.min_cpus", "/sys/devices/system/cpu/cpu0/core_ctl/min_cpus", Baseline, Int, ""),
-        e!("policy0.core_ctl.task_thres", "/sys/devices/system/cpu/cpu0/core_ctl/task_thres", Baseline, Int, ""),
+        e!("policy0.core_ctl.min_cpus", "/sys/devices/system/cpu/cpu0/core_ctl/min_cpus", Baseline, MinCpus, "policy0"),
+        et!("policy0.core_ctl.task_thres", "/sys/devices/system/cpu/cpu0/core_ctl/task_thres", Baseline, "policy0"), // core_ctl.c: val >= num_cpus
         e!("policy0.core_ctl.busy_up_thres", "/sys/devices/system/cpu/cpu0/core_ctl/busy_up_thres", Baseline, RepeatInt, ""),
         e!("policy0.core_ctl.busy_down_thres", "/sys/devices/system/cpu/cpu0/core_ctl/busy_down_thres", Baseline, RepeatInt, ""),
+        e!("policy0.core_ctl.max_cpus", "/sys/devices/system/cpu/cpu0/core_ctl/max_cpus", Baseline, Int, ""),
+        e!("policy0.core_ctl.offline_delay_ms", "/sys/devices/system/cpu/cpu0/core_ctl/offline_delay_ms", Baseline, Int, ""),
         // --- policy6 (Gold cpu6-7) ---
         e!("policy6.scaling_governor", "/sys/devices/system/cpu/cpufreq/policy6/scaling_governor", Baseline, Gov, "policy6"),
         e!("policy6.scaling_min_freq", "/sys/devices/system/cpu/cpufreq/policy6/scaling_min_freq", Baseline, Freq, "policy6"),
@@ -138,8 +188,8 @@ pub fn catalog() -> &'static [Entry] {
         e!("policy6.schedutil.hispeed_load", "/sys/devices/system/cpu/cpufreq/policy6/schedutil/hispeed_load", Baseline, Int, ""),
         e!("policy6.schedutil.up_rate_limit_us", "/sys/devices/system/cpu/cpufreq/policy6/schedutil/up_rate_limit_us", Baseline, Int, ""),
         e!("policy6.schedutil.down_rate_limit_us", "/sys/devices/system/cpu/cpufreq/policy6/schedutil/down_rate_limit_us", Baseline, Int, ""),
-        e!("policy6.core_ctl.min_cpus", "/sys/devices/system/cpu/cpu6/core_ctl/min_cpus", Baseline, Int, ""),
-        e!("policy6.core_ctl.task_thres", "/sys/devices/system/cpu/cpu6/core_ctl/task_thres", Baseline, Int, ""),
+        e!("policy6.core_ctl.min_cpus", "/sys/devices/system/cpu/cpu6/core_ctl/min_cpus", Baseline, MinCpus, "policy6"),
+        et!("policy6.core_ctl.task_thres", "/sys/devices/system/cpu/cpu6/core_ctl/task_thres", Baseline, "policy6"),
         // --- GPU (Adreno 618, 7 pwrlevels 0..6) ---
         e!("gpu.governor", "/sys/class/kgsl/kgsl-3d0/devfreq/governor", Baseline, GpuGov, ""),
         e!("gpu.max_pwrlevel", "/sys/class/kgsl/kgsl-3d0/max_pwrlevel", Baseline, PwrLevel, ""),
@@ -155,10 +205,15 @@ pub fn catalog() -> &'static [Entry] {
         e!("kernel.sched_latency_ns", "/proc/sys/kernel/sched_latency_ns", Free, Int, ""),
         e!("kernel.sched_min_granularity_ns", "/proc/sys/kernel/sched_min_granularity_ns", Free, Int, ""),
         e!("kernel.sched_wakeup_granularity_ns", "/proc/sys/kernel/sched_wakeup_granularity_ns", Free, Int, ""),
-        e!("kernel.sched_migration_cost_ns", "/proc/sys/kernel/sched_migration_cost_ns", Free, Int, ""),
+        // perf HAL boost writes this at runtime (commonresourceconfigs.xml
+        // Opcode 0x2) — baseline coexist, verified by tools/owner-map-audit.sh
+        e!("kernel.sched_migration_cost_ns", "/proc/sys/kernel/sched_migration_cost_ns", Baseline, Int, ""),
         e!("kernel.sched_nr_migrate", "/proc/sys/kernel/sched_nr_migrate", Free, Int, ""),
-        e!("kernel.sched_autogroup_enabled", "/proc/sys/kernel/sched_autogroup_enabled", Free, Int, ""),
-        e!("kernel.sched_child_runs_first", "/proc/sys/kernel/sched_child_runs_first", Free, Int, ""),
+        er!("kernel.sched_autogroup_enabled", "/proc/sys/kernel/sched_autogroup_enabled", Free, Int, "", 0, 1),
+        er!("kernel.sched_child_runs_first", "/proc/sys/kernel/sched_child_runs_first", Free, Int, "", 0, 1),
+        // boot-written by the moorea post_boot block -> baseline family
+        er!("kernel.sched_walt_rotate_big_tasks", "/proc/sys/kernel/sched_walt_rotate_big_tasks", Baseline, Int, "", 0, 1),
+        e!("kernel.sched_little_cluster_coloc_fmin_khz", "/proc/sys/kernel/sched_little_cluster_coloc_fmin_khz", Baseline, Int, ""),
         // migration policy (boot-written by post_boot only — baseline)
         e!("kernel.sched_upmigrate", "/proc/sys/kernel/sched_upmigrate", Baseline, Int, ""),
         e!("kernel.sched_downmigrate", "/proc/sys/kernel/sched_downmigrate", Baseline, Int, ""),
@@ -171,18 +226,27 @@ pub fn catalog() -> &'static [Entry] {
         e!("vm.dirty_expire_centisecs", "/proc/sys/vm/dirty_expire_centisecs", Free, Int, ""),
         e!("vm.dirty_writeback_centisecs", "/proc/sys/vm/dirty_writeback_centisecs", Free, Int, ""),
         e!("vm.stat_interval", "/proc/sys/vm/stat_interval", Free, Int, ""),
+        // configure_memory_parameters sets 1 at boot for every target
+        // (post_boot: "Disable wsf ... using efk"; range 1..1000 per its own
+        // comment) -> boot baseline, audit-tool verified.
+        er!("vm.watermark_scale_factor", "/proc/sys/vm/watermark_scale_factor", Baseline, Int, "", 1, 1000),
+        e!("vm.extra_free_kbytes", "/proc/sys/vm/extra_free_kbytes", Free, Int, ""),
         // --- net (no ROM writer confirmed) ---
         e!("net.tcp_congestion_control", "/proc/sys/net/ipv4/tcp_congestion_control", Free, TcpCc, ""),
         e!("net.tcp_rmem", "/proc/sys/net/ipv4/tcp_rmem", Free, Ints, ""),
         e!("net.tcp_wmem", "/proc/sys/net/ipv4/tcp_wmem", Free, Ints, ""),
         e!("net.tcp_slow_start_after_idle", "/proc/sys/net/ipv4/tcp_slow_start_after_idle", Free, Int, ""),
         e!("net.tcp_mtu_probing", "/proc/sys/net/ipv4/tcp_mtu_probing", Free, Int, ""),
-        // --- workqueue ---
-        e!("workqueue.power_efficient", "/sys/module/workqueue/parameters/power_efficient", Free, FlagYN, ""),
+        e!("net.tcp_fin_timeout", "/proc/sys/net/ipv4/tcp_fin_timeout", Free, Int, ""), // proc_dointvec_jiffies, no minmax
+        e!("net.tcp_fastopen", "/proc/sys/net/ipv4/tcp_fastopen", Free, Int, ""),
+        // workqueue.power_efficient intentionally ABSENT:
+        // kernel/workqueue.c:294 module_param(..., 0444) — read-only by kernel
+        // on every device; never cataloged, never written.
         // --- schedtune (perf HAL boosts top-app transiently; baseline) ---
-        e!("stune.top-app.boost", "/dev/stune/top-app/schedtune.boost", Baseline, Int, ""),
-        e!("stune.top-app.prefer_idle", "/dev/stune/top-app/schedtune.prefer_idle", Baseline, Int, ""),
-        e!("stune.foreground.boost", "/dev/stune/foreground/schedtune.boost", Baseline, Int, ""),
+        er!("stune.top-app.boost", "/dev/stune/top-app/schedtune.boost", Baseline, Int, "", 0, 100), // tune.c boost_write: 0..=100
+        er!("stune.top-app.prefer_idle", "/dev/stune/top-app/schedtune.prefer_idle", Baseline, Int, "", 0, 1),
+        er!("stune.foreground.boost", "/dev/stune/foreground/schedtune.boost", Baseline, Int, "", 0, 100),
+        er!("stune.foreground.prefer_idle", "/dev/stune/foreground/schedtune.prefer_idle", Baseline, Int, "", 0, 1),
         // --- cpusets (game/gamelite/vr are PowerKeeper-owned: forbidden) ---
         e!("cpuset.background.cpus", "/dev/cpuset/background/cpus", Baseline, Mask, ""),
         e!("cpuset.system-background.cpus", "/dev/cpuset/system-background/cpus", Baseline, Mask, ""),
@@ -270,8 +334,22 @@ mod tests {
     fn profile_keys_resolve() {
         for k in ["policy0.scaling_governor", "gpu.governor", "io.scheduler",
                   "vm.dirty_ratio", "net.tcp_rmem", "cpuset.top-app.cpus",
-                  "stune.top-app.boost", "workqueue.power_efficient"] {
+                  "stune.top-app.boost"] {
             assert!(find(k).is_some(), "missing catalog entry: {k}");
         }
+    }
+
+    #[test]
+    fn read_only_kernel_params_are_never_cataloged() {
+        // kernel/workqueue.c:294 module_param_named(power_efficient, ..., 0444)
+        // — the kernel makes this read-only on every device; it must never
+        // re-enter the catalog or any profile.
+        assert!(
+            find("workqueue.power_efficient").is_none(),
+            "workqueue.power_efficient is kernel read-only (0444)"
+        );
+        // perf HAL transient globals stay forbidden
+        assert!(guard_path("/proc/sys/kernel/sched_boost").is_err());
+        assert!(guard_path("/sys/devices/system/cpu/cpu0/sched_static_cpu_pwr_cost").is_err());
     }
 }

@@ -12,6 +12,9 @@ import com.mifinetune.core.RootBridge
 import com.mifinetune.core.Status
 import com.mifinetune.core.parseProfiles
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +46,12 @@ data class HomeUiState(
     val report: ApplyReport? = null,
     val confirmRestore: Boolean = false,
     val lockedDetail: LockedDetail? = null,
+    /** ROM the bundled profile pack was built/audited against. */
+    val packRom: String? = null,
+    /** Drift guard: true while the periodic verify loop runs. */
+    val guardActive: Boolean = false,
+    /** Number of drifted keys corrected by the guard since app start. */
+    val driftFixed: Int = 0,
 ) {
     val canAct: Boolean get() = !loading && busy == null
 }
@@ -53,6 +62,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     private val bridge = RootBridge()
     private val client = FtClient(bridge)
+    private var guardJob: Job? = null
 
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
@@ -85,9 +95,22 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     planError = res.exceptionOrNull()?.message,
                 )
             }
+            val packRom = runCatching {
+                getApplication<Application>().assets
+                    .open(RootBridge.ASSET_PROFILES)
+                    .bufferedReader().use { r -> JSONObject(r.readText()).optString("rom") }
+                    .ifEmpty { null }
+            }.getOrNull()
             _state.update {
-                it.copy(loading = false, status = status, cards = cards, error = null)
+                it.copy(
+                    loading = false,
+                    status = status,
+                    cards = cards,
+                    packRom = packRom,
+                    error = null,
+                )
             }
+            if (status.active != null) startDriftGuard()
         }.onFailure { e ->
             _state.update {
                 it.copy(
@@ -120,6 +143,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update {
                     it.copy(busy = null, report = report, status = status, cards = cards)
                 }
+                if (status.active != null) startDriftGuard()
             }.onFailure { e ->
                 _state.update {
                     it.copy(busy = null, error = "Apply failed: ${e.message ?: e}")
@@ -150,12 +174,54 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update {
                     it.copy(busy = null, report = report, status = status, cards = cards)
                 }
+                stopDriftGuard()
             }.onFailure { e ->
                 _state.update {
                     it.copy(busy = null, error = "Restore failed: ${e.message ?: e}")
                 }
             }
         }
+    }
+
+    /**
+     * Periodic verify loop while a profile is active: every 15 s re-check all
+     * profile keys against the live device and re-apply ONLY when something
+     * drifted (perf HAL boost restore, PowerKeeper cpuset writes, ...).
+     * Cheap: verify is read-only (~59 reads); apply writes only drifted keys.
+     */
+    private fun startDriftGuard() {
+        if (guardJob?.isActive == true) return
+        guardJob = viewModelScope.launch(Dispatchers.IO) {
+            _state.update { it.copy(guardActive = true) }
+            while (isActive) {
+                delay(15_000)
+                val active = _state.value.status?.active ?: break
+                if (_state.value.busy != null) continue
+                runCatching { client.verify(active) }.onSuccess { rep ->
+                    if (!rep.ok && rep.failed > 0) {
+                        runCatching {
+                            client.apply(active)
+                            client.status()
+                        }.onSuccess { st ->
+                            _state.update {
+                                it.copy(
+                                    status = st,
+                                    driftFixed = it.driftFixed + rep.failed,
+                                )
+                            }
+                        }
+                    }
+                }
+                // verify failures (transient root/shell issues) just retry
+            }
+            _state.update { it.copy(guardActive = false) }
+        }
+    }
+
+    private fun stopDriftGuard() {
+        guardJob?.cancel()
+        guardJob = null
+        _state.update { it.copy(guardActive = false) }
     }
 
     fun dismissReport() = _state.update { it.copy(report = null) }

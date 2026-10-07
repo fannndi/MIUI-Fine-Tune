@@ -39,6 +39,12 @@ pub struct Options {
     pub tcp_cc: Vec<String>,
     /// number of online-capable CPUs (0..n usable in masks)
     pub cpu_count: usize,
+    /// policy -> number of CPUs in the cluster (core_ctl task_thres bound:
+    /// kernel rejects val < num_cpus, core_ctl.c store_task_thres).
+    pub cluster_cpus: BTreeMap<String, usize>,
+    /// policy -> live core_ctl max_cpus (min_cpus is clamped to it by the
+    /// kernel: core_ctl.c store_min_cpus `min(val, state->max_cpus)`).
+    pub core_ctl_max: BTreeMap<String, i64>,
 }
 
 /// Read-only evidence of framework-owned nodes — proves coexistence and
@@ -122,6 +128,8 @@ pub fn probe() -> ProbeData {
 
     let mut governors = BTreeMap::new();
     let mut freqs = BTreeMap::new();
+    let mut cluster_cpus = BTreeMap::new();
+    let mut core_ctl_max = BTreeMap::new();
     for policy in ["policy0", "policy6"] {
         let base = format!("/sys/devices/system/cpu/cpufreq/{policy}");
         if let Some(g) = read(&format!("{base}/scaling_available_governors")) {
@@ -131,6 +139,15 @@ pub fn probe() -> ProbeData {
             let mut v: Vec<u64> = f.split_whitespace().filter_map(|t| t.parse().ok()).collect();
             v.sort_unstable();
             freqs.insert(policy.to_string(), v);
+        }
+        if let Some(cpus) = read(&format!("{base}/related_cpus")) {
+            cluster_cpus.insert(policy.to_string(), cpus.split_whitespace().count());
+        }
+        // core_ctl lives under the policy's first CPU (cpu0, cpu6)
+        if let Some(first) = policy.strip_prefix("policy") {
+            if let Some(v) = read(&format!("/sys/devices/system/cpu/cpu{first}/core_ctl/max_cpus")) {
+                core_ctl_max.insert(policy.to_string(), v.trim().parse().unwrap_or(i64::MAX));
+            }
         }
     }
 
@@ -155,6 +172,8 @@ pub fn probe() -> ProbeData {
         io_schedulers,
         tcp_cc,
         cpu_count: cpu_count(),
+        cluster_cpus,
+        core_ctl_max,
     };
 
     let device = DeviceInfo {
