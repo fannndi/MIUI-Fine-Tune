@@ -85,7 +85,7 @@ class AutomationService : Service() {
                 Intent.ACTION_SCREEN_ON -> onScreenOn()
                 Intent.ACTION_USER_PRESENT -> {
                     locked = false
-                    evaluate("unlock")
+                    seedForeground()
                     startPolling()
                 }
                 Intent.ACTION_POWER_CONNECTED, Intent.ACTION_POWER_DISCONNECTED -> {
@@ -122,8 +122,14 @@ class AutomationService : Service() {
         scope.launch(Dispatchers.IO) {
             detector.ensureUsageAccess(Tuner.bridge)
             detector.reset()
-            evaluate("start")
-            if (screenOn && !locked) startPolling()
+            if (screenOn && !locked) {
+                // seed the current foreground so a service that starts while
+                // an app is already in front makes the right decision at once
+                seedForeground()
+                startPolling()
+            } else {
+                evaluate("start")
+            }
         }
         Tuner.ensureGuard(scope)
     }
@@ -168,8 +174,24 @@ class AutomationService : Service() {
         sleepJob?.cancel()
         locked = reader.keyguardLocked
         if (!locked) {
-            evaluate("wake")
+            seedForeground()
             startPolling()
+        }
+    }
+
+    /**
+     * Right after wake/unlock the UsageStats stream may not carry a fresh
+     * resume event (the activity was only paused). Seed the foreground once
+     * via the root shell so the decision is deterministic.
+     */
+    private fun seedForeground() {
+        scope.launch(Dispatchers.IO) {
+            val fg = runCatching { detector.peekRoot() }.getOrNull() ?: return@launch
+            if (fg != AutomationState.lastForeground.value) {
+                AutomationState.lastForeground.value = fg
+                lastSeenPkg = fg
+            }
+            evaluate("seed")
         }
     }
 
@@ -182,9 +204,12 @@ class AutomationService : Service() {
                 delay(POLL_MS)
                 if (!screenOn || locked) continue
                 pollTick++
-                // root fallback spawns a shell per poll — run it every ~4.5 s
-                if (detector.usingFallback && pollTick % 3 != 0) continue
-                val fg = detector.poll() ?: continue
+                // UsageStats is a cheap fast path, but MIUI rarely delivers
+                // resume events -> root-peek (dumpsys) every 2nd tick (~3 s)
+                // is the dependable backbone.
+                val fast = detector.poll()
+                val fg = fast ?: if (pollTick % 2 == 0) detector.peekRoot() else null
+                if (fg == null) continue
                 AutomationState.lastForeground.value = fg
                 if (fg != lastSeenPkg) {
                     lastSeenPkg = fg

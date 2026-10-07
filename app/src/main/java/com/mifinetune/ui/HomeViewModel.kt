@@ -112,6 +112,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(loading = false, error = deployError) }
                 return@launch
             }
+            // start the automation service while the app is still foreground
+            // (background FGS start would be rejected by the OS)
+            maybeStartService()
             loadAll()
         }
     }
@@ -137,11 +140,6 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             if (status.active != null) Tuner.ensureGuard(viewModelScope)
-            // resilience: if automation is enabled but the service is gone
-            // (app update, MIUI kill), bring it back on next open
-            if (config.enabled && !AutomationState.running.value) {
-                runCatching { AutomationService.start(getApplication()) }
-            }
         }.onFailure { e ->
             _state.update {
                 it.copy(
@@ -200,6 +198,16 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         config.defaultProfile = id
         if (config.enabled) {
             runCatching { AutomationService.refresh(getApplication()) }
+        }
+    }
+
+    /** Bring the service back if automation is on but the service is gone. */
+    private fun maybeStartService() {
+        if (config.enabled && !AutomationState.running.value) {
+            runCatching { AutomationService.start(getApplication()) }
+                .onFailure { e ->
+                    android.util.Log.w("MiFineTune", "automation service start failed: $e")
+                }
         }
     }
 

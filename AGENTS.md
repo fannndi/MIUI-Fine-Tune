@@ -129,15 +129,34 @@ State di device: `/data/adb/mifinetune/{profiles.json,state.json,snapshot.json}`
 - `net.tcp_rmem/wmem` direset network stack saat siklus display-off — profile
   tidak menyentuhnya (lihat Hard rule 2).
 
-## Automasi (v0.3+, sedang dibangun)
+## Automasi (v0.3)
 
-- `AutomationService` (foreground service, notifikasi senyap) +
-  `ModeArbiter` (logika murni) + `Tuner` singleton (mutex + drift guard).
-- Model UI: **Default Harian** (set sekali) + kartu home = override sementara;
-  app terpetakan menimpa saat di depan; layar mati → **Sleep**.
-- Deteksi app: UsageStats (auto-grant `appops set ... GET_USAGE_STATS allow`)
-  + fallback root-poll; poll hanya saat layar nyala.
-- *Bagian ini diperbarui saat Fase C selesai.*
+- **`Tuner`** (core/): satu mutex untuk apply/verify/restore dari UI, service,
+  dan drift guard; guard re-apply hanya key yang drift (15 dtk).
+- **`AutomationService`**: foreground service senyap (channel IMPORTANCE_MIN),
+  broadcast layar (SCREEN_ON/OFF/USER_PRESENT/POWER), poll 1,5 dtk saat layar
+  nyala & terbuka:
+  - **UsageStats = fast-path** — di MIUI event resume jarang dikirim, jadi
+    **root-peek (`dumpsys window`) tiap 2 tick (±3 dtk) adalah tulang
+    punggung**. Jangan hapus root-peek; jangan andalkan UsageStats saja.
+  - `seedForeground()` saat wake/unlock & saat service start (event resume
+    sering absen di kedua momen itu).
+- **`ModeArbiter`** (murni, 12 test JVM): layar mati → sleep (delay 10 dtk);
+  app terpetakan → profile-nya; lainnya → default; SystemUI/IME/app sendiri/
+  dialog izin = transient (jangan switch); launcher = sinyal balik ke default;
+  keyguard = jangan sentuh.
+- **Override sekali**: tap kartu home saat automasi ON → `AutomationState.overrideProfile`;
+  service mengonsumsinya di trigger berikutnya (default harian tidak berubah).
+- **Restore** = stock + automasi pause. **BootReceiver** = best-effort re-apply.
+  Service self-heal saat app dibuka (`maybeStartService` di `refresh()`, SEBELUM
+  loadAll — start FGS dari background akan ditolak OS).
+- **Sleep**: profile `sleep` (hidden), tidak menyentuh net/LMK/swap; skip musik/
+  charging opsional; diterapkan ±10 dtk setelah layar mati.
+- **Screens**: Home (grid profil + kartu automasi + navigasi), Apps Profile
+  (search + list + bottom sheet), Sleep, Setup — satu controller per layar
+  (`HomeViewModel`, `AutomationViewModel`), label di `ProfileLabels`.
+- **Gradle `syncCore`**: menyalin `core/profiles.json` + binary rilis ke
+  `app/src/main/assets/` pada setiap build (mencegah bug asset basi).
 
 ## Konvensi kode
 

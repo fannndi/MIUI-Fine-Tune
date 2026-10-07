@@ -66,6 +66,25 @@ core/  (Rust — satu-satunya writer)
 - **Network stack**: `net.tcp_rmem/wmem` tidak lagi diatur profile
   (ConnectivityService+netd memilikinya — lihat audit v2).
 
+### Automasi (v0.3)
+
+Cara pakai singkat:
+
+1. Ikon **Automasi** (kanan atas) → nyalakan switch.
+2. **Izin & setup**: akses penggunaan (otomatis via root), Autostart MIUI,
+   Hemat baterai → Tanpa batasan, kunci app di recent apps.
+3. **Default harian**: profile untuk app yang tidak dipetakan (mis. Power Save).
+4. **Apps Profile**: cari app/game → tap → pilih profile (mis. Azur Lane → Game).
+5. **Sleep (layar mati)**: aktif default, ±10 dtk setelah layar mati.
+
+Perilaku: app terpetakan → profile-nya (≤4 dtk) · keluar → balik Default ·
+layar mati → Sleep · unlock → kembali sesuai app. Kartu di home = override
+sementara (default tidak berubah). Restore = stock + automasi pause.
+
+Notifikasi & telpon tetap masuk saat Sleep: profile ini tidak menyentuh
+jaringan, LMK, swap, atau cpuset (diuji: ping lolos, doze normal, cap CPU
+moderat 1.2–1.5 GHz).
+
 ### Detail & drift (v0.2)
 
 - **Tombol Detail** di tiap kartu profile → dialog daftar lengkap parameter

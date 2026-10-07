@@ -65,9 +65,9 @@ object Tuner {
                 delay(15_000)
                 val st = runCatching { client.status() }.getOrNull() ?: continue
                 val active = st.active ?: break
-                runCatching { client.verify(active) }.onSuccess { rep ->
+                runCatching { mutex.withLock { client.verify(active) } }.onSuccess { rep ->
                     if (!rep.ok && rep.failed > 0) {
-                        runCatching { client.apply(active) }.onSuccess {
+                        runCatching { mutex.withLock { client.apply(active) } }.onSuccess {
                             driftFixed.value += rep.failed
                         }
                     }

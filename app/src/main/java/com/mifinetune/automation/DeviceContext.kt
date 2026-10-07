@@ -54,12 +54,6 @@ class ForegroundDetector(private val context: Context, private val bridge: RootB
         context.getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
 
     private var lastTs = System.currentTimeMillis()
-    private var startedAt = System.currentTimeMillis()
-    private var sawAnyEvent = false
-
-    /** True when UsageStats proved unusable and we poll the root shell. */
-    var usingFallback = false
-        private set
 
     /** Grant PACKAGE_USAGE_STATS app-op through root (idempotent). */
     fun ensureUsageAccess(bridge: RootBridge): Boolean {
@@ -77,34 +71,24 @@ class ForegroundDetector(private val context: Context, private val bridge: RootB
     }
 
     /**
-     * Returns the last package that came to the foreground since the previous
-     * call, or null when nothing happened.
+     * UsageStats fast path: last package that came to the foreground since the
+     * previous call, or null. On MIUI this stream is unreliable (resume events
+     * are rarely delivered), so the service always pairs it with [peekRoot].
      */
     fun poll(): String? {
-        if (usingFallback) return pollRoot()
         val now = System.currentTimeMillis()
         val events = try {
             usm.queryEvents(lastTs.coerceAtLeast(now - 10_000), now)
         } catch (e: Exception) {
-            Log.w(TAG, "UsageStats unavailable, switching to root fallback: $e")
-            usingFallback = true
-            return pollRoot()
+            lastTs = now
+            return null
         }
         lastTs = now
         var last: String? = null
         val ev = android.app.usage.UsageEvents.Event()
         while (events.hasNextEvent()) {
             events.getNextEvent(ev)
-            if (ev.eventType == EVENT_RESUMED) {
-                last = ev.packageName
-                sawAnyEvent = true
-            }
-        }
-        // If UsageStats silently returns nothing for a while (some ROMs neuter
-        // the app-op), switch to the root fallback.
-        if (!sawAnyEvent && now - startedAt > 60_000) {
-            Log.w(TAG, "no usage events observed — using root fallback")
-            usingFallback = true
+            if (ev.eventType == EVENT_RESUMED) last = ev.packageName
         }
         return last
     }
@@ -114,6 +98,9 @@ class ForegroundDetector(private val context: Context, private val bridge: RootB
         val m = Regex("u\\d+ ([A-Za-z0-9_.]+)/").find(r.out)
         m?.groupValues?.get(1)
     }.getOrNull()
+
+    /** One-shot root peek, used to seed the foreground right after unlock. */
+    fun peekRoot(): String? = pollRoot()
 
     private val EVENT_RESUMED: Int
         get() = if (Build.VERSION.SDK_INT >= 29) {
