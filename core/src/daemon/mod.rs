@@ -287,11 +287,11 @@ impl Runtime {
     /// `triggers`: "unlock" always evaluates (wake re-asserts the decision);
     /// "peek" only evaluates when the package changed (stream-down fallback).
     fn on_seed(&mut self, peeked: Option<String>, trigger: &str) {
-        let best = match peeked.clone() {
-            Some(p) if !arbiter::is_transient(Some(&p)) => Some(p),
-            _ => self.last_real.clone().or(peeked),
+        let best = match peeked.as_deref() {
+            Some(p) if !arbiter::is_transient(Some(p)) => Some(p.to_string()),
+            _ => self.last_real.clone().or_else(|| peeked.clone()),
         };
-        self.log(&format!("seed: peeked={:?} best={:?}", self.last_fg, best));
+        self.log(&format!("seed: peeked={peeked:?} best={best:?}"));
         let changed = best.is_some() && best != self.last_fg;
         if let Some(b) = best {
             self.last_fg = Some(b);

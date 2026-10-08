@@ -72,6 +72,7 @@ class DynamicProfileService : Service() {
     private var lastClientStart = 0L
     private var lastScreen: Boolean? = null
     private var lastLocked: Boolean? = null
+    private var lastNotified: Pair<String, String>? = null
     private val labelCache = mutableMapOf<String, String>()
 
     private val receiver = object : BroadcastReceiver() {
@@ -363,6 +364,11 @@ class DynamicProfileService : Service() {
     }
 
     private fun updateNotification(profileId: String, reason: String) {
+        // state events arrive on every visible change; the notification only
+        // needs a re-post when the profile or the reason changed
+        val key = profileId to reason
+        if (lastNotified == key) return
+        lastNotified = key
         val nm = getSystemService(NotificationManager::class.java)
         nm.notify(NOTIF_ID, buildNotification("active · $profileId · $reason"))
     }

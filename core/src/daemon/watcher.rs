@@ -25,6 +25,11 @@ const LOGCAT: &str = "/system/bin/logcat";
 /// Events older than this are history, not context (peek only).
 pub const MAX_PEEK_AGE_S: f64 = 60.0;
 
+/// logcat path; overridable for host tests (fake-logcat fixtures).
+fn logcat_bin() -> String {
+    std::env::var("MIFINETUNE_LOGCAT_BIN").unwrap_or_else(|_| LOGCAT.to_string())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WatcherKind {
     Fg,
@@ -100,7 +105,7 @@ fn spawn(
     tx: Sender<Msg>,
     mut on_line: impl FnMut(&str, &Sender<Msg>) + Send + 'static,
 ) -> Option<Watcher> {
-    let mut child = Command::new(LOGCAT)
+    let mut child = Command::new(logcat_bin())
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -129,7 +134,7 @@ fn spawn(
 /// One-shot peek of the most recent fresh resume event.
 /// Blocking — call from a short-lived thread. Uses the `-d` (dump) mode.
 pub fn peek_fg() -> Option<String> {
-    let out = Command::new(LOGCAT)
+    let out = Command::new(logcat_bin())
         .args([
             "-b",
             "events",
