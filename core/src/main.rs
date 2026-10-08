@@ -4,7 +4,7 @@
 //! Machine consumers (the Kotlin app) pass `--json`.
 //!
 //! `serve` is special: it does not return a JSON payload on exit — it runs
-//! the stdio daemon (JSON-lines protocol) until stdin closes. See `serve.rs`.
+//! the stdio daemon (JSON-lines protocol) until stdin closes. See `daemon/`.
 
 use mifinetune_core::engine::apply::{self, Store};
 use mifinetune_core::engine::catalog;
@@ -18,6 +18,8 @@ struct Args {
     id: Option<String>,
     state_dir: PathBuf,
     profiles: Option<PathBuf>,
+    /// `serve` only: config.json the app owns (default: <state-dir>/config.json).
+    config: Option<PathBuf>,
 }
 
 fn parse_args(argv: &[String]) -> Result<Args, String> {
@@ -25,6 +27,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut id: Option<String> = None;
     let mut state_dir = apply::default_state_dir();
     let mut profiles: Option<PathBuf> = None;
+    let mut config: Option<PathBuf> = None;
     let mut i = 0;
     while i < argv.len() {
         let a = &argv[i];
@@ -39,6 +42,11 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 i += 1;
                 let v = argv.get(i).ok_or("--profiles needs a value")?;
                 profiles = Some(PathBuf::from(v));
+            }
+            "--config" => {
+                i += 1;
+                let v = argv.get(i).ok_or("--config needs a value")?;
+                config = Some(PathBuf::from(v));
             }
             "--help" | "-h" => {
                 return Err(String::new()); // usage, not an error
@@ -61,10 +69,11 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         id,
         state_dir,
         profiles,
+        config,
     })
 }
 
-const USAGE: &str = "usage: miui-ft <command> [--json] [--state-dir DIR] [--profiles FILE]
+const USAGE: &str = "usage: miui-ft <command> [--json] [--state-dir DIR] [--profiles FILE] [--config FILE]
 commands:
   probe                 read device state (read-only)
   profiles              list bundled/available profiles
@@ -225,8 +234,12 @@ fn main() -> ExitCode {
     match args.cmd.as_str() {
         "serve" => {
             // stdio daemon: streams JSON-lines until stdin closes; never
-            // prints a one-shot payload (see serve.rs).
-            match mifinetune_core::serve::run() {
+            // prints a one-shot payload (see daemon/mod.rs).
+            let config = args
+                .config
+                .clone()
+                .unwrap_or_else(|| args.state_dir.join("config.json"));
+            match mifinetune_core::daemon::run(&args.state_dir, &config) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("error: {e}");

@@ -11,8 +11,8 @@
 //! Ownership model (see `engine::catalog`): FREE + BOOT-BASELINE parameters
 //! only; runtime-framework nodes are rejected even if a profile names them.
 
+pub mod daemon;
 pub mod engine;
-pub mod serve;
 
 /// Default profile set, bundled in the binary and mirrored in assets.
 pub const DEFAULT_PROFILES_JSON: &str = include_str!("../profiles.json");
