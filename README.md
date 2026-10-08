@@ -1,175 +1,127 @@
 # MiFineTune
 
-Profile switcher **selaras framework MIUI** untuk POCO X3 NFC (surya) — MIUI 12 /
-Android 10. Tiga profile one-tap (**Power Save / Balance / Game**) yang **hanya
-menyetel parameter bebas atau boot-baseline**, tidak pernah merebut kepemilikan
-framework MIUI.
+MIUI-harmonized performance profiles for the **POCO X3 NFC** (surya / sm6150 /
+MIUI 12 / Android 10, root via APatch).
 
-> Rust core (`miui-ft`) adalah satu-satunya penulis parameter. Aplikasi Kotlin
-> (Material 3) hanya memanggil binary via `su` dan menampilkan laporan.
+MiFineTune tunes only the parameters MIUI itself leaves alone. It never fights
+the framework, never touches SELinux, and always keeps a stock restore path.
 
-## Prinsip kepemilikan (Owner Map)
+- **Rust engine + daemon** (`core/`, binary `miui-ft`) — the only writer of
+  tuning parameters. Runs as a root daemon driven by the app.
+- **Kotlin/Compose app** — UI and Android lifecycle wiring only. No tuning
+  logic lives in Kotlin.
 
-| Tier | Arti | Contoh |
-|---|---|---|
-| `free` | Tidak ditulis siapapun di ROM/runtime | `vm.*`, `net.*`, `kernel.sched_*` (di luar blok post_boot), `block/queue/*` |
-| `baseline` | Ditulis **sekali saat boot** oleh `init.qcom.post_boot.sh` / transient oleh perf HAL — kita setel sebagai baseline, framework bebas menimpa | `scaling_governor`, `schedutil/*`, freq range, `core_ctl`, `stune`, cpuset non-game, GPU pwrlevel, I/O scheduler |
-| **dilarang** | Runtime milik framework — **selalu ditolak validator** bahkan jika disebut profile | thermal (`mi_thermald`, `thermal_message`, cooling), `msm_performance`/`cpu_boost`, `cpuset game/gamelite/vr` (PowerKeeper), LMK/zRAM/swappiness, charge |
+## The four components
 
-Aturan inti: **jangan rebut kepemilikan, boleh menyetel baseline.** Thermal
-tetap menang di `scaling_max`, boost perf HAL tetap transient, game cpuset
-tetap milik PowerKeeper.
+1. **Profiles** — three cards (Power Save / Balance / Game) plus a hidden
+   `sleep` profile. Tap a card = apply now + it becomes the universal **base**.
+2. **Apps Profile** — per-app mapping (e.g. Azur Lane → Game).
+3. **Service** — master switch. OFF = full stock restore + stop.
+4. **Dynamic Profile** — ON: a mapped app in front overrides the base and the
+   MIUI bridge follows it. OFF: the base always wins, mappings are ignored.
 
-## Arsitektur
+## Behavior (verified on device)
 
-```
-app/   (Kotlin + Compose Material3)
-├─ core/RootBridge.kt     deploy binary ke /data/local/tmp + eksekusi su
-├─ core/FtClient.kt       klien JSON untuk miui-ft
-├─ core/Models.kt         parser protocol
-├─ ui/HomeViewModel.kt    state: status, plan per profile, apply/restore
-└─ ui/HomeScreen.kt       status card + 3 kartu profile + dialog laporan
-core/  (Rust — satu-satunya writer)
-├─ catalog.rs   59 node: tier + path + kind + guard_path (anti-intervensi)
-├─ probe.rs     pembacaan read-only + opsi validasi + bukti framework
-├─ profile.rs   validasi & perencanaan (OPF clamp, invariant kernel, urutan tulis)
-├─ apply.rs     snapshot → tulis → read-back verify → restore
-└─ main.rs      probe | profiles | plan | apply | restore | verify | status
-```
-
-### Jaminan keamanan (teruji di device)
-
-- **Snapshot**: nilai stock direkam sebelum tulis pertama; `restore`
-  mengembalikan **100% persis** termasuk quirk ROM (`hispeed 1324600`).
-- **Read-back verify** setiap tulis; mismatch = failure (apply tidak "hijau"
-  palsu).
-- **Guard path**: prefix framework (thermal/perf lock/charge/LMK/zram/game
-  cpuset) ditolak di semua jalur tulis — termasuk snapshot buatan (tamper-proof).
-- **Invariant kernel** divalidasi sebelum menyentuh device:
-  `sched_downmigrate < sched_upmigrate` dan `gpu.min_pwrlevel > gpu.max_pwrlevel`
-  → urutan tulis diturunkan otomatis dari nilai live.
-- **Pass-2 otomatis**: pindah ke `schedutil` membuat node `policyN/schedutil/`
-  muncul → apply melakukan re-plan sekali untuk mengisi key yang sebelumnya
-  "node missing".
-- **LOCKED dilaporkan** (tidak pernah setengah diterapkan): node yang
-  ditolak kernel/SELinux/ROM (mis. `workqueue.power_efficient` = 444 di ROM ini,
-  governor GPU selain `msm-adreno-tz` = EINVAL) muncul sebagai chip⚠ + alasan.
-
-### Engine (v0.3)
-
-- **Profile `sleep` (baru, hidden dari kartu)**: mode layar mati — schedutil
-  adaptif, cap silver `1248000` / gold `1555200`, `min_cpus 1`, GPU cap,
-  normalisasi cpuset/stune. **Tidak menyentuh** net/LMK/swap/stune-cgroup —
-  telpon & notifikasi tetap responsif. Diuji device: 28/28 verified.
-- **Kind `FreqMax`**: cap freq yang lebih ketat dari thermal = in-sync (thermal
-  menang), bukan failure — hilangkan failure palsu saat device panas.
-- **Network stack**: `net.tcp_rmem/wmem` tidak lagi diatur profile
-  (ConnectivityService+netd memilikinya — lihat audit v2).
-
-### Dynamic Profile (v0.5)
-
-Konsep 4 komponen:
-
-1. **Profiles**: 3 aktif (Powersave/Balance/Game) + `sleep` (layar mati).
-   Tap kartu = pakai sekarang + jadi *base universal*.
-2. **Apps Profile**: cari app/game → tap → pilih profile (mis. Azur Lane → Game).
-3. **Service** (switch): master — ON = app jalan; OFF = semua nilai kembali
-   stock + service berhenti.
-4. **Dynamic Profile** (switch, di bawah Service): ON = app yang dipetakan
-   otomatis menimpa base saat dibuka (keluar → kembali ke base); OFF = **base
-   universal selalu dipakai**, walaupun app punya profile — buka game pun tetap
-   base. Butuh Service ON.
-
-Cara pakai singkat:
-
-1. Tap kartu profile → jadi base universal.
-2. **Apps Profile**: petakan app → profile (opsional).
-3. **Dynamic Profile**: ON kalau mau switching otomatis, OFF kalau mau manual.
-4. **Settings** (ikon gerigi): izin root/autostart/baterai + diagnostik.
-
-Perilaku (terverifikasi di device):
-
-| Kondisi | Hasil |
+| Condition | Result |
 |---|---|
-| Baru install / Service OFF | Stock (tanpa intervensi) |
-| App biasa (WA, YouTube, dll) | Base (yang terakhir kamu tap; default Balance) |
-| App terpetakan dibuka (Dynamic ON) | profile-nya, otomatis (~1 dtk via event system) |
-| Keluar dari app terpetakan | balik ke base |
-| App terpetakan dibuka (Dynamic OFF) | tetap base — mapping diabaikan |
-| Layar mati (±10 dtk) | Sleep |
-| Unlock | base / profile app di depan (sesuai Dynamic) |
-| Service OFF | semua nilai ditulis balik ke stock + service berhenti |
+| Fresh install / Service OFF | Stock (no intervention) |
+| Normal app (WhatsApp, ...) | Base profile (last tapped card) |
+| Mapped app in front (Dynamic ON) | Its profile, ~1 s via event system |
+| Leaving a mapped app | Back to base |
+| Mapped app in front (Dynamic OFF) | Base — mapping ignored |
+| Screen off (~10 s grace) | `sleep` |
+| Unlock | base / mapped app (per Dynamic) |
+| Split screen / floating window | Balance (fixed, overrides mapping) |
+| MIUI battery saver (user's own) | Base forced to Power Save |
+| MIUI Ultra battery saver | Full retire: restore + stop |
+| Service OFF | All values written back to stock + daemon exits |
 
-Catatan: saat Dynamic OFF, aturan non-app tetap jalan — Sleep, multi-window
-(split/floating) → Balance, dan MIUI battery saver (user) → base dipaksa
-PowerSave. Sync mode MIUI (Performance/Battery saver follow) ikut nonaktif
-karena digerakkan oleh mapping app.
+Non-app rules (sleep, multi-window, saver) keep working with Dynamic OFF —
+they are not driven by the app map. The MIUI bridge (performance mirror,
+saver follow, game-mode checker) is app-driven and stops with Dynamic OFF.
 
-Notifikasi & telpon tetap masuk saat Sleep: profile ini tidak menyentuh
-jaringan, LMK, swap, atau cpuset (diuji: ping lolos, doze normal, cap CPU
-moderat 1.2–1.5 GHz). Deteksi app memakai event system Android (bukan
-polling) sehingga perpindahan profile terasa instan.
+## How it works
 
-### Detail & drift (v0.2)
+```
+Compose UI ──► HomeViewModel ────────────────┐
+   │             │ (apply/restore while off) │ CLI: miui-ft apply ...
+   │             ▼                          ▼
+   │      DynamicProfileService ──► DaemonClient ──► su ──► miui-ft serve
+   │        (FGS + notification)      │  JSON-lines on stdio   (root daemon)
+   │                                  │                          │
+   └── DynamicProfileState ◄── events ┘                    ┌─────┴─────┐
+       (StateFlows for the UI)                             │ arbiter   │
+                                                           │ worker    │
+   config.json (app-owned, atomic writes) ── read ───────► │ watchers  │
+                                                           │ bridge    │
+                                                           │ engine    │
+                                                           └───────────┘
+```
 
-- **Tombol Detail** di tiap kartu profile → dialog daftar lengkap parameter
-  yang akan di-apply: key + badge tier (`free`/`baseline`) + `→ target (now: current)`
-  + status (in-sync/locked + alasan).
-- **Drift guard**: saat profile aktif, app verify read-only tiap 15 dtk dan
-  re-apply hanya key yang drift (counter terlihat di status card).
-- **Compat gate**: warning bila `ro.build.version.incremental` berbeda dengan
-  ROM tempat profile pack diaudit.
-- **Owner-map audit tool v2**: `tools/owner-map-audit.sh <rom-dir>` memverifikasi
-  tier katalog terhadap ROM unpacked (post_boot + perf HAL) **dan** terhadap
-  `tools/perf-hal-runtime-writers.txt` (runtime writer: strings `libqti-perfd.so`,
-  netd, major group XML). Temuan yang ditangkap saat pengembangan:
-  `sched_migration_cost_ns` (perf HAL), `watermark_scale_factor` (post_boot),
-  dan `net.tcp_rmem/wmem` (network stack — sekarang tidak dipakai profile).
-- **Uji display-off empiris**: `tools/display-off-diff.sh` (baca 67 node, matikan
-  layar lewat power-key, diff) — membuktikan hanya `net.tcp_rmem/wmem` yang
-  berubah saat layar mati di kondisi stock (reset oleh ConnectivityService→netd,
-  nilai `TcpBufferSizes` carrier terlihat di `dumpsys connectivity`).
-- **Kernel-verified validator** (branch `surya-q-oss`): aturan pair
-  `upmigrate ≥ downmigrate`, `task_thres ≥ num_cpus`, `min_cpus` pre-clamp,
-  `max_pwrlevel ≤ min_pwrlevel`, `stune boost 0..100`, dan cap freq `FreqMax`
-  (thermal lebih ketat = menang, bukan failure) — lihat `docs/ROM-HARMONY.md`
-  untuk kutipan source-nya.
+- The daemon reads `config.json`, watches foreground/multi-window via its own
+  `logcat -v epoch` streams, decides (pure arbiter), applies through the
+  in-process engine, and mirrors MIUI modes through the bridge.
+- The app forwards only Android-only signals (screen on/off, keyguard, ultra
+  saver broadcasts) and renders state.
+- Full details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+  [docs/IPC-PROTOCOL.md](docs/IPC-PROTOCOL.md).
 
-## Build & test
+## Build
 
 ```bash
-# audit Owner Map terhadap ROM unpacked (jalankan setiap ganti ROM/kernel)
-tools/owner-map-audit.sh ~/Downloads/MIO-KITCHEN-*/miui_SURYAGlobal_*_10.0
-
-# uji empiris perilaku layar-mati (stock): diff 67 node + node framework
-tools/display-off-diff.sh 60
-
-# Rust core (host tests + cross build arm64)
+# host: Rust tests (81 unit + 2 protocol E2E)
 cd core && cargo test
+
+# cross-build arm64 + refresh the app assets (syncCore also runs in Gradle)
 ANDROID_HOME=$HOME/Android/Sdk cargo ndk -t arm64-v8a build --release
-# binary: core/target/aarch64-linux-android/release/miui-ft
+cp target/aarch64-linux-android/release/miui-ft ../app/src/main/assets/miui-ft
 
-# Aplikasi
-./gradlew assembleDebug
+# app
+cd .. && ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-
-# CLI di device (root)
-adb shell su -c /data/local/tmp/mifinetune/miui-ft status
-adb shell su -c /data/local/tmp/mifinetune/miui-ft apply game --json
 ```
 
-## Layout device
+Toolchain: Gradle 9.7.1 / AGP 9.4.1 / Kotlin 2.4.20 (AGP built-in Kotlin),
+Compose BOM 2026.09.00, `compileSdk 37`, JDK 17, Rust stable + cargo-ndk.
 
-| Path | Isi |
+## CLI (`miui-ft`)
+
+The same binary serves the daemon and the one-shot CLI (used by tools and the
+service-off UI paths):
+
+| Command | Purpose |
 |---|---|
-| `/data/local/tmp/mifinetune/miui-ft` | binary Rust (di-deploy app, chmod 755) |
-| `/data/adb/mifinetune/profiles.json` | definisi profile (di-sync dari aset jika berbeda) |
-| `/data/adb/mifinetune/snapshot.json` | nilai stock (dihapus saat restore) |
-| `/data/adb/mifinetune/state.json` | profile aktif terakhir |
+| `serve` | stdio daemon (JSON-lines; app-driven lifecycle) |
+| `plan <id>` | dry-run: what would be written, per-key status (read-only) |
+| `apply <id>` | snapshot → write → read-back verify → set active |
+| `verify <id>` | compare live vs profile (drift detection, read-only) |
+| `restore` | write the stock snapshot back (consumes it on success) |
+| `status` | active profile, snapshot, catalog, device info |
+| `probe` | read every catalog node (JSON) |
+| `profiles` / `catalog` | bundled profile pack / full parameter catalog |
 
-Migrasi ke **full Rust** direncanakan: seluruh keputusan tuning sudah berada
-di crate `mifinetune-core`; Kotlin tinggal lapisan UI/bridge.
+State lives in `/data/adb/mifinetune/` (`state.json`, `snapshot.json`,
+`holds.json`); the binary is deployed to `/data/local/tmp/mifinetune/miui-ft`.
 
-## Lisensi
+## Safety guarantees (device-verified)
 
-Apache-2.0.
+- **Snapshot** — stock values are recorded before the first write; `restore`
+  puts them back byte-for-byte, including ROM quirks (`hispeed 1324600`).
+- **Read-back verify** — every write is verified; a mismatch is a failure
+  (no false green), with one transient retry for MIUI/thermal races.
+- **Forbidden-path guard** — framework-owned nodes (thermal, perf locks,
+  charge, LMK/zram, game cpusets, SELinux) are rejected on every write path,
+  even if a profile names them (`core/src/engine/catalog/forbidden.rs`).
+- **Harmony rules** — a stricter external cap (thermal) or floor (QoS) is
+  treated as "framework wins", not drift; see [docs/ROM-HARMONY.md](docs/ROM-HARMONY.md).
+- **Atomic state writes** — snapshot/state/holds/config are written with
+  tmp+rename; a crash never corrupts them.
+
+## Docs
+
+| File | Content |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | layers, daemon threads, data flow, precision policy |
+| [docs/IPC-PROTOCOL.md](docs/IPC-PROTOCOL.md) | command/event schema, lifecycle |
+| [docs/ROM-HARMONY.md](docs/ROM-HARMONY.md) | node ownership map, kernel invariants, audit findings |
+| [AGENTS.md](AGENTS.md) | file map + hard rules for AI agents and contributors |
