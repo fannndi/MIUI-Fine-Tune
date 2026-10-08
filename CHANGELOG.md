@@ -1,29 +1,42 @@
 # Changelog
 
-## v0.7.0 — observability (2026-10-08)
+## v0.7.0 — observability + adaptive guards (2026-10-08)
 
-Read-only telemetry, transition history and an in-app Diagnostics screen —
-the foundation for the env-aware guards (v0.7.x) and everything after.
+Read-only telemetry, transition history, an in-app Diagnostics screen and
+the first env-aware guards — the foundation for everything after.
 
 - **Env sampler** (`engine/env.rs` + `daemon/env.rs`): 30 s thread reading
   battery %/status/temp, the best CPU and GPU thermal zones (resolved by
   `type` at startup), and Adreno GPU busy; forwarded as `env` events on
-  change. `MIFINETUNE_SYSFS_ROOT` points host tests at a fake tree.
+  change. `MIFINETUNE_SYSFS_ROOT` points host tests at a fake tree;
+  `MIFINETUNE_ENV_SAMPLE_MS` overrides the cadence.
+- **Adaptive guards** (daemon + arbiter):
+  - battery guard: at/below `battery_floor_pct` (default 20) while not
+    charging → Power Save, beating mapping/saver/multi-window; sleep and
+    keyguard still win; release is immediate once charged;
+  - thermal guard: Game (mapped or base) steps down to Balance at
+    `thermal_ceiling_c` (default 75 °C), releases 5 °C lower (hysteresis);
+    a missing sensor keeps the last state;
+  - guard-verdict flips trigger `evaluate("env")` immediately.
 - **Transition history** (`daemon/stats.rs`): one entry per real profile
   switch (from/to/reason/battery/temp) persisted atomically to
   `stats.json` (500-entry cap, survives daemon restarts), served via `stats`.
 - **IPC**: new commands `diag` (daemon health: pid, uptime, watchers, holds,
   config, env, history size) and `stats`; new events `env`/`diag`/`stats`.
-- **App**: `/ui/DiagnosticsScreen.kt` (daemon health, live environment,
-  transition timeline, relayed daemon log with a 200-line in-memory ring);
-  Diagnostics row on Home with a live battery/temp/GPU summary.
+- **App**: `DiagnosticsScreen` (daemon health, live environment, transition
+  timeline, relayed daemon log with a 200-line in-memory ring); Diagnostics
+  row on Home with a live battery/temp/GPU summary; `GuardsCard` in Settings
+  (toggles + sliders, values commit on release).
 - **Doctor v2**: env telemetry checks, future-knob surface probe (f2fs /
   devfreq / kgsl / read-head), refresh-rate key, logcat `-v epoch` format.
-- **Tests**: 92 unit + 4 host E2E (new: fake-sysfs daemon test asserting
-  `env`/`diag`/`stats` end to end).
+- **Tests**: 100 unit + 5 host E2E (new: fake-sysfs daemon test asserting
+  `env`/`diag`/`stats` end to end, and a guard-reaction test driving
+  battery/thermal flips through the real decision path).
 - **Device E2E (POCO X3)**: doctor v2 all green; diagnostics screen shows
   live battery/thermal/GPU, uptime, watchers, holds; `stats.json` records
-  `sleep -> game -> powersave` with battery/temp and survives restarts.
+  `sleep -> game -> powersave` with battery/temp and survives restarts;
+  fake-sysfs CLI runs on device prove `low battery` → Power Save and
+  `thermal` → Balance; guards config roundtrip through the UI verified.
 
 ## v0.6.0 — full-Rust daemon (2026-10-08)
 

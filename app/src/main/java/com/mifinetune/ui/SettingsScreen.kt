@@ -56,6 +56,10 @@ fun SettingsScreen(
     val syncSaver = vm?.syncSaver?.collectAsStateWithLifecycle()?.value
     val gmodeChecker = vm?.gameModeChecker?.collectAsStateWithLifecycle()?.value
     val bridgeLog = vm?.bridgeLog?.collectAsStateWithLifecycle()?.value ?: emptyList()
+    val guardBattery = vm?.guardBattery?.collectAsStateWithLifecycle()?.value
+    val batteryFloor = vm?.batteryFloor?.collectAsStateWithLifecycle()?.value
+    val guardThermal = vm?.guardThermal?.collectAsStateWithLifecycle()?.value
+    val thermalCeiling = vm?.thermalCeiling?.collectAsStateWithLifecycle()?.value
 
     Scaffold(
         topBar = {
@@ -77,6 +81,21 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (vm != null && guardBattery != null && batteryFloor != null &&
+                guardThermal != null && thermalCeiling != null
+            ) {
+                GuardsCard(
+                    guardBattery = guardBattery,
+                    batteryFloor = batteryFloor,
+                    guardThermal = guardThermal,
+                    thermalCeiling = thermalCeiling,
+                    onGuardBattery = vm::setGuardBattery,
+                    onBatteryFloor = vm::setBatteryFloor,
+                    onGuardThermal = vm::setGuardThermal,
+                    onThermalCeiling = vm::setThermalCeiling,
+                )
+            }
+
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Background", style = MaterialTheme.typography.titleMedium)

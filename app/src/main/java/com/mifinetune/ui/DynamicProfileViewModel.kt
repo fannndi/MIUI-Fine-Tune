@@ -51,6 +51,12 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
     val gameModeChecker: StateFlow<Boolean> = config.gameModeCheckerFlow
     val bridgeLog: StateFlow<List<String>> = DynamicProfileState.bridgeLog
 
+    /** Adaptive guards (Settings page). */
+    val guardBattery: StateFlow<Boolean> = config.guardBatteryFlow
+    val batteryFloor: StateFlow<Int> = config.batteryFloorFlow
+    val guardThermal: StateFlow<Boolean> = config.guardThermalFlow
+    val thermalCeiling: StateFlow<Float> = config.thermalCeilingFlow
+
     private val _state = MutableStateFlow(DynamicProfileUiState())
     val state: StateFlow<DynamicProfileUiState> = _state.asStateFlow()
 
@@ -75,6 +81,22 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setGameModeChecker(v: Boolean) {
         config.gameModeChecker = v
+    }
+
+    fun setGuardBattery(v: Boolean) {
+        config.guardBattery = v
+    }
+
+    fun setBatteryFloor(v: Int) {
+        config.batteryFloor = v
+    }
+
+    fun setGuardThermal(v: Boolean) {
+        config.guardThermal = v
+    }
+
+    fun setThermalCeiling(v: Float) {
+        config.thermalCeiling = v
     }
 
     fun checkRoot() {

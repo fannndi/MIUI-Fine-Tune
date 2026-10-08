@@ -6,12 +6,54 @@
 
 use super::arbiter::{self, ArbiterInput, Decision, SLEEP_PROFILE};
 use super::bridge::SyncCtx;
+use super::config::DaemonConfig;
 use super::watcher;
 use super::worker::{self, Work};
 use super::{Runtime, PERIODIC_TICKS};
+use crate::engine::env::EnvSnapshot;
 use std::time::Instant;
 
+/// Thermal-guard release hysteresis: once engaged at the ceiling, the guard
+/// releases only after the CPU drops this many °C below it.
+pub const THERMAL_HYSTERESIS_C: f32 = 5.0;
+
+/// Battery guard predicate: enabled, percent known, at/below the floor and
+/// not charging (unknown charging counts as discharging — conservative).
+pub(super) fn battery_low(cfg: &DaemonConfig, env: &EnvSnapshot) -> bool {
+    cfg.guard_battery
+        && env.battery_pct.map(|p| p <= cfg.battery_floor_pct).unwrap_or(false)
+        && env.charging != Some(true)
+}
+
 impl Runtime {
+    /// Thermal guard with hysteresis: engage at the ceiling, release below
+    /// ceiling - [`THERMAL_HYSTERESIS_C`]. Unknown temperature keeps the
+    /// previous state (a missing sensor must never flap the profile).
+    pub(super) fn thermal_high(&mut self, enabled: bool, ceiling: f32) -> bool {
+        if !enabled {
+            self.thermal_stepped = false;
+            return false;
+        }
+        let stepped = self.thermal_stepped;
+        match self.env.cpu_temp_c {
+            Some(t) if t >= ceiling => {
+                if !stepped {
+                    self.log(&format!(
+                        "guard: CPU {t:.1} °C >= {ceiling:.0} °C — thermal step-down"
+                    ));
+                }
+                self.thermal_stepped = true;
+                true
+            }
+            Some(t) if stepped && t <= ceiling - THERMAL_HYSTERESIS_C => {
+                self.log(&format!("guard: CPU {t:.1} °C cooled — thermal release"));
+                self.thermal_stepped = false;
+                false
+            }
+            _ => stepped,
+        }
+    }
+
     /// The one decision point. `fg_override` mirrors the old `evaluate`:
     /// config toggles and unlocks evaluate for the *real* package even
     /// though our own (transient) app is technically in front.
@@ -19,11 +61,13 @@ impl Runtime {
         if self.retired {
             return;
         }
-        let cfg = self.config.get();
+        let cfg = self.config.get().clone();
         if !cfg.enabled {
             // the app owns lifecycle: it stops the service (and thus us)
             return;
         }
+        let battery_low = battery_low(&cfg, &self.env);
+        let thermal_high = self.thermal_high(cfg.guard_thermal, cfg.thermal_ceiling_c);
         let fg = fg_override.or_else(|| self.last_fg.clone());
         let input = ArbiterInput {
             service_enabled: true,
@@ -39,6 +83,8 @@ impl Runtime {
             ultra_saver: self.ultra,
             multi_window: self.multi_window,
             dynamic_profile: cfg.dynamic,
+            battery_low,
+            thermal_high,
         };
         match arbiter::decide(&input) {
             Decision::None => {

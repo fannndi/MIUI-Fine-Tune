@@ -55,6 +55,14 @@ A long-lived root process started once by the app. It owns:
 - **The environment sampler** (`env.rs`) — read-only telemetry (battery,
   thermal zones, GPU busy) into the main loop every 30 s; the app renders it
   live (`env` events) and `diag` reports it.
+- **Env-aware guards** — config-gated safety rules evaluated on every
+  decision and immediately when the guard verdict flips on a fresh sample:
+  - *battery guard*: at/below `battery_floor_pct` while not charging →
+    Power Save (beats mapping, saver and multi-window; sleep/lock still win);
+  - *thermal guard*: Game (mapped or base) steps down to Balance at
+    `thermal_ceiling_c`, releases 5 °C lower (hysteresis; a missing sensor
+    keeps the last state). The guard never fights the kernel — it acts
+    *below* the framework's own throttle.
 - **The transition history** (`stats.rs`) — one bounded, persisted entry per
   real profile switch (`stats.json`), served to the app's dashboard via the
   `stats` command.
@@ -129,12 +137,28 @@ UI switch OFF ──► config.enabled=false ──► daemon `restore` command
 
 ```
 env sampler (30 s) ──► Msg::Env ──► main loop ──► `env` event (on change)
-                                              └─► kept for diag + future guards
+                                              └─► kept for diag + guards
 app `diag`  ──► health snapshot (pid, uptime, watchers, holds, env, config)
 app `stats` ──► stats.json history (one entry per real switch)
 UI Diagnostics screen renders all three; the daemon log is relayed over
 stderr and ring-buffered in the app (no cable needed).
 ```
+
+### Env-aware guards
+
+```
+env sample ──► battery_low? / thermal_high? (hysteresis)
+                    │ flip (false->true or true->false)
+                    └─► evaluate("env") ──► arbiter guards:
+                         battery_low  -> Power Save    (reason "low battery")
+                         thermal_high -> Game->Balance (reason "thermal")
+```
+
+Both guards are pure inputs to the arbiter (decisions stay in one table);
+the hysteresis state machine lives in the daemon loop. Config keys:
+`guard_battery`, `battery_floor_pct`, `guard_thermal`, `thermal_ceiling_c`.
+Defaults: on / 20 % / on / 75 °C (surya starts kernel throttling around this
+band; guarding below it avoids hard steps without losing headroom).
 
 ## Harmony invariant
 

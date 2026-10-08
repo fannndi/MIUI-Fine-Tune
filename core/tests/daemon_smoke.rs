@@ -263,6 +263,79 @@ fn daemon_diag_stats_and_env_events() {
 }
 
 #[test]
+fn daemon_guards_react_to_env_changes() {
+    let dir = tmp("guards");
+    let cfg_path = dir.join("config.json");
+    std::fs::write(
+        &cfg_path,
+        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance",
+            "app_map":{"com.YoStarEN.AzurLane":"game"}}"#,
+    )
+    .unwrap();
+
+    // fake sysfs: battery low (10%, discharging), CPU cool
+    let root = dir.join("fake-root");
+    let w = |rel: &str, body: &str| {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    };
+    w("sys/class/power_supply/battery/capacity", "10\n");
+    w("sys/class/power_supply/battery/status", "Discharging\n");
+    w("sys/class/thermal/thermal_zone24/type", "cpuss-0-usr\n");
+    w("sys/class/thermal/thermal_zone24/temp", "35000\n");
+
+    let mut d = Daemon::spawn_env(
+        &dir,
+        &cfg_path,
+        &[
+            ("MIFINETUNE_SYSFS_ROOT", root.to_str().unwrap()),
+            ("MIFINETUNE_ENV_SAMPLE_MS", "200"),
+        ],
+    );
+
+    d.wait_for(|v| v["event"] == "hello", Duration::from_secs(5));
+    d.wait_for(|v| v["event"] == "env" && v["env"]["battery_pct"] == 10, Duration::from_secs(5));
+
+    // low battery beats the game mapping
+    d.send(json!({"cmd":"screen","on":true,"locked":false}));
+    d.send(json!({"cmd":"fg","pkg":"com.YoStarEN.AzurLane"}));
+    let applied = d.wait_for(
+        |v| v["event"] == "applied" && v["profile"] == "powersave",
+        Duration::from_secs(10),
+    );
+    assert_eq!(applied["reason"], "low battery");
+
+    // charged -> the mapping wins again
+    w("sys/class/power_supply/battery/capacity", "90\n");
+    let applied = d.wait_for(
+        |v| v["event"] == "applied" && v["profile"] == "game",
+        Duration::from_secs(10),
+    );
+    assert_eq!(applied["reason"], "app");
+
+    // hot CPU -> game steps down to balance (thermal)
+    w("sys/class/thermal/thermal_zone24/temp", "80000\n");
+    let applied = d.wait_for(
+        |v| v["event"] == "applied" && v["profile"] == "balance",
+        Duration::from_secs(10),
+    );
+    assert_eq!(applied["reason"], "thermal");
+
+    // cooled below the hysteresis band -> game returns
+    w("sys/class/thermal/thermal_zone24/temp", "69000\n");
+    let applied = d.wait_for(
+        |v| v["event"] == "applied" && v["profile"] == "game",
+        Duration::from_secs(10),
+    );
+    assert_eq!(applied["reason"], "app");
+
+    d.send(json!({"cmd":"shutdown"}));
+    d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn daemon_exits_on_stdin_eof() {
     let dir = tmp("eof");
     let cfg_path = dir.join("config.json");

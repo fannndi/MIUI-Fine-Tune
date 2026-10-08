@@ -44,11 +44,20 @@ impl Runtime {
 
     /// Fresh environment sample: keep it for guards + diag; forward to the
     /// app only when something changed (twice-a-minute silence otherwise).
+    /// A guard-verdict flip (battery/thermal) re-evaluates immediately.
     pub(super) fn on_env(&mut self, snap: EnvSnapshot) {
         let changed = snap != self.env;
+        let prev = (self.last_battery_low, self.thermal_stepped);
         self.env = snap;
         if changed {
             self.publisher.emit(&Event::Env { env: self.env.clone() });
+        }
+        let cfg = self.config.get().clone();
+        let bat = super::evaluate::battery_low(&cfg, &self.env);
+        let therm = self.thermal_high(cfg.guard_thermal, cfg.thermal_ceiling_c);
+        self.last_battery_low = bat;
+        if (bat, therm) != prev && cfg.enabled && !self.retired {
+            self.evaluate("env", None);
         }
     }
 

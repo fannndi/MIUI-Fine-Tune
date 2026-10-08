@@ -82,6 +82,7 @@ parameters, always through the catalog guard.
 | `ui/HomeDialogs.kt` | report / profile detail / locked-keys dialogs |
 | `ui/HomeViewModel.kt` + `HomeUiState.kt` | Home controller + UI state shapes |
 | `ui/DiagnosticsScreen.kt` | diagnostics screen (daemon health, env, history, log) |
+| `ui/SettingsGuards.kt` | adaptive guards card (battery floor / thermal ceiling) |
 | `ui/DynamicProfileViewModel.kt` | apps list + settings toggles controller |
 | `ui/AppsProfileScreen.kt` / `SettingsScreen.kt` / `UiBits.kt` / `ProfileLabels.kt` / `theme/` | Compose UI |
 
@@ -177,6 +178,10 @@ adb shell "su -c 'cat /data/adb/mifinetune/stats.json'"         # one entry per 
 
 # host-side telemetry simulation (no device needed)
 cd core && MIFINETUNE_SYSFS_ROOT=/path/to/fake-root cargo test --test daemon_smoke
+
+# env guards on device (fake sysfs; real nodes untouched by the guard test):
+#   battery 10%  -> 'applied ... reason=low battery'
+#   CPU 80 °C    -> 'applied ... reason=thermal'
 ```
 
 ## Device quirks (save yourself hours)

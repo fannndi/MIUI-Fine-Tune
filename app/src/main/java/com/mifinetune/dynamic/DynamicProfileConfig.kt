@@ -77,6 +77,32 @@ class DynamicProfileConfig private constructor(context: Context) {
         get() = _gameModeChecker.value
         set(v) = put { it.put("game_mode_checker", v) }
 
+    // --- adaptive guards (v0.7) ---------------------------------------------
+
+    private val _guardBattery = MutableStateFlow(true)
+    val guardBatteryFlow: StateFlow<Boolean> = _guardBattery
+    var guardBattery: Boolean
+        get() = _guardBattery.value
+        set(v) = put { it.put("guard_battery", v) }
+
+    private val _batteryFloor = MutableStateFlow(20)
+    val batteryFloorFlow: StateFlow<Int> = _batteryFloor
+    var batteryFloor: Int
+        get() = _batteryFloor.value
+        set(v) = put { it.put("battery_floor_pct", v.coerceIn(5, 50)) }
+
+    private val _guardThermal = MutableStateFlow(true)
+    val guardThermalFlow: StateFlow<Boolean> = _guardThermal
+    var guardThermal: Boolean
+        get() = _guardThermal.value
+        set(v) = put { it.put("guard_thermal", v) }
+
+    private val _thermalCeiling = MutableStateFlow(75f)
+    val thermalCeilingFlow: StateFlow<Float> = _thermalCeiling
+    var thermalCeiling: Float
+        get() = _thermalCeiling.value
+        set(v) = put { it.put("thermal_ceiling_c", v.coerceIn(60f, 90f).toDouble()) }
+
     private val _appMap = MutableStateFlow<Map<String, String>>(emptyMap())
     val appMapFlow: StateFlow<Map<String, String>> = _appMap
 
@@ -116,6 +142,10 @@ class DynamicProfileConfig private constructor(context: Context) {
         _syncMiuiPerf.value = json.optBoolean("sync_miui_perf", true)
         _syncSaver.value = json.optBoolean("sync_miui_saver", true)
         _gameModeChecker.value = json.optBoolean("game_mode_checker", true)
+        _guardBattery.value = json.optBoolean("guard_battery", true)
+        _batteryFloor.value = json.optInt("battery_floor_pct", 20).coerceIn(5, 50)
+        _guardThermal.value = json.optBoolean("guard_thermal", true)
+        _thermalCeiling.value = json.optDouble("thermal_ceiling_c", 75.0).toFloat().coerceIn(60f, 90f)
         _baseProfile = json.optString("base_profile", DEFAULT_BASE).ifEmpty { DEFAULT_BASE }
         val map = mutableMapOf<String, String>()
         json.optJSONObject("app_map")?.let { obj ->
@@ -130,10 +160,29 @@ class DynamicProfileConfig private constructor(context: Context) {
             val json = load() ?: baseJson()
             mutate(json)
             json.put("schema", 1)
+            fillDefaults(json)
             writeAtomic(json.toString())
             apply(json)
         }
         DaemonLink.configChanged()
+    }
+
+    /** Keeps the file explicit: missing keys would otherwise be daemon defaults. */
+    private fun fillDefaults(json: JSONObject) {
+        fun def(key: String, value: Any) {
+            if (!json.has(key)) json.put(key, value)
+        }
+        def("enabled", true)
+        def("dynamic", true)
+        def("base_profile", DEFAULT_BASE)
+        def("sync_miui_perf", true)
+        def("sync_miui_saver", true)
+        def("game_mode_checker", true)
+        def("guard_battery", true)
+        def("battery_floor_pct", 20)
+        def("guard_thermal", true)
+        def("thermal_ceiling_c", 75.0)
+        def("app_map", JSONObject())
     }
 
     private fun baseJson(): JSONObject = JSONObject()
@@ -144,6 +193,10 @@ class DynamicProfileConfig private constructor(context: Context) {
         .put("sync_miui_perf", _syncMiuiPerf.value)
         .put("sync_miui_saver", _syncSaver.value)
         .put("game_mode_checker", _gameModeChecker.value)
+        .put("guard_battery", _guardBattery.value)
+        .put("battery_floor_pct", _batteryFloor.value)
+        .put("guard_thermal", _guardThermal.value)
+        .put("thermal_ceiling_c", _thermalCeiling.value.toDouble())
         .put("app_map", JSONObject())
 
     private fun writeAtomic(body: String) {

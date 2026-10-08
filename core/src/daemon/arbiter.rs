@@ -28,6 +28,10 @@ pub struct ArbiterInput {
     pub multi_window: bool,
     /// Dynamic Profile: ON = mapped app overrides the base; OFF = base wins.
     pub dynamic_profile: bool,
+    /// Battery guard: below the floor, not charging (see `daemon::evaluate`).
+    pub battery_low: bool,
+    /// Thermal guard: CPU near the ceiling (hysteresis handled upstream).
+    pub thermal_high: bool,
 }
 
 impl Default for ArbiterInput {
@@ -44,6 +48,8 @@ impl Default for ArbiterInput {
             ultra_saver: false,
             multi_window: false,
             dynamic_profile: true,
+            battery_low: false,
+            thermal_high: false,
         }
     }
 }
@@ -103,6 +109,12 @@ pub fn decide(i: &ArbiterInput) -> Decision {
         return Decision::None;
     }
 
+    // Battery guard: below the floor (and not charging) the frugal base wins
+    // over mapping, saver and multi-window — the device is about to die.
+    if i.battery_low {
+        return Decision::Apply { profile: SAVER_PROFILE.into(), reason: "low battery".into() };
+    }
+
     // dual-app concurrency overrides mapping AND saver: two visible apps
     // need the middle ground (user verdict 2026-10-08)
     if i.multi_window {
@@ -124,10 +136,21 @@ pub fn decide(i: &ArbiterInput) -> Decision {
     // MIUI battery saver: the unmapped universe is forced to the frugal
     // base — mapped apps still win (the user may game under saver).
     let effective_base = if i.saver_on { SAVER_PROFILE } else { i.base_profile.as_str() };
-    match mapped {
+    let decision = match mapped {
         Some(profile) => Decision::Apply { profile, reason: "app".into() },
         None => Decision::Apply { profile: effective_base.to_string(), reason: "base".into() },
+    };
+
+    // Thermal guard: Game is the only profile worth stepping down (Balance
+    // already is the middle ground; Sleep/Saver are frugal by construction).
+    if i.thermal_high {
+        if let Decision::Apply { profile, .. } = &decision {
+            if profile == "game" {
+                return Decision::Apply { profile: MULTI_WINDOW_PROFILE.into(), reason: "thermal".into() };
+            }
+        }
     }
+    decision
 }
 
 #[cfg(test)]
@@ -159,6 +182,8 @@ mod tests {
             ultra_saver: ultra,
             multi_window: mw,
             dynamic_profile: dynamic,
+            battery_low: false,
+            thermal_high: false,
         }
     }
 
@@ -306,5 +331,66 @@ mod tests {
     fn dynamic_on_mapped_app_applies_mapped_profile() {
         let i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", false, false, false, true);
         assert_eq!(d(&i), applied("game", "app"));
+    }
+
+    // --- env guards (v0.7) ------------------------------------------------------
+
+    #[test]
+    fn battery_guard_forces_powersave_over_mapping() {
+        let mut i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", false, false, false, true);
+        i.battery_low = true;
+        assert_eq!(d(&i), applied("powersave", "low battery"));
+    }
+
+    #[test]
+    fn battery_guard_beats_saver_and_multi_window() {
+        let mut i = input(true, true, false, Some("com.example.app"), &[], "balance", true, false, true, true);
+        i.battery_low = true;
+        assert_eq!(d(&i), applied("powersave", "low battery"));
+    }
+
+    #[test]
+    fn battery_guard_does_not_beat_screen_off_or_keyguard() {
+        let mut i = input(true, false, false, Some("com.example.app"), &[], "balance", false, false, false, true);
+        i.battery_low = true;
+        assert_eq!(d(&i), applied("sleep", "screen off"));
+        let mut i = input(true, true, true, Some("com.example.app"), &[], "balance", false, false, false, true);
+        i.battery_low = true;
+        assert_eq!(d(&i), Decision::None);
+    }
+
+    #[test]
+    fn thermal_guard_steps_game_down_to_balance() {
+        let mut i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", false, false, false, true);
+        i.thermal_high = true;
+        assert_eq!(d(&i), applied("balance", "thermal"));
+    }
+
+    #[test]
+    fn thermal_guard_steps_a_game_base_down_too() {
+        let mut i = input(true, true, false, Some("com.whatsapp"), &[], "game", false, false, false, true);
+        i.thermal_high = true;
+        assert_eq!(d(&i), applied("balance", "thermal"));
+    }
+
+    #[test]
+    fn thermal_guard_leaves_other_profiles_alone() {
+        let mut i = input(true, true, false, Some("com.whatsapp"), &[], "powersave", false, false, false, true);
+        i.thermal_high = true;
+        assert_eq!(d(&i), applied("powersave", "base"));
+        let mut i = input(true, true, false, Some("com.whatsapp"), &[], "balance", false, false, false, true);
+        i.thermal_high = true;
+        assert_eq!(d(&i), applied("balance", "base"));
+        let mut i = input(true, false, false, Some("com.whatsapp"), &[], "game", false, false, false, true);
+        i.thermal_high = true;
+        assert_eq!(d(&i), applied("sleep", "screen off"), "sleep is already frugal");
+    }
+
+    #[test]
+    fn battery_guard_wins_over_thermal_guard() {
+        let mut i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", false, false, false, true);
+        i.battery_low = true;
+        i.thermal_high = true;
+        assert_eq!(d(&i), applied("powersave", "low battery"));
     }
 }

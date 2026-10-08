@@ -45,6 +45,24 @@ pub struct DaemonConfig {
     pub sync_miui_saver: bool,
     #[serde(default = "default_true")]
     pub game_mode_checker: bool,
+    /// Battery guard: force Power Save below the floor (unless charging).
+    #[serde(default = "default_true")]
+    pub guard_battery: bool,
+    #[serde(default = "default_battery_floor")]
+    pub battery_floor_pct: u8,
+    /// Thermal guard: step Game down to Balance near the thermal ceiling.
+    #[serde(default = "default_true")]
+    pub guard_thermal: bool,
+    #[serde(default = "default_thermal_ceiling")]
+    pub thermal_ceiling_c: f32,
+}
+
+fn default_battery_floor() -> u8 {
+    20
+}
+
+fn default_thermal_ceiling() -> f32 {
+    75.0
 }
 
 fn default_one() -> u32 {
@@ -62,6 +80,10 @@ impl Default for DaemonConfig {
             sync_miui_perf: true,
             sync_miui_saver: true,
             game_mode_checker: true,
+            guard_battery: true,
+            battery_floor_pct: default_battery_floor(),
+            guard_thermal: true,
+            thermal_ceiling_c: default_thermal_ceiling(),
         }
     }
 }
@@ -159,6 +181,9 @@ mod tests {
         assert!(c.enabled && c.dynamic);
         assert_eq!(c.base_profile, "balance");
         assert!(c.app_map.is_empty());
+        assert!(c.guard_battery && c.guard_thermal);
+        assert_eq!(c.battery_floor_pct, 20);
+        assert_eq!(c.thermal_ceiling_c, 75.0);
     }
 
     #[test]
@@ -168,6 +193,21 @@ mod tests {
         assert!(c.enabled, "missing enabled must default to true");
         assert!(c.dynamic);
         assert_eq!(c.schema, SCHEMA);
+        assert!(c.guard_battery, "guards default on");
+        assert_eq!(c.battery_floor_pct, 20);
+        assert_eq!(c.thermal_ceiling_c, 75.0);
+    }
+
+    #[test]
+    fn guard_fields_roundtrip() {
+        let c: DaemonConfig = serde_json::from_str(
+            r#"{"guard_battery":false,"battery_floor_pct":15,"guard_thermal":false,"thermal_ceiling_c":80.5}"#,
+        )
+        .unwrap();
+        assert!(!c.guard_battery);
+        assert_eq!(c.battery_floor_pct, 15);
+        assert!(!c.guard_thermal);
+        assert_eq!(c.thermal_ceiling_c, 80.5);
     }
 
     #[test]

@@ -97,6 +97,10 @@ struct Runtime {
     // environment + history
     env: EnvSnapshot,
     stats: Stats,
+    /// Thermal guard hysteresis state (engage at ceiling, release below).
+    thermal_stepped: bool,
+    /// Last battery-guard verdict (evaluate on flip only).
+    last_battery_low: bool,
     // device context
     screen_on: bool,
     locked: bool,
@@ -229,6 +233,8 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         started: Instant::now(),
         env: EnvSnapshot::default(),
         stats: Stats::load(state_dir),
+        thermal_stepped: false,
+        last_battery_low: false,
         screen_on: true,
         locked: false,
         multi_window: false,
