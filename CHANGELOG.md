@@ -24,6 +24,12 @@ daemon; Kotlin is now a thin UI + lifecycle client.
   lines) with a module index; no behavior change.
 - **Tests**: 84 Rust unit tests + 4 host E2E tests (daemon protocol ×3,
   watcher pipeline with a fake logcat).
+- **Device E2E (2026-10-08, POCO X3)**: pipe spawn + hello, config
+  migration, sleep timer + wake seed, live foreground events, mapped
+  game -> game + perf mirror, HOME -> base, Dynamic OFF/ON, Service
+  OFF restore (27 keys verified) + daemon bye, Service ON restart,
+  force-stop recovery, split-screen -> balance + back, notification
+  text, MW parser vs real GameBoosterService lines.
 - **Docs**: README, AGENTS, ARCHITECTURE, IPC-PROTOCOL, ROM-HARMONY — all
   English.
 
