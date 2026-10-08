@@ -90,6 +90,7 @@ class DynamicProfileService : Service() {
     private var supervisorJob: Job? = null
     private var applyWorker: Job? = null
     private var pendingDecision: Decision.Apply? = null
+    private var pendingPkg: String? = null
     private var pendingSince = 0L
     private var screenOn = true
     private var locked = false
@@ -318,11 +319,12 @@ class DynamicProfileService : Service() {
             return
         }
         val liveSaver = miState.readSaver()
+        val fgPkg = fgOverride ?: DynamicProfileState.lastForeground.value
         val input = ArbiterInput(
             serviceEnabled = true,
             screenOn = screenOn,
             keyguardLocked = locked,
-            foregroundPkg = fgOverride ?: DynamicProfileState.lastForeground.value,
+            foregroundPkg = fgPkg,
             appMap = config.appMap(),
             baseProfile = config.baseProfile,
             sleepProfile = ModeArbiter.SLEEP_PROFILE,
@@ -338,6 +340,7 @@ class DynamicProfileService : Service() {
             is Decision.None -> Log.d(TAG, "evaluate($trigger): no-op")
             is Decision.Apply -> {
                 Log.d(TAG, "evaluate($trigger): -> ${d.profileId} (${d.reason})")
+                pendingPkg = fgPkg
                 enqueue(d)
             }
             is Decision.Retire -> retire(trigger)
@@ -556,19 +559,21 @@ class DynamicProfileService : Service() {
                 pendingDecision = null
                 val usedSaver = pendingSaver
                 pendingSaver = false
-                performApply(decision, usedSaver)
+                val srcPkg = pendingPkg
+                pendingPkg = null
+                performApply(decision, usedSaver, srcPkg)
             }
         }
     }
 
-    private suspend fun performApply(d: Decision.Apply, usedSaver: Boolean) {
+    private suspend fun performApply(d: Decision.Apply, usedSaver: Boolean, srcPkg: String? = null) {
         // latency instrumentation: settle = enqueue -> worker start,
         // total = worker start -> apply verified (log-only, no behaviour)
         val startedAt = System.currentTimeMillis()
         val settle = if (pendingSince > 0) startedAt - pendingSince else 0
         pendingSince = 0
         // base forced by the battery saver carries its own label
-        val reasonText = if (usedSaver && d.reason == "base") "MIUI saver" else describe(d)
+        val reasonText = if (usedSaver && d.reason == "base") "MIUI saver" else describe(d, srcPkg)
         val current = runCatching { Tuner.status().active }.getOrNull()
         if (current == d.profileId) {
             // already in place — only refresh visible state
@@ -615,10 +620,13 @@ class DynamicProfileService : Service() {
             }
     }
 
-    private fun describe(d: Decision.Apply): String = when (d.reason) {
+    private fun describe(d: Decision.Apply, srcPkg: String?): String = when (d.reason) {
         "base" -> "base"
         "screen off" -> "screen off"
-        else -> DynamicProfileState.lastForeground.value?.let { labelFor(it) } ?: d.profileId
+        // srcPkg = the package the decision was computed for; falls back to
+        // the raw foreground for decisions from before this fix
+        else -> (srcPkg ?: DynamicProfileState.lastForeground.value)?.let { labelFor(it) }
+            ?: d.profileId
     }
 
     private fun labelFor(pkg: String): String = labelCache.getOrPut(pkg) {
