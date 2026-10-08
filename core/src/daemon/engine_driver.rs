@@ -3,18 +3,21 @@
 //! The daemon IS the engine (same binary), so apply/restore are direct
 //! function calls — no `su` round-trips, no CLI parsing.
 
+use super::bridge::Bridge;
 use super::worker::{EngineDriver, Outcome};
 use crate::engine::apply::{self, Store};
 use crate::engine::probe;
 use std::path::Path;
+use std::sync::Arc;
 
 pub struct EngineApplier {
     store: Store,
+    bridge: Arc<Bridge>,
 }
 
 impl EngineApplier {
-    pub fn new(state_dir: &Path) -> Self {
-        EngineApplier { store: Store::new(state_dir) }
+    pub fn new(state_dir: &Path, bridge: Arc<Bridge>) -> Self {
+        EngineApplier { store: Store::new(state_dir), bridge }
     }
 }
 
@@ -47,9 +50,10 @@ impl EngineDriver for EngineApplier {
         // Restore is idempotent: nothing to restore is a clean success
         // (the service-off flow must never fail on an empty snapshot).
         if self.store.load_snapshot().is_none() {
+            self.bridge.release_all();
             return Outcome { ok: true, wrote: 0, failed: 0, error: None, already: false };
         }
-        match apply::restore(&self.store, &probe::probe()) {
+        let out = match apply::restore(&self.store, &probe::probe()) {
             Ok(rep) => Outcome {
                 ok: rep.ok,
                 wrote: rep.wrote,
@@ -58,6 +62,12 @@ impl EngineDriver for EngineApplier {
                 already: false,
             },
             Err(e) => Outcome::err(e),
-        }
+        };
+        self.bridge.release_all();
+        out
+    }
+
+    fn release_holds(&mut self) {
+        self.bridge.release_all();
     }
 }
