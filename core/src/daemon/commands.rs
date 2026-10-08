@@ -118,7 +118,9 @@ impl Runtime {
                     holds: self.bridge.holds_info(),
                     stats_len: self.stats.entries.len(),
                 };
-                self.publisher.emit(&Event::Diag { diag });
+                self.publisher.emit(&Event::Diag {
+                    diag: Box::new(diag),
+                });
             }
             Command::Stats => {
                 self.publisher.emit(&Event::Stats {

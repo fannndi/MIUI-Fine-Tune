@@ -51,14 +51,19 @@ A long-lived root process started once by the app. It owns:
   reloads, profile-pack changes, explicit user taps and the **first apply of
   every daemon run** re-plan, so a pack update or drift that happened while
   the daemon was down is reconciled (new catalog keys land without a switch).
-- **Watchers** — two `logcat -v epoch` streams (events buffer for foreground
-  resume, main buffer for the GameBooster multi-window line) plus a one-shot
-  peek used to seed wake/unlock decisions.
+- **Watchers** — three `logcat -v epoch` streams (events buffer for
+  foreground resume, main buffer for the GameBooster multi-window line and
+  for `Choreographer: Skipped N frames!` jank lines) plus a one-shot peek
+  used to seed wake/unlock decisions.
 - **The bridge** — MIUI performance mirror + battery-saver follow + game-mode
   checker, with a hold/restore state machine persisted in `holds.json`.
 - **The environment sampler** (`env.rs`) — read-only telemetry (battery,
   thermal zones, GPU busy) into the main loop every 30 s; the app renders it
   live (`env` events) and `diag` reports it.
+- **Jank boost** (`evaluate.rs` + the jank watcher, opt-in, experimental)
+  — 10+ skipped frames raise the hidden `boost` profile for a few seconds
+  (rate-limited), then the supervisor returns to the normal decision. FAS
+  without frame tracing: the signal is the framework's own jank log.
 - **Charge guard** (`bridge/charge.rs`, opt-in) — pauses charging at the
   configured limit (release 5 % lower; the captured stock value returns on
   release/service-off). Fed by every env sample so it works with the screen

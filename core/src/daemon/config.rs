@@ -61,6 +61,10 @@ pub struct DaemonConfig {
     /// Storage maintenance: weekly bounded f2fs GC while charging + idle.
     #[serde(default)]
     pub maintenance: bool,
+    /// Jank boost (experimental FAS-lite): skipped frames raise a short
+    /// responsive overlay.
+    #[serde(default)]
+    pub jank_boost: bool,
     /// Charge guard: pause charging at the limit (opt-in, user-facing switch).
     #[serde(default)]
     pub charge_limit: bool,
@@ -101,6 +105,7 @@ impl Default for DaemonConfig {
             guard_thermal: true,
             thermal_ceiling_c: default_thermal_ceiling(),
             maintenance: false,
+            jank_boost: false,
             charge_limit: false,
             charge_limit_pct: default_charge_pct(),
         }
@@ -216,6 +221,7 @@ mod tests {
         assert!(c.sync_refresh);
         assert!(!c.maintenance, "maintenance is opt-in");
         assert!(!c.charge_limit, "charge limit is opt-in");
+        assert!(!c.jank_boost, "jank boost is opt-in");
         assert_eq!(c.charge_limit_pct, 80);
     }
 

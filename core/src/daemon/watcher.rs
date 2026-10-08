@@ -34,6 +34,7 @@ fn logcat_bin() -> String {
 pub enum WatcherKind {
     Fg,
     Mw,
+    Jank,
 }
 
 impl WatcherKind {
@@ -41,6 +42,7 @@ impl WatcherKind {
         match self {
             WatcherKind::Fg => "foreground",
             WatcherKind::Mw => "multi-window",
+            WatcherKind::Jank => "jank",
         }
     }
 }
@@ -102,6 +104,26 @@ pub fn spawn_mw(tx: Sender<Msg>) -> Option<Watcher> {
                     active: other.is_some(),
                     other,
                 });
+            }
+        },
+    )
+}
+
+/// Spawns the jank stream (`Choreographer: Skipped N frames!`). Freshness is
+/// checked so a buffer replay cannot boost at startup.
+pub fn spawn_jank(tx: Sender<Msg>) -> Option<Watcher> {
+    spawn(
+        WatcherKind::Jank,
+        &["-b", "main", "-v", "epoch", "-s", "Choreographer:V"],
+        tx,
+        |line, tx| {
+            if let Some(frames) = parse_jank_line(line) {
+                if line_epoch(line)
+                    .map(|e| is_fresh(e, now_epoch()))
+                    .unwrap_or(false)
+                {
+                    let _ = tx.send(Msg::Jank { frames });
+                }
             }
         },
     )
@@ -223,6 +245,14 @@ pub fn parse_mw_line(line: &str) -> Option<Option<String>> {
     }
 }
 
+/// `Choreographer: Skipped N frames!` -> Some(N).
+pub fn parse_jank_line(line: &str) -> Option<u32> {
+    const KEY: &str = "Choreographer: Skipped ";
+    let idx = line.find(KEY)?;
+    let rest = &line[idx + KEY.len()..];
+    rest.split_whitespace().next()?.parse().ok()
+}
+
 /// Restart backoff for dead streams (matches the old Java-side policy).
 pub const RESTART_BACKOFF: Duration = Duration::from_secs(10);
 
@@ -277,5 +307,17 @@ mod tests {
         let off = "1760022735.123  1234  1234 D GameBoosterService: onGameStatusChange id=1 mForegroundPackageName='com.miui.home' mMultiWindowForegroundPackageName='null'";
         assert_eq!(parse_mw_line(off).unwrap(), None);
         assert!(parse_mw_line("unrelated line").is_none());
+    }
+
+    #[test]
+    fn parse_choreographer_jank_line() {
+        let line = "1791471427.395 12072 12072 I Choreographer: Skipped 93 frames!  The application may be doing too much work on its main thread.";
+        assert_eq!(parse_jank_line(line), Some(93));
+        assert_eq!(
+            parse_jank_line("1.0 1 1 I Choreographer: Skipped 1 frames!"),
+            Some(1)
+        );
+        assert!(parse_jank_line("1.0 1 1 I Choreographer: doing work").is_none());
+        assert!(parse_jank_line("unrelated").is_none());
     }
 }

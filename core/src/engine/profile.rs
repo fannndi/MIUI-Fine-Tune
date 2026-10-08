@@ -57,9 +57,9 @@ mod tests {
     fn embedded_profiles_parse_and_validate_shape() {
         let json = include_str!("../../profiles.json");
         let file = parse_profiles(json).expect("bundled profiles.json must parse");
-        assert_eq!(file.profiles.len(), 4);
+        assert_eq!(file.profiles.len(), 5);
         let ids: Vec<&str> = file.profiles.iter().map(|p| p.id.as_str()).collect();
-        assert_eq!(ids, vec!["powersave", "balance", "game", "sleep"]);
+        assert_eq!(ids, vec!["powersave", "balance", "game", "sleep", "boost"]);
         // every key of every profile must exist in the catalog
         for prof in &file.profiles {
             for key in prof.params.keys() {

@@ -84,6 +84,10 @@ enum Msg {
     Env(EnvSnapshot),
     /// Storage maintenance finished (result to persist + report).
     MaintDone(maintenance::MaintOutcome),
+    /// Choreographer jank line (frames skipped) from the daemon's stream.
+    Jank {
+        frames: u32,
+    },
     /// A watcher stream died; the supervisor restarts it with backoff.
     WatcherDown(WatcherKind),
 }
@@ -140,7 +144,12 @@ struct Runtime {
     // watchers
     fg_watcher: Option<Watcher>,
     mw_watcher: Option<Watcher>,
+    jank_watcher: Option<Watcher>,
     last_watcher_restart: Instant,
+    /// Jank-boost window (experimental FAS-lite): active until this instant.
+    boost_until: Option<Instant>,
+    /// Cooldown anchor (last boost start).
+    last_boost: Option<Instant>,
     // event dedupe
     last_state: Snapshot,
 }
@@ -287,16 +296,23 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         sleep_deadline: None,
         fg_watcher: None,
         mw_watcher: None,
+        jank_watcher: None,
         last_watcher_restart: Instant::now(),
+        boost_until: None,
+        last_boost: None,
         last_state: Snapshot::default(),
     };
     rt.fg_watcher = watcher::spawn_fg(rt.tx.clone());
     rt.mw_watcher = watcher::spawn_mw(rt.tx.clone());
+    rt.jank_watcher = watcher::spawn_jank(rt.tx.clone());
     if rt.fg_watcher.is_none() {
         rt.log("foreground watcher: failed to spawn logcat");
     }
     if rt.mw_watcher.is_none() {
         rt.log("multi-window watcher: failed to spawn logcat");
+    }
+    if rt.jank_watcher.is_none() {
+        rt.log("jank watcher: failed to spawn logcat");
     }
     // read-only telemetry (battery / thermal / GPU busy) for diag + guards
     env::spawn(msg_tx.clone());
@@ -328,6 +344,7 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
             Ok(Msg::Peek { pkg, trigger }) => rt.on_seed(pkg, trigger),
             Ok(Msg::Env(snap)) => rt.on_env(snap),
             Ok(Msg::MaintDone(out)) => rt.on_maint_done(out),
+            Ok(Msg::Jank { frames }) => rt.on_jank(frames),
             Ok(Msg::WatcherDown(kind)) => {
                 rt.log(&format!("{} stream ended", kind.name()));
             }
@@ -380,6 +397,9 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         w.stop();
     }
     if let Some(w) = rt.mw_watcher.as_mut() {
+        w.stop();
+    }
+    if let Some(w) = rt.jank_watcher.as_mut() {
         w.stop();
     }
     // releases bridge holds on a clean exit; an abrupt kill self-heals next

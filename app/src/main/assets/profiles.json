@@ -200,6 +200,24 @@
         "devfreq.cpu0_l3_lat.min_freq": "300000000",
         "devfreq.cpu6_l3_lat.min_freq": "300000000"
       }
+    },
+    {
+      "id": "boost",
+      "label": "Boost",
+      "desc": "Transient jank-recovery overlay (a few seconds): responsive CPU floors only; GPU/IO untouched.",
+      "hidden": true,
+      "params": {
+        "policy0.scaling_governor": "schedutil",
+        "policy0.scaling_min_freq": "768000",
+        "policy0.scaling_max_freq": "1804800",
+        "policy0.schedutil.hispeed_freq": "1497600",
+        "policy0.schedutil.hispeed_load": "75",
+        "policy0.core_ctl.min_cpus": "6",
+        "policy0.core_ctl.task_thres": "12",
+        "policy6.scaling_min_freq": "1094400",
+        "policy6.schedutil.hispeed_freq": "1555200",
+        "policy6.schedutil.hispeed_load": "70"
+      }
     }
   ]
 }

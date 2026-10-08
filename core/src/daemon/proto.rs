@@ -88,8 +88,8 @@ pub enum Event {
     State { state: Snapshot },
     /// Environment sample (battery / thermal / GPU busy) — emitted on change.
     Env { env: EnvSnapshot },
-    /// Diagnostics reply for `cmd: diag`.
-    Diag { diag: DiagInfo },
+    /// Diagnostics reply for `cmd: diag` (boxed: it carries the whole config).
+    Diag { diag: Box<DiagInfo> },
     /// Transition history reply for `cmd: stats`.
     Stats { entries: Vec<StatEntry> },
     /// Bridge timeline entry (MIUI mode writes).

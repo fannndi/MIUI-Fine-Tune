@@ -30,6 +30,10 @@ case "$*" in
         echo "$EPOCH.000  1234  1234 D GameBoosterService: onGameStatusChange id=1 mForegroundPackageName='com.miui.home' mMultiWindowForegroundPackageName='null'"
         rm -f "$MIFINETUNE_MW_OFF_FILE"
       fi
+      if [ -f "$MIFINETUNE_JANK_FILE" ]; then
+        echo "$EPOCH.000  1234  1234 I Choreographer: Skipped 42 frames!  The application may be doing too much work on its main thread."
+        rm -f "$MIFINETUNE_JANK_FILE"
+      fi
       sleep 0.5
       i=$((i+1))
     done
@@ -135,5 +139,60 @@ fn watchers_drive_the_full_pipeline() {
     d.send(json!({"cmd":"shutdown"}));
     d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn jank_boost_overlay_round_trip() {
+    let dir = tmp("jank");
+    write_fake_logcat(&dir);
+    std::fs::write(
+        dir.join("config.json"),
+        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance","jank_boost":true}"#,
+    )
+    .unwrap();
+
+    let logcat = dir.join("fake-logcat.sh");
+    let fg = dir.join("fg-on");
+    let mw = dir.join("mw-on");
+    let mw_off = dir.join("mw-off");
+    let jank = dir.join("jank-on");
+    let mut d = Daemon::spawn_env(
+        &dir.join("state"),
+        &dir.join("config.json"),
+        &[
+            ("MIFINETUNE_LOGCAT_BIN", logcat.to_str().unwrap()),
+            ("MIFINETUNE_FG_FILE", fg.to_str().unwrap()),
+            ("MIFINETUNE_MW_FILE", mw.to_str().unwrap()),
+            ("MIFINETUNE_MW_OFF_FILE", mw_off.to_str().unwrap()),
+            ("MIFINETUNE_JANK_FILE", jank.to_str().unwrap()),
+            ("MIFINETUNE_BOOST_SECS", "1"),
+            ("MIFINETUNE_BOOST_COOLDOWN_SECS", "0"),
+        ],
+    );
+
+    // base decision first (the fake fg stream seeds whatsapp)
+    d.wait_for(
+        |v| v["event"] == "applied" && v["profile"] == "balance",
+        Duration::from_secs(10),
+    );
+
+    // a jank burst raises the hidden boost overlay
+    std::fs::write(&jank, "1").unwrap();
+    let applied = d.wait_for(
+        |v| v["event"] == "applied" && v["profile"] == "boost",
+        Duration::from_secs(10),
+    );
+    assert_eq!(applied["reason"], "jank");
+
+    // after the short window the normal decision returns
+    let applied = d.wait_for(
+        |v| v["event"] == "applied" && v["profile"] == "balance",
+        Duration::from_secs(10),
+    );
+    assert_eq!(applied["ok"], true);
+
+    d.send(json!({"cmd":"shutdown"}));
+    d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
     let _ = std::fs::remove_dir_all(&dir);
 }

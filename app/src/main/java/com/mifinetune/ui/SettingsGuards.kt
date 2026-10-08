@@ -35,6 +35,7 @@ internal fun GuardsCard(
     maintenance: Boolean,
     chargeLimit: Boolean,
     chargeLimitPct: Int,
+    jankBoost: Boolean,
     onGuardBattery: (Boolean) -> Unit,
     onBatteryFloor: (Int) -> Unit,
     onGuardThermal: (Boolean) -> Unit,
@@ -42,6 +43,7 @@ internal fun GuardsCard(
     onMaintenance: (Boolean) -> Unit,
     onChargeLimit: (Boolean) -> Unit,
     onChargeLimitPct: (Int) -> Unit,
+    onJankBoost: (Boolean) -> Unit,
 ) {
     var floor by remember { mutableFloatStateOf(batteryFloor.toFloat()) }
     LaunchedEffect(batteryFloor) { floor = batteryFloor.toFloat() }
@@ -131,6 +133,19 @@ internal fun GuardsCard(
                     valueRange = 60f..95f,
                     steps = 6,
                 )
+            }
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Jank boost (experimental)", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "10+ skipped frames → 5 s responsive overlay " +
+                            "(rate-limited; returns to the normal profile)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = jankBoost, onCheckedChange = onJankBoost)
             }
         }
     }

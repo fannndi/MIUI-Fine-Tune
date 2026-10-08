@@ -162,7 +162,7 @@ mod tests {
         let dir = tmpdir("profiles");
         let store = Store::new(&dir);
         let p = store.load_profiles(None).unwrap();
-        assert_eq!(p.profiles.len(), 4); // powersave, balance, game, sleep
+        assert_eq!(p.profiles.len(), 5); // powersave, balance, game, sleep, boost
         let _ = fs::remove_dir_all(&dir);
     }
 }

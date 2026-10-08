@@ -58,6 +58,7 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
     val guardThermal: StateFlow<Boolean> = config.guardThermalFlow
     val thermalCeiling: StateFlow<Float> = config.thermalCeilingFlow
     val maintenance: StateFlow<Boolean> = config.maintenanceFlow
+    val jankBoost: StateFlow<Boolean> = config.jankBoostFlow
     val chargeLimit: StateFlow<Boolean> = config.chargeLimitFlow
     val chargeLimitPct: StateFlow<Int> = config.chargeLimitPctFlow
 
@@ -109,6 +110,10 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setMaintenance(v: Boolean) {
         config.maintenance = v
+    }
+
+    fun setJankBoost(v: Boolean) {
+        config.jankBoost = v
     }
 
     fun setChargeLimit(v: Boolean) {
