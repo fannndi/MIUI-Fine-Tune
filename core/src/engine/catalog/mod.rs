@@ -21,7 +21,7 @@ mod entries;
 mod forbidden;
 
 pub use entries::catalog;
-pub use forbidden::{FORBIDDEN_KEYS, FORBIDDEN_PREFIXES};
+pub use forbidden::{ALLOWED_EXACT, FORBIDDEN_KEYS, FORBIDDEN_PREFIXES};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -112,6 +112,10 @@ pub fn find(key: &str) -> Option<&'static Entry> {
 /// A prefix matches on a path boundary: exact, `/`, or a digit (so
 /// `/sys/block/zram` also covers `/sys/block/zram0/disksize`).
 pub fn guard_path(path: &str) -> Result<(), String> {
+    // explicitly audited exact paths win over their prefix (catalog evidence)
+    if ALLOWED_EXACT.contains(&path) {
+        return Ok(());
+    }
     for p in FORBIDDEN_PREFIXES {
         if path == *p {
             return Err(format!("FORBIDDEN: {path} is owned by the MIUI framework"));

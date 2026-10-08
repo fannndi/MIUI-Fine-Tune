@@ -39,6 +39,7 @@ the framework, never touches SELinux, and always keeps a stock restore path.
 | Mapped game in front | + MIUI perf mirror + 120 Hz refresh |
 | Power Save-mapped app in front | + MIUI battery saver + 60 Hz refresh |
 | Charging + idle (weekly, opt-in) | Bounded f2fs GC window (`dirty_segments` → ≤100) |
+| Charge limit (opt-in, default 80 %) | Charging pauses at the limit, resumes 5 % lower; stock switch returns on exit |
 | Service OFF | All values written back to stock + daemon exits |
 
 Non-app rules (sleep, multi-window, saver, env guards) keep working with

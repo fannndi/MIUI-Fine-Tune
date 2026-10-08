@@ -18,6 +18,7 @@
 //! single Mutex serializes all state + IO — the old "two syncs raced and
 //! yo-yoed the mode" bug class is structurally impossible.
 
+mod charge;
 mod holds;
 mod sync;
 
@@ -64,9 +65,11 @@ impl Bridge {
                 saver_saved: f.saver_saved,
                 refresh_held: f.refresh_held,
                 refresh_saved: f.refresh_saved,
+                charge_held: f.charge_held,
+                charge_saved: f.charge_saved,
             })
             .unwrap_or_default();
-        if holds.perf_held || holds.saver_held || holds.refresh_held {
+        if holds.perf_held || holds.saver_held || holds.refresh_held || holds.charge_held {
             publisher.log("bridge: recovered holds from previous run");
         }
         let bridge = Arc::new(Bridge {
@@ -102,6 +105,8 @@ impl Bridge {
             saver_saved: st.holds.saver_saved,
             refresh_held: st.holds.refresh_held,
             refresh_saved: st.holds.refresh_saved.clone(),
+            charge_held: st.holds.charge_held,
+            charge_saved: st.holds.charge_saved.clone(),
         }
     }
 
@@ -134,15 +139,16 @@ impl Bridge {
     pub fn sync(&self, ctx: &SyncCtx) {
         // The lock is held across the settings execs so two syncs can never
         // interleave their read/write pairs (the old yo-yo bug class).
-        let (perf_changed, saver_changed, refresh_changed) = {
+        let (perf_changed, saver_changed, refresh_changed, charge_changed) = {
             let mut st = self.lock();
             let perf_changed = self.sync_perf(&mut st, ctx);
             let saver_changed = self.sync_saver(&mut st, ctx);
             let refresh_changed = self.sync_refresh(&mut st, ctx);
+            let charge_changed = self.sync_charge(&mut st, ctx);
             self.game_check(&mut st, ctx);
-            (perf_changed, saver_changed, refresh_changed)
+            (perf_changed, saver_changed, refresh_changed, charge_changed)
         };
-        if perf_changed || saver_changed || refresh_changed {
+        if perf_changed || saver_changed || refresh_changed || charge_changed {
             self.refresh_attribution();
             let st = self.lock();
             self.persist(&st);
@@ -191,6 +197,16 @@ impl Bridge {
                 st.holds.refresh_saved = None;
                 changed = true;
             }
+            if st.holds.charge_held {
+                let value = st.holds.charge_saved.clone().unwrap_or_else(|| "1".into());
+                let node = crate::engine::env::default_root()
+                    .join("sys/class/power_supply/battery/battery_charging_enabled");
+                let _ = crate::engine::apply::guarded_write(&node.display().to_string(), &value);
+                self.log_event(format!("charge resumed (node {value})"));
+                st.holds.charge_held = false;
+                st.holds.charge_saved = None;
+                changed = true;
+            }
             changed
         };
         if changed {
@@ -210,6 +226,8 @@ impl Bridge {
             saver_saved: st.holds.saver_saved,
             refresh_held: st.holds.refresh_held,
             refresh_saved: st.holds.refresh_saved.clone(),
+            charge_held: st.holds.charge_held,
+            charge_saved: st.holds.charge_saved.clone(),
         };
         let Ok(s) = serde_json::to_string_pretty(&file) else {
             return;
@@ -236,6 +254,8 @@ mod tests {
             saver_saved: true,
             refresh_held: true,
             refresh_saved: Some("60".into()),
+            charge_held: true,
+            charge_saved: Some("1".into()),
         };
         std::fs::write(dir.join("holds.json"), serde_json::to_string(&f).unwrap()).unwrap();
         let publisher = Publisher::new();
@@ -247,6 +267,8 @@ mod tests {
         assert!(st.holds.saver_saved);
         assert!(st.holds.refresh_held);
         assert_eq!(st.holds.refresh_saved.as_deref(), Some("60"));
+        assert!(st.holds.charge_held);
+        assert_eq!(st.holds.charge_saved.as_deref(), Some("1"));
         drop(st);
         let _ = std::fs::remove_dir_all(&dir);
     }

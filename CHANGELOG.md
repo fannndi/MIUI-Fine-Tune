@@ -31,6 +31,14 @@ the first env-aware guards — the foundation for everything after.
   V12.0.9 ROM + kernel source; kgsl micro knobs stay out (the perf HAL
   runtime-writes the safe ones — force_clk_on/no_nap/idle_timer — and the
   rest are hang-recovery/firmware semantics).
+- **Charge guard (opt-in)**: pause charging at a configurable limit
+  (default 80 %, release 5 % lower), using the ROM's own user-facing
+  `battery_charging_enabled` switch (init.target.rc chmod 0777 — the single
+  `power_supply` path in ALLOWED_EXACT, Baseline). The hold captures the
+  stock value and returns it on release/service-off; the guard is fed by
+  every env sample so it works overnight with the screen off. Device E2E:
+  node 1 → 0 → 1, `charge paused at 100% (limit 80)` / `charge resumed`,
+  release verified through Service OFF (restore retry by design).
 - **Storage maintenance (opt-in)**: weekly bounded f2fs GC while charging +
   screen off, reusing the ROM's own `checkpoint_gc` pattern (short
   `gc_urgent_sleep_time`, `gc_urgent=1`, poll `dirty_segments` to ≤100,
@@ -57,9 +65,9 @@ the first env-aware guards — the foundation for everything after.
   the system file picker (validated + clamped, unknown keys ignored).
 - **Doctor v2**: env telemetry checks, future-knob surface probe (f2fs /
   devfreq / kgsl / read-head), refresh-rate key, logcat `-v epoch` format.
-- **Tests**: 109 unit + 11 host E2E across three binaries (protocol/decision,
-  watcher streams, bridge hold/restore; fake-sysfs env/guard E2E; profile
-  pack update E2E; maintenance trigger E2E).
+- **Tests**: 113 unit + 12 host E2E across three binaries (protocol/decision,
+  watcher streams, bridge hold/restore incl. charge hysteresis; fake-sysfs
+  env/guard E2E; profile pack update E2E; maintenance trigger E2E).
 - **CI** (`.github/workflows/ci.yml`): Rust job (fmt check, clippy with
   `-D warnings`, all tests) and an Android job (NDK arm64 core build +
   `assembleDebug`); the identical coverage runs locally with `cargo test`.

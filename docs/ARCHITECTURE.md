@@ -59,6 +59,10 @@ A long-lived root process started once by the app. It owns:
 - **The environment sampler** (`env.rs`) — read-only telemetry (battery,
   thermal zones, GPU busy) into the main loop every 30 s; the app renders it
   live (`env` events) and `diag` reports it.
+- **Charge guard** (`bridge/charge.rs`, opt-in) — pauses charging at the
+  configured limit (release 5 % lower; the captured stock value returns on
+  release/service-off). Fed by every env sample so it works with the screen
+  off; device-verified 1 -> 0 -> 1 with `charge paused/resumed` events.
 - **Storage maintenance** (`maintenance.rs`, opt-in) — weekly bounded f2fs
   GC while charging + screen off, mirroring the ROM's own
   `checkpoint_gc` (sleep 50, `gc_urgent=1`, poll `dirty_segments` to ≤100,
@@ -179,12 +183,14 @@ MiFineTune tunes only parameters MIUI itself leaves alone:
 - **Forbidden** — runtime-owned (thermal, perf locks, charge, LMK/zram, game
   cpusets, SELinux); rejected on every write path.
 
-The bridge is the only non-catalog writer, with exactly three targets, all
-user-facing `settings` keys (never sysfs, never props, never SELinux):
-`Settings.Global low_power` (live saver), the `Settings.System power_mode`
-mirror, and `Settings.System user_refresh_rate` (refresh follow). The real
-power property (`persist.sys.aries.power_profile`) is SELinux-locked and is
-never attempted. Details: [ROM-HARMONY.md](ROM-HARMONY.md).
+The bridge is the only non-catalog writer, with exactly three `settings`
+targets — `Settings.Global low_power` (live saver), the `Settings.System
+power_mode` mirror and `Settings.System user_refresh_rate` (refresh follow) —
+plus the charge guard's single cataloged node
+`battery_charging_enabled` (Baseline, the ROM's own user-facing switch).
+Never sysfs beyond that node, never props, never SELinux. The real power
+property (`persist.sys.aries.power_profile`) is SELinux-locked and is never
+attempted. Details: [ROM-HARMONY.md](ROM-HARMONY.md).
 
 ## Precision policy
 

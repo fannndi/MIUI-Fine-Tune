@@ -27,7 +27,7 @@ parameters, always through the catalog guard.
 | `profiles.json` | profile pack (embedded via `include_str!`, mirrored to assets) |
 | `src/engine/mod.rs` | engine module index + test fixtures hookup |
 | `src/engine/catalog/mod.rs` | tier/kind/entry types, `find`, `guard_path` (forbidden-path guard) |
-| `src/engine/catalog/entries.rs` | the 89-node registry table (data only) |
+| `src/engine/catalog/entries.rs` | the 90-node registry table (data only) |
 | `src/engine/catalog/forbidden.rs` | framework-owned path prefixes + exact keys (never written) |
 | `src/engine/env.rs` | read-only telemetry sampler (battery / thermal / GPU busy) |
 | `src/engine/probe.rs` | read-only device capture: node values, options, framework evidence |

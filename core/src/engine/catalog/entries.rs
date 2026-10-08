@@ -422,6 +422,20 @@ pub fn catalog() -> &'static [Entry] {
             1,
             10000
         ),
+        // v0.7 charge guard: the ROM's init.target.rc explicitly opens this
+        // node for userspace (chmod 0777 + chown system) and nothing writes
+        // it at runtime — ALLOWED_EXACT overrides the power_supply prefix.
+        // Baseline: the JEITA/step-charge path may override on charger
+        // events (coexist, never fight).
+        er!(
+            "charge.battery_charging_enabled",
+            "/sys/class/power_supply/battery/battery_charging_enabled",
+            Baseline,
+            Int,
+            "",
+            0,
+            1
+        ),
         // --- scheduler sysctls (NOT written by the moorea post_boot block) ---
         e!(
             "kernel.sched_latency_ns",

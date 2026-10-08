@@ -61,6 +61,15 @@ pub struct DaemonConfig {
     /// Storage maintenance: weekly bounded f2fs GC while charging + idle.
     #[serde(default)]
     pub maintenance: bool,
+    /// Charge guard: pause charging at the limit (opt-in, user-facing switch).
+    #[serde(default)]
+    pub charge_limit: bool,
+    #[serde(default = "default_charge_pct")]
+    pub charge_limit_pct: u8,
+}
+
+fn default_charge_pct() -> u8 {
+    80
 }
 
 fn default_battery_floor() -> u8 {
@@ -92,6 +101,8 @@ impl Default for DaemonConfig {
             guard_thermal: true,
             thermal_ceiling_c: default_thermal_ceiling(),
             maintenance: false,
+            charge_limit: false,
+            charge_limit_pct: default_charge_pct(),
         }
     }
 }
@@ -204,6 +215,8 @@ mod tests {
         assert_eq!(c.thermal_ceiling_c, 75.0);
         assert!(c.sync_refresh);
         assert!(!c.maintenance, "maintenance is opt-in");
+        assert!(!c.charge_limit, "charge limit is opt-in");
+        assert_eq!(c.charge_limit_pct, 80);
     }
 
     #[test]

@@ -63,6 +63,8 @@ fun SettingsScreen(
     val guardThermal = vm?.guardThermal?.collectAsStateWithLifecycle()?.value
     val thermalCeiling = vm?.thermalCeiling?.collectAsStateWithLifecycle()?.value
     val maintenance = vm?.maintenance?.collectAsStateWithLifecycle()?.value
+    val chargeLimit = vm?.chargeLimit?.collectAsStateWithLifecycle()?.value
+    val chargeLimitPct = vm?.chargeLimitPct?.collectAsStateWithLifecycle()?.value
 
     Scaffold(
         topBar = {
@@ -85,7 +87,8 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (vm != null && guardBattery != null && batteryFloor != null &&
-                guardThermal != null && thermalCeiling != null && maintenance != null
+                guardThermal != null && thermalCeiling != null && maintenance != null &&
+                chargeLimit != null && chargeLimitPct != null
             ) {
                 GuardsCard(
                     guardBattery = guardBattery,
@@ -93,11 +96,15 @@ fun SettingsScreen(
                     guardThermal = guardThermal,
                     thermalCeiling = thermalCeiling,
                     maintenance = maintenance,
+                    chargeLimit = chargeLimit,
+                    chargeLimitPct = chargeLimitPct,
                     onGuardBattery = vm::setGuardBattery,
                     onBatteryFloor = vm::setBatteryFloor,
                     onGuardThermal = vm::setGuardThermal,
                     onThermalCeiling = vm::setThermalCeiling,
                     onMaintenance = vm::setMaintenance,
+                    onChargeLimit = vm::setChargeLimit,
+                    onChargeLimitPct = vm::setChargeLimitPct,
                 )
             }
 

@@ -58,6 +58,17 @@ pub enum RefreshAction {
     Restore(Option<String>),
 }
 
+/// Charge-guard action (`battery_charging_enabled` node).
+#[derive(Debug)]
+pub enum ChargeAction {
+    None,
+    Keep,
+    /// Stop charging (write 0).
+    Pause,
+    /// Release: write the captured value back (None = assume "1").
+    Resume(Option<String>),
+}
+
 /// Hold/restore state machine (pure, unit tested).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Holds {
@@ -68,6 +79,9 @@ pub struct Holds {
     pub refresh_held: bool,
     /// The user's `user_refresh_rate` before our first write (None = absent).
     pub refresh_saved: Option<String>,
+    pub charge_held: bool,
+    /// The node value before the pause (None = assume "1").
+    pub charge_saved: Option<String>,
 }
 
 impl Default for Holds {
@@ -79,6 +93,8 @@ impl Default for Holds {
             saver_saved: false,
             refresh_held: false,
             refresh_saved: None,
+            charge_held: false,
+            charge_saved: None,
         }
     }
 }
@@ -189,6 +205,36 @@ impl Holds {
             ),
         }
     }
+
+    /// `live` = current `battery_charging_enabled`; `want_pause` = the guard
+    /// wants charging stopped. Capture on the first pause, write back on
+    /// release (a missing capture assumes "1" — stock).
+    pub fn request_charge(&self, live: Option<String>, want_pause: bool) -> (Holds, ChargeAction) {
+        match (want_pause, self.charge_held) {
+            (true, false) => (
+                Holds {
+                    charge_held: true,
+                    charge_saved: live.clone(),
+                    ..self.clone()
+                },
+                if live.as_deref() == Some("0") {
+                    ChargeAction::Keep
+                } else {
+                    ChargeAction::Pause
+                },
+            ),
+            (true, true) => (self.clone(), ChargeAction::Keep),
+            (false, true) => (
+                Holds {
+                    charge_held: false,
+                    charge_saved: None,
+                    ..self.clone()
+                },
+                ChargeAction::Resume(self.charge_saved.clone()),
+            ),
+            (false, false) => (self.clone(), ChargeAction::None),
+        }
+    }
 }
 
 /// Persisted holds (crash-safe restore points), `holds.json` in the state dir.
@@ -202,6 +248,10 @@ pub struct HoldsFile {
     pub refresh_held: bool,
     #[serde(default)]
     pub refresh_saved: Option<String>,
+    #[serde(default)]
+    pub charge_held: bool,
+    #[serde(default)]
+    pub charge_saved: Option<String>,
 }
 
 /// Read-only hold view for diagnostics (`diag` command); never mutates.
@@ -214,6 +264,9 @@ pub struct HoldsInfo {
     pub refresh_held: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_saved: Option<String>,
+    pub charge_held: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub charge_saved: Option<String>,
 }
 
 #[cfg(test)]
@@ -334,6 +387,40 @@ mod tests {
         );
         let (_, a2) = n.request_refresh(Some("120".into()), None);
         assert!(matches!(a2, RefreshAction::Restore(None)));
+    }
+
+    #[test]
+    fn charge_hold_pauses_and_resumes() {
+        let s = Holds::default();
+        let (n, a) = s.request_charge(Some("1".into()), true);
+        assert!(matches!(a, ChargeAction::Pause));
+        assert!(n.charge_held);
+        assert_eq!(n.charge_saved.as_deref(), Some("1"));
+
+        // still wanted while held -> keep (no repeated writes)
+        let (n2, a2) = n.request_charge(Some("0".into()), true);
+        assert!(matches!(a2, ChargeAction::Keep));
+        assert_eq!(
+            n2.charge_saved.as_deref(),
+            Some("1"),
+            "capture must not move"
+        );
+
+        // release -> resume to the captured 1
+        let (n3, a3) = n2.request_charge(Some("0".into()), false);
+        assert!(matches!(a3, ChargeAction::Resume(Some(ref v)) if v == "1"));
+        assert!(!n3.charge_held);
+        assert!(n3.charge_saved.is_none());
+    }
+
+    #[test]
+    fn charge_hold_assumes_stock_when_capture_missing() {
+        let s = Holds::default();
+        let (n, a) = s.request_charge(None, true);
+        assert!(matches!(a, ChargeAction::Pause));
+        assert!(n.charge_saved.is_none());
+        let (_, a2) = n.request_charge(Some("0".into()), false);
+        assert!(matches!(a2, ChargeAction::Resume(None)));
     }
 
     #[test]

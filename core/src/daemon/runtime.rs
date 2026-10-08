@@ -68,6 +68,11 @@ impl Runtime {
             self.evaluate("env", None);
         }
         self.maybe_maintenance(&cfg);
+        // the charge guard must react even while the screen is off (night
+        // charging): feed a bridge sync from every sample when enabled
+        if cfg.charge_limit {
+            let _ = self.sync_tx.send(self.bridge_ctx());
+        }
     }
 
     /// Spawns the weekly f2fs GC when the trigger conditions hold.

@@ -26,6 +26,11 @@ pub struct SyncCtx {
     pub game_checker: bool,
     pub sync_refresh: bool,
     pub app_map: std::collections::BTreeMap<String, String>,
+    /// Charge-guard inputs from the last env sample.
+    pub battery_pct: Option<u8>,
+    pub charging: Option<bool>,
+    pub charge_limit: bool,
+    pub charge_limit_pct: u8,
 }
 
 impl Bridge {
@@ -217,6 +222,10 @@ mod tests {
             game_checker: true,
             sync_refresh: true,
             app_map: crate::daemon::test_util::map(map),
+            battery_pct: None,
+            charging: None,
+            charge_limit: false,
+            charge_limit_pct: 80,
         }
     }
 

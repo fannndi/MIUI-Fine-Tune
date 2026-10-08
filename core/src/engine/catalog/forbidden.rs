@@ -1,6 +1,16 @@
 //! Framework-owned paths and keys — never written, enforced by `guard_path`.
 //! Evidence per prefix: docs/ROM-HARMONY.md + tools/perf-hal-runtime-writers.txt.
 
+/// Exact paths explicitly audited and allowed despite a forbidden prefix
+/// (catalog evidence required — see docs/ROM-HARMONY.md).
+pub const ALLOWED_EXACT: &[&str] = &[
+    // init.target.rc chmod 0777 + chown system: the user-facing charge switch
+    // is deliberately opened for userspace; no boot script or perf HAL writer
+    // exists (audited 2026-10-08). Everything else under the prefix stays
+    // forbidden (JEITA/step-charge/current limits are driver-owned).
+    "/sys/class/power_supply/battery/battery_charging_enabled",
+];
+
 /// Path prefixes that must never be written — runtime-owned by the framework.
 /// Checked against every profile key's resolved path (defense in depth).
 pub const FORBIDDEN_PREFIXES: &[&str] = &[

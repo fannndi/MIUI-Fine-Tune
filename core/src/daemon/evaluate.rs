@@ -131,7 +131,14 @@ impl Runtime {
         }
         // MIUI bridge extras: settings IO on the bridge thread (never blocks
         // the decision loop); serialized there by the bridge Mutex.
-        let _ = self.sync_tx.send(SyncCtx {
+        let _ = self.sync_tx.send(self.bridge_ctx());
+    }
+
+    /// One bridge-sync context from the live world (decisions + env samples
+    /// both feed it; the bridge thread coalesces latest-wins).
+    pub(super) fn bridge_ctx(&self) -> SyncCtx {
+        let cfg = self.config.get();
+        SyncCtx {
             last_real: self.last_real.clone(),
             screen_on: self.screen_on,
             locked: self.locked,
@@ -141,7 +148,11 @@ impl Runtime {
             game_checker: cfg.game_mode_checker,
             sync_refresh: cfg.sync_refresh,
             app_map: cfg.app_map.clone(),
-        });
+            battery_pct: self.env.battery_pct,
+            charging: self.env.charging,
+            charge_limit: cfg.charge_limit,
+            charge_limit_pct: cfg.charge_limit_pct,
+        }
     }
 
     /// 3 s supervisor: periodic re-evaluate + watcher health + fallback peek.

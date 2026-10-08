@@ -244,6 +244,84 @@ fn refresh_follow_writes_and_restores() {
 }
 
 #[test]
+fn charge_guard_pauses_and_resumes_with_hysteresis() {
+    let dir = tmp("bridge-charge");
+    // fake sysfs: charging at 90%, charge node currently enabled
+    let root = dir.join("fake-root");
+    let w = |rel: &str, body: &str| {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    };
+    w("sys/class/power_supply/battery/capacity", "90\n");
+    w("sys/class/power_supply/battery/status", "Charging\n");
+    w(
+        "sys/class/power_supply/battery/battery_charging_enabled",
+        "1\n",
+    );
+
+    std::fs::write(
+        dir.join("config.json"),
+        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance",
+            "charge_limit":true,"charge_limit_pct":80}"#,
+    )
+    .unwrap();
+
+    let mut d = Daemon::spawn_env(
+        &dir.join("state"),
+        &dir.join("config.json"),
+        &[
+            ("MIFINETUNE_SYSFS_ROOT", root.to_str().unwrap()),
+            ("MIFINETUNE_ENV_SAMPLE_MS", "200"),
+            ("MIFINETUNE_LOGCAT_BIN", "/nonexistent-logcat"),
+        ],
+    );
+
+    let node = root.join("sys/class/power_supply/battery/battery_charging_enabled");
+    d.wait_for(|v| v["event"] == "hello", Duration::from_secs(5));
+    d.wait_for(
+        |v| v["event"] == "env" && v["env"]["battery_pct"] == 90,
+        Duration::from_secs(5),
+    );
+
+    // at/above the limit while charging -> pause (node 0)
+    d.wait_for(
+        |v| v["event"] == "bridge" && v["msg"].as_str().unwrap_or("").contains("charge paused"),
+        Duration::from_secs(10),
+    );
+    assert_eq!(std::fs::read_to_string(&node).unwrap().trim(), "0");
+
+    // the charger now reports "not charging" because of our pause: the held
+    // state must keep it paused (no oscillation)
+    w("sys/class/power_supply/battery/status", "Not charging\n");
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(std::fs::read_to_string(&node).unwrap().trim(), "0");
+
+    // battery drains below the hysteresis floor -> resume
+    w("sys/class/power_supply/battery/capacity", "70\n");
+    d.wait_for(
+        |v| v["event"] == "bridge" && v["msg"].as_str().unwrap_or("").contains("charge resumed"),
+        Duration::from_secs(10),
+    );
+    assert_eq!(std::fs::read_to_string(&node).unwrap().trim(), "1");
+
+    // the hold is released in holds.json
+    let holds_path = dir.join("state").join("holds.json");
+    assert!(
+        wait_file_contains(
+            &holds_path,
+            "\"charge_held\": false",
+            Duration::from_secs(2)
+        ),
+        "charge hold must be released"
+    );
+
+    d.send(json!({"cmd":"shutdown"}));
+    d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn dynamic_off_stops_the_bridge_follow() {
     let dir = tmp("bridge-dynoff");
     let state = write_fake_settings(&dir);

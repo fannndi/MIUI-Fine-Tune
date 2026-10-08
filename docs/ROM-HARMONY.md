@@ -10,10 +10,10 @@ sources:
 
 ## Who writes what
 
-Catalog (v0.7+): **89 nodes** (53 Baseline, 36 Free). v0.7 added five
+Catalog (v0.7+): **90 nodes** (54 Baseline, 36 Free). v0.7 added six
 evidence-backed entries: `io.read_ahead_kb` (Free — see the row below), the
-two L3-latency devfreq floors (Baseline) and the two f2fs GC maintenance
-nodes (Baseline — see the storage-maintenance row).
+two L3-latency devfreq floors (Baseline), the two f2fs GC maintenance
+nodes (Baseline) and the charge-guard node (Baseline — see the row below).
 
 | Node / parameter | Boot (`init.qcom.post_boot.sh`) | Runtime | Owner | MiFineTune |
 |---|---|---|---|---|
@@ -51,7 +51,8 @@ nodes (Baseline — see the storage-maintenance row).
 | GPU `min/max/default_pwrlevel` + `devfreq/min|max_freq` | ✗ | ✓ perf HAL + **thermal cooling** (`thermal-devfreq-0`) | perf HAL + thermal | **Baseline** (careful: two views of the same limiter — see "Drift" below) |
 | `gpu.devfreq/min_freq` & `max_freq` (Hz view) | ✗ | ✓ perf HAL (xml:gpu) | perf HAL | **Forbidden** (exact-path guard; the Hz view belongs to the framework) |
 | `gpu.devfreq/governor` | ✗ | ✗ | – | **Baseline** — device reality: only `msm-adreno-tz` is accepted by kgsl |
-| `thermal_message/*`, cooling devices, `msm_performance/*`, `cpu_boost/*`, charge, zRAM | ✗ | ✓ mi_thermald / perf HAL / micharge | framework | **Forbidden** (path guard) |
+| `battery_charging_enabled` (charge guard, v0.7) | chmod 0777 + chown system in `init.target.rc` (opened for userspace); no value writer | ✗ | – (user-facing switch) | **Baseline** via `ALLOWED_EXACT` — the only `power_supply` path we may write; JEITA/step-charge may override (coexist) |
+| `thermal_message/*`, cooling devices, `msm_performance/*`, `cpu_boost/*`, other charge nodes, zRAM | ✗ | ✓ mi_thermald / perf HAL / micharge | framework | **Forbidden** (path guard) |
 | perf HAL runtime-only (`/dev/cpuset/foreground/boost/cpus`, `/dev/cpu_dma_latency`, `/sys/kernel/mm/ksm/*`, kgsl `force_no_nap/clk_on/rail_on/idle_timer`, `mmc0/clk_scaling`, `proc_reclaim`, `swap_ratio`, `/proc/%d/sched_group_id`) | ✗ | ✓ libqti-perfd (OptsHandler) / PowerKeeper | framework | **Forbidden** |
 | `workqueue.power_efficient` | – | – | **kernel** (0444 hardcoded) | **Never cataloged** (`kernel/workqueue.c:294`) |
 

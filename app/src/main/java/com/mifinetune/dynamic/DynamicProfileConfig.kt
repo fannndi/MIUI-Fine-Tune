@@ -40,7 +40,7 @@ class DynamicProfileConfig private constructor(context: Context) {
             "enabled", "dynamic", "base_profile", "app_map",
             "sync_miui_perf", "sync_miui_saver", "game_mode_checker", "sync_refresh",
             "guard_battery", "battery_floor_pct", "guard_thermal", "thermal_ceiling_c",
-            "maintenance",
+            "maintenance", "charge_limit", "charge_limit_pct",
         )
 
         @Volatile
@@ -128,6 +128,18 @@ class DynamicProfileConfig private constructor(context: Context) {
         get() = _maintenance.value
         set(v) = put { it.put("maintenance", v) }
 
+    private val _chargeLimit = MutableStateFlow(false)
+    val chargeLimitFlow: StateFlow<Boolean> = _chargeLimit
+    var chargeLimit: Boolean
+        get() = _chargeLimit.value
+        set(v) = put { it.put("charge_limit", v) }
+
+    private val _chargeLimitPct = MutableStateFlow(80)
+    val chargeLimitPctFlow: StateFlow<Int> = _chargeLimitPct
+    var chargeLimitPct: Int
+        get() = _chargeLimitPct.value
+        set(v) = put { it.put("charge_limit_pct", v.coerceIn(60, 95)) }
+
     private val _appMap = MutableStateFlow<Map<String, String>>(emptyMap())
     val appMapFlow: StateFlow<Map<String, String>> = _appMap
 
@@ -182,6 +194,10 @@ class DynamicProfileConfig private constructor(context: Context) {
             if (src.has("guard_battery")) next.put("guard_battery", src.optBoolean("guard_battery"))
             if (src.has("guard_thermal")) next.put("guard_thermal", src.optBoolean("guard_thermal"))
             if (src.has("maintenance")) next.put("maintenance", src.optBoolean("maintenance"))
+            if (src.has("charge_limit")) next.put("charge_limit", src.optBoolean("charge_limit"))
+            if (src.has("charge_limit_pct")) {
+                next.put("charge_limit_pct", src.optInt("charge_limit_pct", 80).coerceIn(60, 95))
+            }
             if (src.has("battery_floor_pct")) {
                 next.put("battery_floor_pct", src.optInt("battery_floor_pct", 20).coerceIn(5, 50))
             }
@@ -227,6 +243,8 @@ class DynamicProfileConfig private constructor(context: Context) {
         _guardThermal.value = json.optBoolean("guard_thermal", true)
         _thermalCeiling.value = json.optDouble("thermal_ceiling_c", 75.0).toFloat().coerceIn(60f, 90f)
         _maintenance.value = json.optBoolean("maintenance", false)
+        _chargeLimit.value = json.optBoolean("charge_limit", false)
+        _chargeLimitPct.value = json.optInt("charge_limit_pct", 80).coerceIn(60, 95)
         _baseProfile = json.optString("base_profile", DEFAULT_BASE).ifEmpty { DEFAULT_BASE }
         val map = mutableMapOf<String, String>()
         json.optJSONObject("app_map")?.let { obj ->
@@ -265,6 +283,8 @@ class DynamicProfileConfig private constructor(context: Context) {
         def("guard_thermal", true)
         def("thermal_ceiling_c", 75.0)
         def("maintenance", false)
+        def("charge_limit", false)
+        def("charge_limit_pct", 80)
         def("app_map", JSONObject())
     }
 
@@ -282,6 +302,8 @@ class DynamicProfileConfig private constructor(context: Context) {
         .put("guard_thermal", _guardThermal.value)
         .put("thermal_ceiling_c", _thermalCeiling.value.toDouble())
         .put("maintenance", _maintenance.value)
+        .put("charge_limit", _chargeLimit.value)
+        .put("charge_limit_pct", _chargeLimitPct.value)
         .put("app_map", JSONObject())
 
     private fun writeAtomic(body: String) {
