@@ -27,10 +27,13 @@ the first env-aware guards — the foundation for everything after.
   `stats.json` (500-entry cap, survives daemon restarts), served via `stats`.
 - **IPC**: new commands `diag` (daemon health: pid, uptime, watchers, holds,
   config, env, history size) and `stats`; new events `env`/`diag`/`stats`.
-- **App**: `DiagnosticsScreen` (daemon health, live environment, transition
-  timeline, relayed daemon log with a 200-line in-memory ring); Diagnostics
-  row on Home with a live battery/temp/GPU summary; `GuardsCard` in Settings
-  (toggles + sliders, values commit on release).
+- **App**: `DiagnosticsScreen` (daemon health, live environment, 24 h
+  time-in-profile, transition timeline, relayed daemon log with a 200-line
+  in-memory ring); Diagnostics row on Home with a live battery/temp/GPU
+  summary; `GuardsCard` in Settings (toggles + sliders, values commit on
+  release); Quick Settings tile (service toggle + active profile subtitle);
+  suggested game mappings in the Apps screen; JSON config export/import via
+  the system file picker (validated + clamped, unknown keys ignored).
 - **Doctor v2**: env telemetry checks, future-knob surface probe (f2fs /
   devfreq / kgsl / read-head), refresh-rate key, logcat `-v epoch` format.
 - **Tests**: 102 unit + 8 host E2E across three binaries (protocol/decision,
@@ -47,7 +50,12 @@ the first env-aware guards — the foundation for everything after.
   live battery/thermal/GPU, uptime, watchers, holds; `stats.json` records
   `sleep -> game -> powersave` with battery/temp and survives restarts;
   fake-sysfs CLI runs on device prove `low battery` → Power Save and
-  `thermal` → Balance; guards config roundtrip through the UI verified.
+  `thermal` → Balance; guards config roundtrip through the UI verified;
+  refresh follow verified live (game → 120 Hz, home → restore the user's
+  60 Hz, final value restored); backup export/import round-trip through the
+  system picker (import reloaded the daemon and applied the new base);
+  QS tile declared with the system permission; 24 h dashboard shows
+  `Power Save 41m · Sleep 2m · Game 1m`.
 
 ## v0.6.0 — full-Rust daemon (2026-10-08)
 

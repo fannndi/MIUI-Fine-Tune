@@ -32,6 +32,16 @@ class DynamicProfileConfig private constructor(context: Context) {
         private const val LEGACY_PREFS = "automation"
         private const val K_MIGRATED = "prefs_migrated_from_automation"
 
+        /** Profile ids the UI/engine ship today (import validation). */
+        private val KNOWN_PROFILES = setOf("powersave", "balance", "game")
+
+        /** Keys a backup may carry (anything else is ignored). */
+        private val IMPORT_KEYS = setOf(
+            "enabled", "dynamic", "base_profile", "app_map",
+            "sync_miui_perf", "sync_miui_saver", "game_mode_checker", "sync_refresh",
+            "guard_battery", "battery_floor_pct", "guard_thermal", "thermal_ceiling_c",
+        )
+
         @Volatile
         private var instance: DynamicProfileConfig? = null
 
@@ -135,6 +145,59 @@ class DynamicProfileConfig private constructor(context: Context) {
         if (profileId == null) next.remove(pkg) else next[pkg] = profileId
         for ((k, v) in next) map.put(k, v)
         json.put("app_map", map)
+    }
+
+    // --- backup (export / import) -------------------------------------------
+
+    /** Pretty JSON of the current config file, for backup (defaults filled). */
+    fun exportJson(): String = synchronized(lock) {
+        val json = load() ?: baseJson()
+        fillDefaults(json)
+        json.toString(2)
+    }
+
+    /**
+     * Applies a backup: only recognized keys, values validated/clamped; the
+     * write stays atomic and the daemon gets its hint. Returns false when the
+     * payload carries nothing usable (unknown JSON / unrelated object).
+     */
+    fun importJson(raw: String): Boolean {
+        val src = runCatching { JSONObject(raw) }.getOrNull() ?: return false
+        if (src.keys().asSequence().none { it in IMPORT_KEYS }) return false
+        synchronized(lock) {
+            val next = load() ?: baseJson()
+            if (src.has("enabled")) next.put("enabled", src.optBoolean("enabled"))
+            if (src.has("dynamic")) next.put("dynamic", src.optBoolean("dynamic"))
+            if (src.has("sync_miui_perf")) next.put("sync_miui_perf", src.optBoolean("sync_miui_perf"))
+            if (src.has("sync_miui_saver")) next.put("sync_miui_saver", src.optBoolean("sync_miui_saver"))
+            if (src.has("game_mode_checker")) next.put("game_mode_checker", src.optBoolean("game_mode_checker"))
+            if (src.has("sync_refresh")) next.put("sync_refresh", src.optBoolean("sync_refresh"))
+            if (src.has("guard_battery")) next.put("guard_battery", src.optBoolean("guard_battery"))
+            if (src.has("guard_thermal")) next.put("guard_thermal", src.optBoolean("guard_thermal"))
+            if (src.has("battery_floor_pct")) {
+                next.put("battery_floor_pct", src.optInt("battery_floor_pct", 20).coerceIn(5, 50))
+            }
+            if (src.has("thermal_ceiling_c")) {
+                next.put(
+                    "thermal_ceiling_c",
+                    src.optDouble("thermal_ceiling_c", 75.0).coerceIn(60.0, 90.0),
+                )
+            }
+            src.optString("base_profile").takeIf { it in KNOWN_PROFILES }
+                ?.let { next.put("base_profile", it) }
+            src.optJSONObject("app_map")?.let { map ->
+                val out = JSONObject()
+                map.keys().forEach { k ->
+                    map.optString(k).takeIf { it in KNOWN_PROFILES }?.let { out.put(k, it) }
+                }
+                next.put("app_map", out)
+            }
+            fillDefaults(next)
+            writeAtomic(next.toString())
+            apply(next)
+        }
+        DaemonLink.configChanged()
+        return true
     }
 
     // --- internals ---------------------------------------------------------

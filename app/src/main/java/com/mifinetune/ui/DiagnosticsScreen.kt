@@ -100,6 +100,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
             }
             item(key = "daemon") { DaemonCard(diag) }
             item(key = "env") { EnvCard(env) }
+            item(key = "stats24") { StatsSummaryCard(stats) }
             item(key = "stats") { TransitionsCard(stats) }
             item(key = "log") { LogCard(logs) }
         }

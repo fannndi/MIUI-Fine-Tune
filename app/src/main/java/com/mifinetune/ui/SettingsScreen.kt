@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mifinetune.core.Status
+import com.mifinetune.dynamic.DynamicProfileConfig
 
 /**
  * Settings: permissions/background checklist and a small diagnostics block.
@@ -95,6 +96,10 @@ fun SettingsScreen(
                     onGuardThermal = vm::setGuardThermal,
                     onThermalCeiling = vm::setThermalCeiling,
                 )
+            }
+
+            if (vm != null) {
+                BackupCard(DynamicProfileConfig.get(context))
             }
 
             ElevatedCard(Modifier.fillMaxWidth()) {

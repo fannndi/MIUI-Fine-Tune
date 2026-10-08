@@ -76,6 +76,7 @@ parameters, always through the catalog guard.
 | `dynamic/DynamicProfileService.kt` | FGS lifecycle; forwards screen/keyguard/ultra; maps events to state |
 | `dynamic/DaemonNotifications.kt` | notification channels + builders (service notification, GM warning) |
 | `dynamic/DiagnosticsModels.kt` | diagnostics shapes (env / diag / stats) + JSON parsing |
+| `dynamic/ServiceTile.kt` | Quick Settings tile: service toggle + active profile subtitle |
 | `dynamic/DynamicProfileConfig.kt` | `config.json` writer (atomic), prefs migration, daemon hints |
 | `dynamic/DynamicProfileState.kt` | process-wide StateFlows mirrored from daemon events (incl. env/diag/stats/logs) |
 | `dynamic/DeviceContext.kt` | PowerManager/KeyguardManager reader only |
@@ -85,6 +86,8 @@ parameters, always through the catalog guard.
 | `ui/HomeDialogs.kt` | report / profile detail / locked-keys dialogs |
 | `ui/HomeViewModel.kt` + `HomeUiState.kt` | Home controller + UI state shapes |
 | `ui/DiagnosticsScreen.kt` | diagnostics screen (daemon health, env, history, log) |
+| `ui/StatsSummary.kt` | 24 h time-in-profile summary from the transition history |
+| `ui/SettingsBackup.kt` | config export/import through the system file picker |
 | `ui/SettingsGuards.kt` | adaptive guards card (battery floor / thermal ceiling) |
 | `ui/DynamicProfileViewModel.kt` | apps list + settings toggles controller |
 | `ui/AppsProfileScreen.kt` / `SettingsScreen.kt` / `UiBits.kt` / `ProfileLabels.kt` / `theme/` | Compose UI |

@@ -34,11 +34,21 @@ the framework, never touches SELinux, and always keeps a stock restore path.
 | Split screen / floating window | Balance (fixed, overrides mapping) |
 | MIUI battery saver (user's own) | Base forced to Power Save |
 | MIUI Ultra battery saver | Full retire: restore + stop |
+| Battery ≤ floor (default 20%, not charging) | Power Save (beats mapping; sleep/lock still win) |
+| CPU near the ceiling (default 75 °C) | Game steps down to Balance, releases 5 °C lower |
+| Mapped game in front | + MIUI perf mirror + 120 Hz refresh |
+| Power Save-mapped app in front | + MIUI battery saver + 60 Hz refresh |
 | Service OFF | All values written back to stock + daemon exits |
 
-Non-app rules (sleep, multi-window, saver) keep working with Dynamic OFF —
-they are not driven by the app map. The MIUI bridge (performance mirror,
-saver follow, game-mode checker) is app-driven and stops with Dynamic OFF.
+Non-app rules (sleep, multi-window, saver, env guards) keep working with
+Dynamic OFF — they are not driven by the app map. The MIUI bridge
+(performance mirror, saver follow, refresh follow, game-mode checker) is
+app-driven and stops with Dynamic OFF.
+
+Extras: a Diagnostics screen (daemon health, live battery/thermal, 24 h
+time-in-profile, relayed daemon log), a Quick Settings tile (service toggle
+with the active profile), suggested game mappings, and JSON config
+export/import through the system file picker.
 
 ## How it works
 

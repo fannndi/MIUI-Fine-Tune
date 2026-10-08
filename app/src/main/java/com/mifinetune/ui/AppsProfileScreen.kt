@@ -85,10 +85,22 @@ fun AppsProfileScreen(vm: DynamicProfileViewModel, onBack: () -> Unit) {
                     CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
                 }
             } else {
+                val suggestions = if (state.query.isBlank()) {
+                    state.apps.filter { it.isGame && appMap[it.pkg] == null }.take(5)
+                } else {
+                    emptyList()
+                }
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
                 ) {
+                    if (suggestions.isNotEmpty()) {
+                        item(key = "suggestions") {
+                            SuggestedGames(suggestions) { app ->
+                                vm.setAppProfile(app.pkg, "game")
+                            }
+                        }
+                    }
                     items(vm.filteredApps(), key = { it.pkg }) { app ->
                         AppRow(app = app, mapped = appMap[app.pkg], onClick = { selected = app })
                     }
@@ -107,6 +119,42 @@ fun AppsProfileScreen(vm: DynamicProfileViewModel, onBack: () -> Unit) {
                     selected = null
                 },
             )
+        }
+    }
+}
+
+@Composable
+private fun SuggestedGames(games: List<AppEntry>, onMap: (AppEntry) -> Unit) {
+    androidx.compose.material3.ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text(
+                "Suggested games",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "Game-category apps with no mapping yet",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            games.forEach { app ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        app.label,
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                    )
+                    androidx.compose.material3.TextButton(onClick = { onMap(app) }) {
+                        Text("Set Game")
+                    }
+                }
+            }
         }
     }
 }
