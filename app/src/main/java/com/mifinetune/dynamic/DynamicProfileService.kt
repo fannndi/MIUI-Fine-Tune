@@ -70,7 +70,13 @@ class DynamicProfileService : Service() {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> sendScreen()
                 Intent.ACTION_SCREEN_ON -> sendScreen()
-                Intent.ACTION_USER_PRESENT -> client?.send(JSONObject().put("cmd", "user_present"))
+                Intent.ACTION_USER_PRESENT -> {
+                    // keyguard dismissed: keep the reconcile dedupe in sync
+                    // so the supervisor does not re-send screen and re-peek
+                    lastScreen = true
+                    lastLocked = false
+                    client?.send(JSONObject().put("cmd", "user_present"))
+                }
                 ACTION_EXTREME ->
                     client?.send(
                         JSONObject()
