@@ -9,7 +9,11 @@ use crate::engine::probe::ProbeData;
 
 /// Validate `wanted` for an entry against live options.
 /// Returns `(resolved, None)` or `(raw, Some(reason))` when locked.
-pub fn validate_value(e: &catalog::Entry, wanted: &str, probe: &ProbeData) -> (String, Option<String>) {
+pub fn validate_value(
+    e: &catalog::Entry,
+    wanted: &str,
+    probe: &ProbeData,
+) -> (String, Option<String>) {
     let wanted = wanted.trim();
     let locked = |msg: &str| (wanted.to_string(), Some(msg.to_string()));
     match e.kind {
@@ -50,26 +54,43 @@ pub fn validate_value(e: &catalog::Entry, wanted: &str, probe: &ProbeData) -> (S
             };
             match probe.options.freqs.get(e.scope) {
                 Some(list) if !list.is_empty() => {
-                    let best = list.iter().min_by_key(|f| (**f as i64 - n as i64).unsigned_abs());
+                    let best = list
+                        .iter()
+                        .min_by_key(|f| (**f as i64 - n as i64).unsigned_abs());
                     (best.unwrap().to_string(), None)
                 }
                 _ => locked("no OPP list for scope"),
             }
         }
         Kind::PwrLevel => match wanted.parse::<usize>() {
-            Ok(v) if probe.options.gpu_levels > 0 && v < probe.options.gpu_levels => (v.to_string(), None),
+            Ok(v) if probe.options.gpu_levels > 0 && v < probe.options.gpu_levels => {
+                (v.to_string(), None)
+            }
             _ => locked(&format!(
                 "pwrlevel out of range 0..{}",
                 probe.options.gpu_levels.saturating_sub(1)
             )),
         },
-        Kind::Gov => one_of(wanted, probe.options.governors.values().next().map(|v| v.as_slice()), "governor"),
+        Kind::Gov => one_of(
+            wanted,
+            probe
+                .options
+                .governors
+                .values()
+                .next()
+                .map(|v| v.as_slice()),
+            "governor",
+        ),
         Kind::GpuGov => one_of(wanted, Some(&probe.options.gpu_governors), "gpu governor"),
         Kind::IoSched => one_of(wanted, Some(&probe.options.io_schedulers), "io scheduler"),
         Kind::TcpCc => one_of(wanted, Some(&probe.options.tcp_cc), "tcp cc"),
         Kind::Ints => {
             let toks: Vec<&str> = wanted.split_whitespace().collect();
-            if toks.is_empty() || !toks.iter().all(|t| t.parse::<i64>().map(|v| v >= 0).unwrap_or(false)) {
+            if toks.is_empty()
+                || !toks
+                    .iter()
+                    .all(|t| t.parse::<i64>().map(|v| v >= 0).unwrap_or(false))
+            {
                 return locked("not a list of non-negative integers");
             }
             (toks.join(" "), None)
@@ -99,7 +120,10 @@ fn one_of(wanted: &str, options: Option<&[String]>, what: &str) -> (String, Opti
             wanted.to_string(),
             Some(format!("{what} not available (have: {})", opts.join(" "))),
         ),
-        None => (wanted.to_string(), Some(format!("{what} options unreadable"))),
+        None => (
+            wanted.to_string(),
+            Some(format!("{what} options unreadable")),
+        ),
     }
 }
 
@@ -130,7 +154,11 @@ pub fn validate_mask(want: &str, cpu_count: usize) -> Result<String, String> {
         if hi >= cpu_count {
             return Err(format!("cpu {hi} >= cpu_count {cpu_count}"));
         }
-        parts.push(if lo == hi { lo.to_string() } else { format!("{lo}-{hi}") });
+        parts.push(if lo == hi {
+            lo.to_string()
+        } else {
+            format!("{lo}-{hi}")
+        });
     }
     Ok(parts.join(","))
 }

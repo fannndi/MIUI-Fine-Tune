@@ -41,7 +41,13 @@ pub fn readback_matches(kind: Kind, resolved: &str, readback: &str) -> bool {
                 None => false,
             }
         }
-        Kind::FlagYN => rb.eq_ignore_ascii_case(resolved) || matches!((rb, resolved), ("0", "N") | ("N", "0") | ("1", "Y") | ("Y", "1")),
+        Kind::FlagYN => {
+            rb.eq_ignore_ascii_case(resolved)
+                || matches!(
+                    (rb, resolved),
+                    ("0", "N") | ("N", "0") | ("1", "Y") | ("Y", "1")
+                )
+        }
         Kind::FreqMax => {
             // A stricter external cap (thermal cooling / freq-QoS) below the
             // requested cap is thermal winning, not drift. Only live > want
@@ -106,7 +112,11 @@ mod tests {
     #[test]
     fn repeat_int_readback_all_equal() {
         assert!(readback_matches(Kind::RepeatInt, "60", "60 60 60 60 60 60"));
-        assert!(!readback_matches(Kind::RepeatInt, "60", "60 40 60 60 60 60"));
+        assert!(!readback_matches(
+            Kind::RepeatInt,
+            "60",
+            "60 40 60 60 60 60"
+        ));
     }
 
     #[test]
@@ -121,9 +131,21 @@ mod tests {
         // only the BRACKETED token is the active scheduler; a bare token in
         // the offered list must NOT count (real bug: "deadline" matched while
         // cfq was active and the elevator never switched).
-        assert!(readback_matches(Kind::IoSched, "cfq", "noop deadline [cfq]"));
-        assert!(readback_matches(Kind::IoSched, "deadline", "noop [deadline] cfq"));
-        assert!(!readback_matches(Kind::IoSched, "deadline", "noop deadline [cfq]"));
+        assert!(readback_matches(
+            Kind::IoSched,
+            "cfq",
+            "noop deadline [cfq]"
+        ));
+        assert!(readback_matches(
+            Kind::IoSched,
+            "deadline",
+            "noop [deadline] cfq"
+        ));
+        assert!(!readback_matches(
+            Kind::IoSched,
+            "deadline",
+            "noop deadline [cfq]"
+        ));
         assert!(!readback_matches(Kind::IoSched, "cfq", "noop [deadline]"));
         assert!(!readback_matches(Kind::IoSched, "noop", "deadline [cfq]"));
         // bare (unbracketed) read-backs still compare directly
@@ -132,8 +154,14 @@ mod tests {
 
     #[test]
     fn snapshot_normalize_makes_values_node_writable() {
-        assert_eq!(normalize_snapshot(Kind::IoSched, "noop deadline [cfq]"), "cfq");
-        assert_eq!(normalize_snapshot(Kind::Ints, "524288\t1048576\t5505024"), "524288 1048576 5505024");
+        assert_eq!(
+            normalize_snapshot(Kind::IoSched, "noop deadline [cfq]"),
+            "cfq"
+        );
+        assert_eq!(
+            normalize_snapshot(Kind::Ints, "524288\t1048576\t5505024"),
+            "524288 1048576 5505024"
+        );
         assert_eq!(normalize_snapshot(Kind::Mask, "0-5"), "0-5");
         assert_eq!(normalize_snapshot(Kind::FlagYN, "n"), "N");
         assert_eq!(normalize_snapshot(Kind::Int, " 65 "), "65");
@@ -162,5 +190,4 @@ mod tests {
         // and a QoS-held floor must not leak into exact-match kinds
         assert!(!readback_matches(Kind::Freq, "576000", "1248000"));
     }
-
 }

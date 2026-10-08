@@ -2,11 +2,25 @@ use super::*;
 use std::sync::mpsc;
 
 fn ok_out(wrote: usize) -> Outcome {
-    Outcome { ok: true, wrote, verified: wrote, failed: 0, error: None, already: false }
+    Outcome {
+        ok: true,
+        wrote,
+        verified: wrote,
+        failed: 0,
+        error: None,
+        already: false,
+    }
 }
 
 fn fail_out(errored: bool) -> Outcome {
-    Outcome { ok: false, wrote: 1, verified: 0, failed: 1, error: errored.then(|| "boom".into()), already: false }
+    Outcome {
+        ok: false,
+        wrote: 1,
+        verified: 0,
+        failed: 1,
+        error: errored.then(|| "boom".into()),
+        already: false,
+    }
 }
 
 /// Scriptable engine: records calls, returns scripted outcomes.
@@ -22,7 +36,10 @@ struct FakeEngine {
 
 impl FakeEngine {
     fn with_script(script: Vec<Outcome>) -> Self {
-        FakeEngine { script, ..Default::default() }
+        FakeEngine {
+            script,
+            ..Default::default()
+        }
     }
     fn next_outcome(&mut self) -> Outcome {
         match self.script.len() {
@@ -76,9 +93,20 @@ fn burst_collapses_to_latest() {
 
     let mut eng = FakeEngine::with_script(vec![ok_out(1)]);
     let mut applied = Vec::new();
-    run(rx, &mut eng, Duration::from_millis(60), Duration::from_millis(5), &mut |e| applied.push(e), &mut |_| {});
+    run(
+        rx,
+        &mut eng,
+        Duration::from_millis(60),
+        Duration::from_millis(5),
+        &mut |e| applied.push(e),
+        &mut |_| {},
+    );
 
-    assert_eq!(eng.applies, vec!["powersave"], "only the latest decision applies");
+    assert_eq!(
+        eng.applies,
+        vec!["powersave"],
+        "only the latest decision applies"
+    );
     assert_eq!(applied.len(), 1);
     assert!(applied[0].ok);
     assert_eq!(applied[0].profile, "powersave");
@@ -92,7 +120,14 @@ fn failed_apply_is_retried_once() {
 
     let mut eng = FakeEngine::with_script(vec![fail_out(false), ok_out(1)]);
     let mut applied = Vec::new();
-    run(rx, &mut eng, Duration::from_millis(10), Duration::from_millis(5), &mut |e| applied.push(e), &mut |_| {});
+    run(
+        rx,
+        &mut eng,
+        Duration::from_millis(10),
+        Duration::from_millis(5),
+        &mut |e| applied.push(e),
+        &mut |_| {},
+    );
 
     assert_eq!(eng.applies, vec!["game", "game"], "retry once");
     assert!(applied[0].ok, "final outcome after retry is ok");
@@ -107,7 +142,14 @@ fn engine_error_is_not_retried() {
 
     let mut eng = FakeEngine::with_script(vec![fail_out(true)]);
     let mut applied = Vec::new();
-    run(rx, &mut eng, Duration::from_millis(10), Duration::from_millis(5), &mut |e| applied.push(e), &mut |_| {});
+    run(
+        rx,
+        &mut eng,
+        Duration::from_millis(10),
+        Duration::from_millis(5),
+        &mut |e| applied.push(e),
+        &mut |_| {},
+    );
 
     assert_eq!(eng.applies, vec!["nope"], "no retry for hard errors");
     assert!(!applied[0].ok);
@@ -119,10 +161,19 @@ fn already_active_skips_engine_apply() {
     tx.send(job("balance")).unwrap();
     drop(tx);
 
-    let mut eng = FakeEngine::default();
-    eng.active = Some("balance".into());
+    let mut eng = FakeEngine {
+        active: Some("balance".into()),
+        ..Default::default()
+    };
     let mut applied = Vec::new();
-    run(rx, &mut eng, Duration::from_millis(10), Duration::from_millis(5), &mut |e| applied.push(e), &mut |_| {});
+    run(
+        rx,
+        &mut eng,
+        Duration::from_millis(10),
+        Duration::from_millis(5),
+        &mut |e| applied.push(e),
+        &mut |_| {},
+    );
 
     assert!(eng.applies.is_empty(), "no engine call when already active");
     assert!(applied[0].ok);
@@ -164,7 +215,14 @@ fn restore_after_apply_uses_clean_channel() {
 
     let mut eng = FakeEngine::default();
     let mut restored = Vec::new();
-    run(rx, &mut eng, Duration::from_millis(10), Duration::from_millis(5), &mut |_| {}, &mut |r| restored.push(r));
+    run(
+        rx,
+        &mut eng,
+        Duration::from_millis(10),
+        Duration::from_millis(5),
+        &mut |_| {},
+        &mut |r| restored.push(r),
+    );
 
     assert_eq!(eng.restores, 1);
     assert!(restored[0].retire);

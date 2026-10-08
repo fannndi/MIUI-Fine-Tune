@@ -111,12 +111,22 @@ impl ConfigFile {
                     None,
                 ),
                 Err(e) => (
-                    ConfigFile { path: path.to_path_buf(), cached: default_cfg(), stamp: mtime(path), len: 0 },
+                    ConfigFile {
+                        path: path.to_path_buf(),
+                        cached: default_cfg(),
+                        stamp: mtime(path),
+                        len: 0,
+                    },
                     Some(format!("config parse: {e}")),
                 ),
             },
             Err(e) => (
-                ConfigFile { path: path.to_path_buf(), cached: default_cfg(), stamp: None, len: 0 },
+                ConfigFile {
+                    path: path.to_path_buf(),
+                    cached: default_cfg(),
+                    stamp: None,
+                    len: 0,
+                },
                 Some(format!("config read: {e}")),
             ),
         }

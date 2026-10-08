@@ -97,9 +97,19 @@ pub enum Event {
     /// MIUI Game Booster conflict for a mapped game (warn once per session).
     GameModeConflict { pkg: String },
     /// Ultra saver retire finished: the app must set enabled=false + stop.
-    Retired { ok: bool, wrote: usize, verified: usize, failed: usize },
+    Retired {
+        ok: bool,
+        wrote: usize,
+        verified: usize,
+        failed: usize,
+    },
     /// Restore finished (service-off path).
-    Restored { ok: bool, wrote: usize, verified: usize, failed: usize },
+    Restored {
+        ok: bool,
+        wrote: usize,
+        verified: usize,
+        failed: usize,
+    },
     /// Ping reply.
     Pong,
     /// Non-fatal error for the log (daemon keeps running).
@@ -167,7 +177,9 @@ pub struct Publisher {
 
 impl Publisher {
     pub fn new() -> Arc<Self> {
-        Arc::new(Publisher { out: Mutex::new(std::io::stdout()) })
+        Arc::new(Publisher {
+            out: Mutex::new(std::io::stdout()),
+        })
     }
 
     pub fn emit(&self, ev: &Event) {
@@ -195,14 +207,26 @@ mod tests {
 
     #[test]
     fn commands_parse_from_tagged_json() {
-        let c: Command = serde_json::from_str(r#"{"cmd":"screen","on":false,"locked":true}"#).unwrap();
-        assert_eq!(c, Command::Screen { on: false, locked: true });
+        let c: Command =
+            serde_json::from_str(r#"{"cmd":"screen","on":false,"locked":true}"#).unwrap();
+        assert_eq!(
+            c,
+            Command::Screen {
+                on: false,
+                locked: true
+            }
+        );
 
         let c: Command = serde_json::from_str(r#"{"cmd":"seed","pkg":null}"#).unwrap();
         assert_eq!(c, Command::Seed { pkg: None });
 
         let c: Command = serde_json::from_str(r#"{"cmd":"set_base","profile":"game"}"#).unwrap();
-        assert_eq!(c, Command::SetBase { profile: "game".into() });
+        assert_eq!(
+            c,
+            Command::SetBase {
+                profile: "game".into()
+            }
+        );
 
         let c: Command = serde_json::from_str(r#"{"cmd":"diag"}"#).unwrap();
         assert_eq!(c, Command::Diag);

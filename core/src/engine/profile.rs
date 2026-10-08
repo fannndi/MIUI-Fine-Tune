@@ -28,7 +28,8 @@ pub struct ProfilesFile {
 }
 
 pub fn parse_profiles(json: &str) -> Result<ProfilesFile, String> {
-    let file: ProfilesFile = serde_json::from_str(json).map_err(|e| format!("profiles.json: {e}"))?;
+    let file: ProfilesFile =
+        serde_json::from_str(json).map_err(|e| format!("profiles.json: {e}"))?;
     if file.schema != 1 {
         return Err(format!("unsupported profiles schema {}", file.schema));
     }
@@ -62,7 +63,11 @@ mod tests {
         // every key of every profile must exist in the catalog
         for prof in &file.profiles {
             for key in prof.params.keys() {
-                assert!(catalog::find(key).is_some(), "{}: unknown key {key}", prof.id);
+                assert!(
+                    catalog::find(key).is_some(),
+                    "{}: unknown key {key}",
+                    prof.id
+                );
             }
         }
     }

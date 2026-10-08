@@ -59,6 +59,9 @@ parameters, always through the catalog guard.
 | `src/daemon/bridge/sync.rs` | SyncCtx + pure gates + settings-CLI sync IO |
 | `src/daemon/settings.rs` | `settings` CLI read/write helpers (saver, power_mode) |
 | `tests/daemon_smoke.rs` | end-to-end protocol tests: full decision path, EOF exit |
+| `tests/daemon_watchers.rs` | watcher E2E over a fake logcat script |
+| `tests/daemon_bridge.rs` | bridge E2E over a fake settings binary (hold/restore) |
+| `tests/common/mod.rs` | shared spawn/drive harness for integration tests |
 
 ### Kotlin (`app/src/main/java/com/mifinetune/`)
 
@@ -97,6 +100,22 @@ parameters, always through the catalog guard.
 | `tools/owner-map-audit.sh` | catalog vs ROM audit (boot + runtime writers) |
 | `tools/display-off-diff.sh` | empirical display-off behavior test |
 | `tools/perf-hal-runtime-writers.txt` | runtime writer evidence list |
+| `.github/workflows/ci.yml` | CI: fmt + clippy + full host tests, then Android build |
+
+## Host simulation (fixture overrides)
+
+Integration tests and simulations replace device IO with fixtures via env
+vars — the daemon code paths are the real ones:
+
+| Env var | Replaces | Used by |
+|---|---|---|
+| `MIFINETUNE_LOGCAT_BIN` | `/system/bin/logcat` | watcher E2E (fake streams) |
+| `MIFINETUNE_SETTINGS_BIN` | `/system/bin/settings` | bridge E2E (fake hold/restore) |
+| `MIFINETUNE_SYSFS_ROOT` | `/sys` | env sampler + guard E2E (fake tree) |
+| `MIFINETUNE_ENV_SAMPLE_MS` | 30 s sample cadence | guard reaction tests |
+
+`cargo test` covers: engine units, daemon protocol/decision E2E, watcher
+streams, bridge hold/restore, env guards and the doctor — no device needed.
 
 ## Hard rules (never break these)
 

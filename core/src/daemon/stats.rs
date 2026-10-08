@@ -47,7 +47,10 @@ fn default_schema() -> u32 {
 
 impl Default for StatsFile {
     fn default() -> Self {
-        StatsFile { schema: SCHEMA, entries: Vec::new() }
+        StatsFile {
+            schema: SCHEMA,
+            entries: Vec::new(),
+        }
     }
 }
 
@@ -98,8 +101,13 @@ impl Stats {
 
     /// Atomic write (tmp + rename), like every other state file.
     fn persist(&self) {
-        let file = StatsFile { schema: SCHEMA, entries: self.entries.clone() };
-        let Ok(s) = serde_json::to_string(&file) else { return };
+        let file = StatsFile {
+            schema: SCHEMA,
+            entries: self.entries.clone(),
+        };
+        let Ok(s) = serde_json::to_string(&file) else {
+            return;
+        };
         let tmp = self.path.with_extension("json.tmp");
         if fs::write(&tmp, s).is_ok() {
             let _ = fs::rename(&tmp, &self.path);
@@ -112,7 +120,11 @@ mod tests {
     use super::*;
 
     fn env() -> EnvSnapshot {
-        EnvSnapshot { battery_pct: Some(85), cpu_temp_c: Some(38.5), ..Default::default() }
+        EnvSnapshot {
+            battery_pct: Some(85),
+            cpu_temp_c: Some(38.5),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -151,7 +163,10 @@ mod tests {
         }
         assert_eq!(s.entries.len(), MAX_ENTRIES);
         assert_eq!(s.entries.first().unwrap().to, format!("p{}", 10));
-        assert_eq!(s.entries.last().unwrap().to, format!("p{}", MAX_ENTRIES + 9));
+        assert_eq!(
+            s.entries.last().unwrap().to,
+            format!("p{}", MAX_ENTRIES + 9)
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -5,8 +5,8 @@
 //! Non-goals: touching the device (`apply` owns writes).
 
 use crate::engine::catalog::{self, Tier};
-use crate::engine::profile::Profile;
 use crate::engine::probe::ProbeData;
+use crate::engine::profile::Profile;
 use crate::engine::readback::readback_matches;
 use crate::engine::validate::validate_value;
 use serde::Serialize;
@@ -107,7 +107,10 @@ pub fn build_plan(profile: &Profile, probe: &ProbeData) -> Plan {
         let current = state.and_then(|s| s.value.clone());
 
         let (resolved, problem) = if !exists {
-            (wanted.clone(), Some("node missing on this device".to_string()))
+            (
+                wanted.clone(),
+                Some("node missing on this device".to_string()),
+            )
         } else {
             validate_value(e, wanted, probe)
         };
@@ -134,8 +137,10 @@ pub fn build_plan(profile: &Profile, probe: &ProbeData) -> Plan {
     // Kernel invariant: sched_downmigrate < sched_upmigrate (validated by
     // the kernel on every write, EINVAL otherwise). Both are free params in
     // a profile? enforce the pair before anything reaches the device.
-    if let (Some(up), Some(down)) = (profile.params.get("kernel.sched_upmigrate"),
-                                     profile.params.get("kernel.sched_downmigrate")) {
+    if let (Some(up), Some(down)) = (
+        profile.params.get("kernel.sched_upmigrate"),
+        profile.params.get("kernel.sched_downmigrate"),
+    ) {
         match (up.trim().parse::<i64>(), down.trim().parse::<i64>()) {
             (Ok(u), Ok(d)) if d < u => {}
             (Ok(u), Ok(d)) => errors.push(format!(
@@ -148,8 +153,10 @@ pub fn build_plan(profile: &Profile, probe: &ProbeData) -> Plan {
     // GPU pwrlevel invariant: max_pwrlevel <= min_pwrlevel — the kgsl driver
     // silently clamps `level > min_pwrlevel` to min (kgsl_pwrctrl.c:692),
     // equality is legal (single allowed level).
-    if let (Some(maxl), Some(minl)) = (profile.params.get("gpu.max_pwrlevel"),
-                                       profile.params.get("gpu.min_pwrlevel")) {
+    if let (Some(maxl), Some(minl)) = (
+        profile.params.get("gpu.max_pwrlevel"),
+        profile.params.get("gpu.min_pwrlevel"),
+    ) {
         match (maxl.trim().parse::<i64>(), minl.trim().parse::<i64>()) {
             (Ok(mx), Ok(mn)) if mx <= mn => {}
             (Ok(mx), Ok(mn)) => errors.push(format!(
@@ -159,7 +166,11 @@ pub fn build_plan(profile: &Profile, probe: &ProbeData) -> Plan {
         }
     }
 
-    ops.sort_by(|a, b| write_rank(&a.key).cmp(&write_rank(&b.key)).then(a.key.cmp(&b.key)));
+    ops.sort_by(|a, b| {
+        write_rank(&a.key)
+            .cmp(&write_rank(&b.key))
+            .then(a.key.cmp(&b.key))
+    });
 
     Plan {
         profile_id: profile.id.clone(),
@@ -225,8 +236,15 @@ mod tests {
         ]);
         let plan = build_plan(&p, &fake_probe());
         let keys: Vec<&str> = plan.ops.iter().map(|o| o.key.as_str()).collect();
-        assert_eq!(keys, vec!["vm.dirty_ratio", "policy0.scaling_governor",
-                              "policy0.scaling_max_freq", "policy0.scaling_min_freq"]);
+        assert_eq!(
+            keys,
+            vec![
+                "vm.dirty_ratio",
+                "policy0.scaling_governor",
+                "policy0.scaling_max_freq",
+                "policy0.scaling_min_freq"
+            ]
+        );
     }
 
     #[test]
@@ -235,7 +253,10 @@ mod tests {
         // op must be Ok (to write), never Unchanged.
         let p = profile(&[("io.scheduler", "deadline")]);
         let mut probe = fake_probe();
-        probe.entries.insert("io.scheduler".into(), entry_state(true, "noop deadline [cfq]"));
+        probe.entries.insert(
+            "io.scheduler".into(),
+            entry_state(true, "noop deadline [cfq]"),
+        );
         let plan = build_plan(&p, &probe);
         assert_eq!(plan.ops[0].status, OpStatus::Ok, "must plan a real write");
     }
@@ -244,7 +265,10 @@ mod tests {
     fn stune_boost_range_enforced() {
         let p = profile(&[("stune.top-app.boost", "101")]);
         let plan = build_plan(&p, &fake_probe());
-        assert!(matches!(plan.ops[0].status, OpStatus::Locked(_)), "101 must be locked");
+        assert!(
+            matches!(plan.ops[0].status, OpStatus::Locked(_)),
+            "101 must be locked"
+        );
 
         let p = profile(&[("stune.top-app.boost", "100")]);
         let plan = build_plan(&p, &fake_probe());
@@ -256,7 +280,10 @@ mod tests {
         // kernel core_ctl.c store_task_thres: val < num_cpus -> EINVAL
         let p = profile(&[("policy0.core_ctl.task_thres", "4")]);
         let plan = build_plan(&p, &fake_probe());
-        assert!(matches!(plan.ops[0].status, OpStatus::Locked(_)), "4 < 6 must be locked");
+        assert!(
+            matches!(plan.ops[0].status, OpStatus::Locked(_)),
+            "4 < 6 must be locked"
+        );
 
         let p = profile(&[("policy0.core_ctl.task_thres", "6")]);
         let plan = build_plan(&p, &fake_probe());
@@ -286,9 +313,16 @@ mod tests {
 
     #[test]
     fn migrate_pair_invariant_rejects_bad_profile() {
-        let p = profile(&[("kernel.sched_upmigrate", "60"), ("kernel.sched_downmigrate", "80")]);
+        let p = profile(&[
+            ("kernel.sched_upmigrate", "60"),
+            ("kernel.sched_downmigrate", "80"),
+        ]);
         let plan = build_plan(&p, &empty_probe());
         assert!(!plan.ok);
-        assert!(plan.errors.iter().any(|e| e.contains("must be <")), "errors: {:?}", plan.errors);
+        assert!(
+            plan.errors.iter().any(|e| e.contains("must be <")),
+            "errors: {:?}",
+            plan.errors
+        );
     }
 }

@@ -55,7 +55,13 @@ fn plan_ops_ordered<'a>(plan: &'a Plan, probe: &ProbeData) -> Vec<&'a PlannedOp>
         plan.ops.iter().collect::<Vec<_>>(),
         |o| o.key.as_str(),
         |o| o.resolved.parse().ok(),
-        |key| probe.entries.get(key).and_then(|e| e.value.clone()).and_then(|v| v.parse().ok()),
+        |key| {
+            probe
+                .entries
+                .get(key)
+                .and_then(|e| e.value.clone())
+                .and_then(|v| v.parse().ok())
+        },
     )
 }
 
@@ -85,7 +91,10 @@ pub fn apply_plan(store: &Store, plan: &Plan, probe: &ProbeData) -> Result<Apply
     for op in &plan_ops_ordered(plan, probe) {
         match &op.status {
             OpStatus::Locked(reason) => {
-                report.locked.push(LockedKey { key: op.key.clone(), reason: reason.clone() });
+                report.locked.push(LockedKey {
+                    key: op.key.clone(),
+                    reason: reason.clone(),
+                });
                 continue;
             }
             OpStatus::Unchanged => {
@@ -158,7 +167,11 @@ pub fn apply_with_pass2(
     let plan = build_plan(profile, &p);
     let mut report = apply_plan(store, &plan, &p)?;
 
-    if report.locked.iter().any(|l| l.reason.contains("node missing")) {
+    if report
+        .locked
+        .iter()
+        .any(|l| l.reason.contains("node missing"))
+    {
         let p2 = probe::probe();
         let plan2 = build_plan(profile, &p2);
         if plan2.ok {
@@ -183,13 +196,18 @@ mod tests {
 
     #[test]
     fn migrate_pair_write_order_is_kernel_safe() {
-        use crate::engine::profile::Profile;
         use crate::engine::plan::OpStatus;
+        use crate::engine::profile::Profile;
         // plan: up=60 down=50 (down-first by rank, up > cur_down?)
         let mut params = std::collections::BTreeMap::new();
         params.insert("kernel.sched_upmigrate".to_string(), "60".to_string());
         params.insert("kernel.sched_downmigrate".to_string(), "50".to_string());
-        let prof = Profile { id: "t".into(), label: "T".into(), desc: String::new(), params };
+        let prof = Profile {
+            id: "t".into(),
+            label: "T".into(),
+            desc: String::new(),
+            params,
+        };
 
         let mut probe = crate::engine::probe::ProbeData {
             device: Default::default(),
@@ -200,18 +218,30 @@ mod tests {
         // stock: up=71 down=65 -> want_up(60) <= cur_down(65): down first
         probe.entries.insert(
             "kernel.sched_upmigrate".into(),
-            crate::engine::probe::EntryState { exists: true, value: Some("71".into()) },
+            crate::engine::probe::EntryState {
+                exists: true,
+                value: Some("71".into()),
+            },
         );
         probe.entries.insert(
             "kernel.sched_downmigrate".into(),
-            crate::engine::probe::EntryState { exists: true, value: Some("65".into()) },
+            crate::engine::probe::EntryState {
+                exists: true,
+                value: Some("65".into()),
+            },
         );
         let plan = build_plan(&prof, &probe);
         assert!(plan.ok, "errors: {:?}", plan.errors);
         let ord = plan_ops_ordered(&plan, &probe);
         let keys: Vec<&str> = ord.iter().map(|o| o.key.as_str()).collect();
-        let d = keys.iter().position(|k| *k == "kernel.sched_downmigrate").unwrap();
-        let u = keys.iter().position(|k| *k == "kernel.sched_upmigrate").unwrap();
+        let d = keys
+            .iter()
+            .position(|k| *k == "kernel.sched_downmigrate")
+            .unwrap();
+        let u = keys
+            .iter()
+            .position(|k| *k == "kernel.sched_upmigrate")
+            .unwrap();
         assert!(d < u, "stock->game must write downmigrate first: {keys:?}");
 
         // reverse case: cur down=40, want up=60 -> up first
@@ -224,8 +254,14 @@ mod tests {
         let plan2 = build_plan(&prof, &probe2);
         let ord2 = plan_ops_ordered(&plan2, &probe2);
         let keys2: Vec<&str> = ord2.iter().map(|o| o.key.as_str()).collect();
-        let d2 = keys2.iter().position(|k| *k == "kernel.sched_downmigrate").unwrap();
-        let u2 = keys2.iter().position(|k| *k == "kernel.sched_upmigrate").unwrap();
+        let d2 = keys2
+            .iter()
+            .position(|k| *k == "kernel.sched_downmigrate")
+            .unwrap();
+        let u2 = keys2
+            .iter()
+            .position(|k| *k == "kernel.sched_upmigrate")
+            .unwrap();
         assert!(u2 < d2, "up-first when want_up > cur_down: {keys2:?}");
         let _ = OpStatus::Ok;
     }

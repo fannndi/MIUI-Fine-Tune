@@ -21,7 +21,10 @@ pub const THERMAL_HYSTERESIS_C: f32 = 5.0;
 /// not charging (unknown charging counts as discharging — conservative).
 pub(super) fn battery_low(cfg: &DaemonConfig, env: &EnvSnapshot) -> bool {
     cfg.guard_battery
-        && env.battery_pct.map(|p| p <= cfg.battery_floor_pct).unwrap_or(false)
+        && env
+            .battery_pct
+            .map(|p| p <= cfg.battery_floor_pct)
+            .unwrap_or(false)
         && env.charging != Some(true)
 }
 
@@ -93,7 +96,12 @@ impl Runtime {
             }
             Decision::Apply { profile, reason } => {
                 self.log(&format!("evaluate({trigger}): -> {profile} ({reason})"));
-                self.emit_decision(trigger, "apply", Some(profile.clone()), Some(reason.clone()));
+                self.emit_decision(
+                    trigger,
+                    "apply",
+                    Some(profile.clone()),
+                    Some(reason.clone()),
+                );
                 let job = worker::Job {
                     profile,
                     reason,
@@ -104,7 +112,9 @@ impl Runtime {
                 let _ = self.work_tx.send(Work::Apply(job));
             }
             Decision::Retire => {
-                self.log(&format!("evaluate({trigger}): MIUI ultra saver — retiring service"));
+                self.log(&format!(
+                    "evaluate({trigger}): MIUI ultra saver — retiring service"
+                ));
                 self.emit_decision(trigger, "retire", None, None);
                 self.retired = true;
                 let _ = self.work_tx.send(Work::Restore { retire: true });
@@ -126,12 +136,20 @@ impl Runtime {
 
     /// 3 s supervisor: periodic re-evaluate + watcher health + fallback peek.
     pub(super) fn supervise(&mut self, ticks: u64) {
-        if ticks % PERIODIC_TICKS == 0 && self.screen_on && !self.locked {
+        if ticks.is_multiple_of(PERIODIC_TICKS) && self.screen_on && !self.locked {
             self.evaluate("periodic", None);
         }
         // stream health
-        let fg_alive = self.fg_watcher.as_ref().map(|w| w.is_alive()).unwrap_or(false);
-        let mw_alive = self.mw_watcher.as_ref().map(|w| w.is_alive()).unwrap_or(false);
+        let fg_alive = self
+            .fg_watcher
+            .as_ref()
+            .map(|w| w.is_alive())
+            .unwrap_or(false);
+        let mw_alive = self
+            .mw_watcher
+            .as_ref()
+            .map(|w| w.is_alive())
+            .unwrap_or(false);
         if !fg_alive || !mw_alive {
             if self.last_watcher_restart.elapsed() >= watcher::RESTART_BACKOFF {
                 self.last_watcher_restart = Instant::now();

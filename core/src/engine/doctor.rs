@@ -20,7 +20,10 @@ struct Report {
 
 impl Report {
     fn new() -> Self {
-        Report { ok: true, checks: Vec::new() }
+        Report {
+            ok: true,
+            checks: Vec::new(),
+        }
     }
 
     fn check(&mut self, name: &str, pass: bool, critical: bool, detail: Value) {
@@ -52,10 +55,19 @@ pub fn run(state_dir: &Path, config_path: Option<&Path>) -> (bool, Value) {
     let mut r = Report::new();
 
     // --- root ---------------------------------------------------------------
-    r.check("root", euid_is_root(), true, json!({ "hint": "run via su" }));
+    r.check(
+        "root",
+        euid_is_root(),
+        true,
+        json!({ "hint": "run via su" }),
+    );
 
     // --- helper binaries (absolute paths; the su context has no PATH) -------
-    for bin in ["/system/bin/logcat", "/system/bin/settings", "/system/bin/getprop"] {
+    for bin in [
+        "/system/bin/logcat",
+        "/system/bin/settings",
+        "/system/bin/getprop",
+    ] {
         r.check(
             "binary",
             Path::new(bin).exists(),
@@ -66,7 +78,10 @@ pub fn run(state_dir: &Path, config_path: Option<&Path>) -> (bool, Value) {
 
     // --- state dir ------------------------------------------------------------
     let dir_ok = fs::create_dir_all(state_dir).is_ok();
-    let dir_writable = dir_ok && fs::metadata(state_dir).map(|m| !m.permissions().readonly()).unwrap_or(false);
+    let dir_writable = dir_ok
+        && fs::metadata(state_dir)
+            .map(|m| !m.permissions().readonly())
+            .unwrap_or(false);
     r.check(
         "state_dir",
         dir_writable,
@@ -112,7 +127,12 @@ pub fn run(state_dir: &Path, config_path: Option<&Path>) -> (bool, Value) {
         false,
         json!({ "cpu_c": env.cpu_temp_c, "gpu_c": env.gpu_temp_c }),
     );
-    r.check("env_gpu", env.gpu_busy_pct.is_some(), false, json!({ "busy_pct": env.gpu_busy_pct }));
+    r.check(
+        "env_gpu",
+        env.gpu_busy_pct.is_some(),
+        false,
+        json!({ "busy_pct": env.gpu_busy_pct }),
+    );
 
     // --- future knob surface (informational; Phase 12 candidates) --------------
     let optional = [
@@ -135,7 +155,12 @@ pub fn run(state_dir: &Path, config_path: Option<&Path>) -> (bool, Value) {
         .ok()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty() && s != "null");
-    r.check("refresh_rate_key", refresh.is_some(), false, json!({ "value": refresh }));
+    r.check(
+        "refresh_rate_key",
+        refresh.is_some(),
+        false,
+        json!({ "value": refresh }),
+    );
 
     // --- logcat epoch format (freshness arithmetic) -----------------------------
     let epoch_ok = Command::new("/system/bin/logcat")
@@ -175,9 +200,19 @@ pub fn run(state_dir: &Path, config_path: Option<&Path>) -> (bool, Value) {
                         "mapped": cfg.app_map.len(),
                     }),
                 ),
-                Err(e) => r.check("config", false, false, json!({ "path": cp.display().to_string(), "error": e.to_string() })),
+                Err(e) => r.check(
+                    "config",
+                    false,
+                    false,
+                    json!({ "path": cp.display().to_string(), "error": e.to_string() }),
+                ),
             },
-            Err(e) => r.check("config", false, false, json!({ "path": cp.display().to_string(), "error": e.to_string() })),
+            Err(e) => r.check(
+                "config",
+                false,
+                false,
+                json!({ "path": cp.display().to_string(), "error": e.to_string() }),
+            ),
         }
     }
 
@@ -187,7 +222,12 @@ pub fn run(state_dir: &Path, config_path: Option<&Path>) -> (bool, Value) {
         let parsed = fs::read_to_string(&holds)
             .ok()
             .and_then(|s| serde_json::from_str::<Value>(&s).ok());
-        r.check("holds", parsed.is_some(), false, json!({ "path": holds.display().to_string() }));
+        r.check(
+            "holds",
+            parsed.is_some(),
+            false,
+            json!({ "path": holds.display().to_string() }),
+        );
     } else {
         r.check("holds", true, false, json!({ "present": false }));
     }

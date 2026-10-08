@@ -39,7 +39,8 @@ impl Runtime {
                     if was_on {
                         self.log("screen off");
                     }
-                    self.sleep_deadline = Some(Instant::now() + Duration::from_millis(SLEEP_DELAY_MS));
+                    self.sleep_deadline =
+                        Some(Instant::now() + Duration::from_millis(SLEEP_DELAY_MS));
                 } else {
                     self.sleep_deadline = None;
                     if !was_on {
@@ -99,8 +100,16 @@ impl Runtime {
                     active: self.active.clone(),
                     reason: self.reason.clone(),
                     watchers: Watchers {
-                        fg: self.fg_watcher.as_ref().map(|w| w.is_alive()).unwrap_or(false),
-                        mw: self.mw_watcher.as_ref().map(|w| w.is_alive()).unwrap_or(false),
+                        fg: self
+                            .fg_watcher
+                            .as_ref()
+                            .map(|w| w.is_alive())
+                            .unwrap_or(false),
+                        mw: self
+                            .mw_watcher
+                            .as_ref()
+                            .map(|w| w.is_alive())
+                            .unwrap_or(false),
                     },
                     holds: self.bridge.holds_info(),
                     stats_len: self.stats.entries.len(),
@@ -108,7 +117,9 @@ impl Runtime {
                 self.publisher.emit(&Event::Diag { diag });
             }
             Command::Stats => {
-                self.publisher.emit(&Event::Stats { entries: self.stats.entries.clone() });
+                self.publisher.emit(&Event::Stats {
+                    entries: self.stats.entries.clone(),
+                });
             }
         }
         true
@@ -168,9 +179,11 @@ impl Runtime {
     /// One-shot peek on a short thread (never blocks the main loop).
     pub(super) fn peek_now(&mut self, trigger: &'static str) {
         let tx = self.tx.clone();
-        let _ = std::thread::Builder::new().name("peek".into()).spawn(move || {
-            let pkg = watcher::peek_fg();
-            let _ = tx.send(Msg::Peek { pkg, trigger });
-        });
+        let _ = std::thread::Builder::new()
+            .name("peek".into())
+            .spawn(move || {
+                let pkg = watcher::peek_fg();
+                let _ = tx.send(Msg::Peek { pkg, trigger });
+            });
     }
 }

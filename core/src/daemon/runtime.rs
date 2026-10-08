@@ -6,8 +6,8 @@
 //! (dispatch) and `evaluate.rs` (decision + supervisor).
 
 use super::worker;
-use super::Runtime;
 use super::worker::RestoredEvent;
+use super::Runtime;
 use super::{Event, Snapshot};
 use crate::engine::env::EnvSnapshot;
 
@@ -33,7 +33,13 @@ impl Runtime {
         }
     }
 
-    pub(super) fn emit_decision(&self, trigger: &str, action: &str, profile: Option<String>, reason: Option<String>) {
+    pub(super) fn emit_decision(
+        &self,
+        trigger: &str,
+        action: &str,
+        profile: Option<String>,
+        reason: Option<String>,
+    ) {
         self.publisher.emit(&Event::Decision {
             trigger: trigger.into(),
             action: action.into(),
@@ -50,7 +56,9 @@ impl Runtime {
         let prev = (self.last_battery_low, self.thermal_stepped);
         self.env = snap;
         if changed {
-            self.publisher.emit(&Event::Env { env: self.env.clone() });
+            self.publisher.emit(&Event::Env {
+                env: self.env.clone(),
+            });
         }
         let cfg = self.config.get().clone();
         let bat = super::evaluate::battery_low(&cfg, &self.env);
@@ -73,13 +81,17 @@ impl Runtime {
             }
             // a real switch (not an "in place" confirmation) is history
             if self.active.as_deref() != Some(ev.profile.as_str()) {
-                self.stats.record(self.active.as_deref(), &ev.profile, &ev.reason, &self.env);
+                self.stats
+                    .record(self.active.as_deref(), &ev.profile, &ev.reason, &self.env);
             }
             self.active = Some(ev.profile.clone());
             self.reason = Some(ev.reason.clone());
             self.src_pkg = ev.src_pkg.clone();
         } else {
-            self.log(&format!("apply {} failed after retry ({})", ev.profile, ev.failed));
+            self.log(&format!(
+                "apply {} failed after retry ({})",
+                ev.profile, ev.failed
+            ));
             self.reason = Some(format!("apply failed ({})", ev.failed));
         }
         self.publisher.emit(&Event::Applied {
@@ -111,7 +123,10 @@ impl Runtime {
             self.src_pkg = None;
         }
         if ev.retire {
-            self.log(&format!("retire: restore ok={} failed={}", ev.ok, ev.failed));
+            self.log(&format!(
+                "retire: restore ok={} failed={}",
+                ev.ok, ev.failed
+            ));
             self.publisher.emit(&Event::Retired {
                 ok: ev.ok,
                 wrote: ev.wrote,

@@ -26,11 +26,13 @@ fn sample_ms() -> u64 {
 pub fn spawn(tx: Sender<Msg>) {
     let sampler = Sampler::new(&env::default_root());
     let cadence = Duration::from_millis(sample_ms());
-    let _ = std::thread::Builder::new().name("env".into()).spawn(move || loop {
-        let snap: EnvSnapshot = sampler.sample();
-        if tx.send(Msg::Env(snap)).is_err() {
-            break; // main loop gone — process is shutting down
-        }
-        std::thread::sleep(cadence);
-    });
+    let _ = std::thread::Builder::new()
+        .name("env".into())
+        .spawn(move || loop {
+            let snap: EnvSnapshot = sampler.sample();
+            if tx.send(Msg::Env(snap)).is_err() {
+                break; // main loop gone — process is shutting down
+            }
+            std::thread::sleep(cadence);
+        });
 }

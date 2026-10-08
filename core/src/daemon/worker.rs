@@ -37,7 +37,9 @@ pub enum Work {
     Apply(Job),
     /// Drop pending applies, write the stock snapshot back, release holds.
     /// `retire` marks the Ultra-saver path (app must disable + stop).
-    Restore { retire: bool },
+    Restore {
+        retire: bool,
+    },
 }
 
 /// Result of a completed apply (the app turns this into UI + notification).
@@ -77,7 +79,14 @@ pub struct Outcome {
 
 impl Outcome {
     pub fn err(msg: String) -> Self {
-        Outcome { ok: false, wrote: 0, verified: 0, failed: 0, error: Some(msg), already: false }
+        Outcome {
+            ok: false,
+            wrote: 0,
+            verified: 0,
+            failed: 0,
+            error: Some(msg),
+            already: false,
+        }
     }
 }
 
@@ -111,7 +120,13 @@ pub fn run(
                 while let Ok(Work::Apply(_)) = rx.try_recv() {}
                 engine.release_holds();
                 let out = engine.restore();
-                on_restored(RestoredEvent { retire, ok: out.ok, wrote: out.wrote, verified: out.verified, failed: out.failed });
+                on_restored(RestoredEvent {
+                    retire,
+                    ok: out.ok,
+                    wrote: out.wrote,
+                    verified: out.verified,
+                    failed: out.failed,
+                });
             }
             Work::Apply(first_job) => {
                 let mut job = first_job;
@@ -141,7 +156,13 @@ pub fn run(
                 if let Some(r) = restore_deferred {
                     engine.release_holds();
                     let out = engine.restore();
-                    on_restored(RestoredEvent { retire: r.retire, ok: out.ok, wrote: out.wrote, verified: out.verified, failed: out.failed });
+                    on_restored(RestoredEvent {
+                        retire: r.retire,
+                        ok: out.ok,
+                        wrote: out.wrote,
+                        verified: out.verified,
+                        failed: out.failed,
+                    });
                     continue;
                 }
 
@@ -175,7 +196,14 @@ struct Restore {
 
 fn run_once(engine: &mut dyn EngineDriver, job: &Job) -> Outcome {
     if engine.active().as_deref() == Some(job.profile.as_str()) {
-        return Outcome { ok: true, wrote: 0, verified: 0, failed: 0, error: None, already: true };
+        return Outcome {
+            ok: true,
+            wrote: 0,
+            verified: 0,
+            failed: 0,
+            error: None,
+            already: true,
+        };
     }
     engine.apply(&job.profile)
 }

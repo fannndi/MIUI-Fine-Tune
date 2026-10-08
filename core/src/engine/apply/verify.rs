@@ -11,14 +11,13 @@ use crate::engine::readback::readback_matches;
 /// The kernel settles within ~1 s of the QoS expiring, so a single short
 /// re-read removes the false failure without a full second apply pass.
 pub(super) fn mismatch_is_transient(kind: catalog::Kind) -> bool {
-    matches!(kind, catalog::Kind::Freq | catalog::Kind::FreqMin | catalog::Kind::FreqMax)
+    matches!(
+        kind,
+        catalog::Kind::Freq | catalog::Kind::FreqMin | catalog::Kind::FreqMax
+    )
 }
 
-pub(super) fn verified_readback(
-    key: &str,
-    path: &str,
-    resolved: &str,
-) -> (bool, Option<String>) {
+pub(super) fn verified_readback(key: &str, path: &str, resolved: &str) -> (bool, Option<String>) {
     let kind = catalog::find(key).map(|e| e.kind);
     let check = |back: Option<&str>| match (kind, back) {
         (Some(k), Some(rb)) => readback_matches(k, resolved, rb),
@@ -69,7 +68,10 @@ pub fn verify_plan(store: &Store, plan: &Plan) -> ApplyReport {
     for op in &plan.ops {
         match &op.status {
             OpStatus::Locked(reason) => {
-                report.locked.push(LockedKey { key: op.key.clone(), reason: reason.clone() });
+                report.locked.push(LockedKey {
+                    key: op.key.clone(),
+                    reason: reason.clone(),
+                });
                 continue;
             }
             OpStatus::Unchanged => report.unchanged += 1,

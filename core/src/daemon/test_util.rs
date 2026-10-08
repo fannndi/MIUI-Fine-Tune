@@ -4,7 +4,10 @@ use std::collections::BTreeMap;
 
 /// `[("pkg", "profile")]` -> owned map.
 pub fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 /// Fresh temp dir per test (process-id tagged, removed on entry).

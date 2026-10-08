@@ -21,8 +21,8 @@
 mod holds;
 mod sync;
 
-pub use holds::PowerMode;
 pub use holds::HoldsInfo;
+pub use holds::PowerMode;
 pub use sync::SyncCtx;
 
 use super::proto::{Event, Publisher};
@@ -70,7 +70,10 @@ impl Bridge {
         let bridge = Arc::new(Bridge {
             holds_path,
             publisher,
-            state: Mutex::new(State { holds, game_warned_for: None }),
+            state: Mutex::new(State {
+                holds,
+                game_warned_for: None,
+            }),
             saver_override: AtomicI8::new(-1),
         });
         bridge.refresh_attribution();
@@ -146,8 +149,15 @@ impl Bridge {
             let mut st = self.lock();
             let mut changed = false;
             if st.holds.perf_held {
-                let _ = settings::put("system", settings::POWER_MODE_KEY, st.holds.perf_saved.key());
-                self.log_event(format!("MIUI perf mirror restored ({})", st.holds.perf_saved.key()));
+                let _ = settings::put(
+                    "system",
+                    settings::POWER_MODE_KEY,
+                    st.holds.perf_saved.key(),
+                );
+                self.log_event(format!(
+                    "MIUI perf mirror restored ({})",
+                    st.holds.perf_saved.key()
+                ));
                 st.holds.perf_held = false;
                 changed = true;
             }
@@ -179,7 +189,9 @@ impl Bridge {
             saver_held: st.holds.saver_held,
             saver_saved: st.holds.saver_saved,
         };
-        let Ok(s) = serde_json::to_string_pretty(&file) else { return };
+        let Ok(s) = serde_json::to_string_pretty(&file) else {
+            return;
+        };
         let tmp = self.holds_path.with_extension("json.tmp");
         if fs::write(&tmp, s).is_ok() {
             let _ = fs::rename(&tmp, &self.holds_path);

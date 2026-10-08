@@ -58,7 +58,12 @@ pub struct Holds {
 
 impl Default for Holds {
     fn default() -> Self {
-        Holds { perf_held: false, perf_saved: PowerMode::Balanced, saver_held: false, saver_saved: false }
+        Holds {
+            perf_held: false,
+            perf_saved: PowerMode::Balanced,
+            saver_held: false,
+            saver_saved: false,
+        }
     }
 }
 
@@ -67,11 +72,25 @@ impl Holds {
     pub fn request_perf(&self, live: PowerMode, want: bool) -> (Holds, PerfAction) {
         match (want, self.perf_held) {
             (true, false) => (
-                Holds { perf_held: true, perf_saved: live, ..self.clone() },
-                if live == PowerMode::Performance { PerfAction::Keep } else { PerfAction::Write },
+                Holds {
+                    perf_held: true,
+                    perf_saved: live,
+                    ..self.clone()
+                },
+                if live == PowerMode::Performance {
+                    PerfAction::Keep
+                } else {
+                    PerfAction::Write
+                },
             ),
             (true, true) => (self.clone(), PerfAction::Keep),
-            (false, true) => (Holds { perf_held: false, ..self.clone() }, PerfAction::Restore),
+            (false, true) => (
+                Holds {
+                    perf_held: false,
+                    ..self.clone()
+                },
+                PerfAction::Restore,
+            ),
             (false, false) => (self.clone(), PerfAction::None),
         }
     }
@@ -80,11 +99,25 @@ impl Holds {
     pub fn request_saver(&self, live: bool, want: bool) -> (Holds, SaverAction) {
         match (want, self.saver_held) {
             (true, false) => (
-                Holds { saver_held: true, saver_saved: live, ..self.clone() },
-                if live { SaverAction::Keep } else { SaverAction::TurnOn },
+                Holds {
+                    saver_held: true,
+                    saver_saved: live,
+                    ..self.clone()
+                },
+                if live {
+                    SaverAction::Keep
+                } else {
+                    SaverAction::TurnOn
+                },
             ),
             (true, true) => (self.clone(), SaverAction::Keep),
-            (false, true) => (Holds { saver_held: false, ..self.clone() }, SaverAction::Restore),
+            (false, true) => (
+                Holds {
+                    saver_held: false,
+                    ..self.clone()
+                },
+                SaverAction::Restore,
+            ),
             (false, false) => (self.clone(), SaverAction::None),
         }
     }
@@ -188,7 +221,11 @@ mod tests {
     #[test]
     fn recovered_hold_restores_captured_value_not_live() {
         // daemon died while holding (user's saver was off, ours is on)
-        let s = Holds { saver_held: true, saver_saved: false, ..Default::default() };
+        let s = Holds {
+            saver_held: true,
+            saver_saved: false,
+            ..Default::default()
+        };
         let (n, a) = s.request_saver(true, false);
         assert!(matches!(a, SaverAction::Restore));
         assert!(!n.saver_saved);

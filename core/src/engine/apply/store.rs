@@ -15,7 +15,9 @@ pub struct Store {
 
 impl Store {
     pub fn new(dir: &Path) -> Self {
-        Store { dir: dir.to_path_buf() }
+        Store {
+            dir: dir.to_path_buf(),
+        }
     }
 
     pub fn dir(&self) -> &Path {
@@ -47,7 +49,10 @@ impl Store {
     }
 
     /// Load user profiles from state dir, falling back to the embedded set.
-    pub fn load_profiles(&self, override_path: Option<&Path>) -> Result<crate::engine::profile::ProfilesFile, String> {
+    pub fn load_profiles(
+        &self,
+        override_path: Option<&Path>,
+    ) -> Result<crate::engine::profile::ProfilesFile, String> {
         if let Some(p) = override_path {
             let s = fs::read_to_string(p).map_err(|e| format!("read {p:?}: {e}"))?;
             return crate::engine::profile::parse_profiles(&s);
@@ -88,9 +93,17 @@ pub(super) fn ensure_snapshot(
             .clone()
             .or_else(|| probe.entries.get(&op.key).and_then(|e| e.value.clone()))
             .unwrap_or_default();
-        let kind = catalog::find(&op.key).map(|e| e.kind).unwrap_or(catalog::Kind::Text);
+        let kind = catalog::find(&op.key)
+            .map(|e| e.kind)
+            .unwrap_or(catalog::Kind::Text);
         let value = normalize_snapshot(kind, &value);
-        snap.values.insert(op.key.clone(), SnapValue { path: op.path.clone(), value });
+        snap.values.insert(
+            op.key.clone(),
+            SnapValue {
+                path: op.path.clone(),
+                value,
+            },
+        );
         changed = true;
     }
     if changed {
@@ -109,11 +122,16 @@ mod tests {
         // write_json must leave a valid file and never leave .tmp leftovers
         let dir = tmpdir("atomic");
         let store = Store::new(&dir);
-        let st = State { active: Some("game".into()), updated: 7, last_mode: "apply".into() };
+        let st = State {
+            active: Some("game".into()),
+            updated: 7,
+            last_mode: "apply".into(),
+        };
         store.save_state(&st).unwrap();
         assert_eq!(store.load_state().active.as_deref(), Some("game"));
         // no stray tmp files in the state dir
-        let leftovers: Vec<_> = fs::read_dir(&dir).unwrap()
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().map(|x| x == "tmp").unwrap_or(false))
             .collect();
@@ -126,7 +144,13 @@ mod tests {
         let dir = tmpdir("state");
         let store = Store::new(&dir);
         assert!(store.load_state().active.is_none());
-        store.save_state(&State { active: Some("game".into()), updated: 42, last_mode: "apply".into() }).unwrap();
+        store
+            .save_state(&State {
+                active: Some("game".into()),
+                updated: 42,
+                last_mode: "apply".into(),
+            })
+            .unwrap();
         let st = store.load_state();
         assert_eq!(st.active.as_deref(), Some("game"));
         assert_eq!(st.updated, 42);
@@ -141,5 +165,4 @@ mod tests {
         assert_eq!(p.profiles.len(), 4); // powersave, balance, game, sleep
         let _ = fs::remove_dir_all(&dir);
     }
-
 }

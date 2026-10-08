@@ -68,11 +68,17 @@ enum Msg {
     /// Raw foreground event from the daemon's own logcat stream.
     Fg(String),
     /// Multi-window state from the daemon's own logcat stream.
-    Mw { active: bool, other: Option<String> },
+    Mw {
+        active: bool,
+        other: Option<String>,
+    },
     /// Wake/unlock seed from the daemon's own peek.
     /// `unlock` always re-evaluates; `peek` (stream-down fallback) only
     /// evaluates when the package actually changed.
-    Peek { pkg: Option<String>, trigger: &'static str },
+    Peek {
+        pkg: Option<String>,
+        trigger: &'static str,
+    },
     /// Fresh environment sample (battery / thermal / GPU busy).
     Env(EnvSnapshot),
     /// A watcher stream died; the supervisor restarts it with backoff.
@@ -129,7 +135,15 @@ struct Runtime {
 /// Entry point for `miui-ft serve`.
 pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
     let publisher = Publisher::new();
-    publisher.emit(&Event::Hello { version: VERSION, pid: std::process::id() });
+    publisher.emit(&Event::Hello {
+        version: VERSION,
+        pid: std::process::id(),
+    });
+
+    // state dir first: holds/stats/state files must be writable from the start
+    if let Err(e) = std::fs::create_dir_all(state_dir) {
+        publisher.log(&format!("state dir: {e}"));
+    }
 
     let (mut cfg, cfg_err) = ConfigFile::load(config_path);
     if let Some(e) = cfg_err {

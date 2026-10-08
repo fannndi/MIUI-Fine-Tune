@@ -17,7 +17,10 @@ pub struct EngineApplier {
 
 impl EngineApplier {
     pub fn new(state_dir: &Path, bridge: Arc<Bridge>) -> Self {
-        EngineApplier { store: Store::new(state_dir), bridge }
+        EngineApplier {
+            store: Store::new(state_dir),
+            bridge,
+        }
     }
 }
 
@@ -52,7 +55,14 @@ impl EngineDriver for EngineApplier {
         // (the service-off flow must never fail on an empty snapshot).
         if self.store.load_snapshot().is_none() {
             self.bridge.release_all();
-            return Outcome { ok: true, wrote: 0, verified: 0, failed: 0, error: None, already: false };
+            return Outcome {
+                ok: true,
+                wrote: 0,
+                verified: 0,
+                failed: 0,
+                error: None,
+                already: false,
+            };
         }
         let out = match apply::restore(&self.store, &probe::probe()) {
             Ok(rep) => Outcome {

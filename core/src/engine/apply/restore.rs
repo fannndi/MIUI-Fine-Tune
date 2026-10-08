@@ -4,8 +4,8 @@ use super::store::Store;
 use super::verify::verified_readback;
 use super::write::{ordered_pairs_with, write_one};
 use super::{now_secs, ApplyReport, SnapValue, WriteResult};
-use crate::engine::probe::{self, ProbeData};
 use crate::engine::plan::write_rank;
+use crate::engine::probe::{self, ProbeData};
 use std::fs;
 
 /// Restore every snapshotted key to its stock value (engine OFF equivalent).
@@ -31,20 +31,28 @@ pub fn restore(store: &Store, probe: &ProbeData) -> Result<ApplyReport, String> 
     // Reverse of apply order: min before max is unsafe, so keep the same
     // rank ordering (max rank < min rank => max written first).
     let mut entries: Vec<(String, SnapValue)> = snap.values.clone().into_iter().collect();
-    entries.sort_by(|a, b| {
-        write_rank(&a.0).cmp(&write_rank(&b.0)).then(a.0.cmp(&b.0))
-    });
+    entries.sort_by(|a, b| write_rank(&a.0).cmp(&write_rank(&b.0)).then(a.0.cmp(&b.0)));
 
     // Kernel-validated pairs: decide safe write order against LIVE values
     entries = ordered_pairs_with(
         entries,
         |(k, _)| k.as_str(),
         |(_, sv)| sv.value.parse().ok(),
-        |key| probe.entries.get(key).and_then(|e| e.value.clone()).and_then(|v| v.parse().ok()),
+        |key| {
+            probe
+                .entries
+                .get(key)
+                .and_then(|e| e.value.clone())
+                .and_then(|v| v.parse().ok())
+        },
     );
 
     for (key, sv) in entries {
-        let current = probe.entries.get(&key).and_then(|e| e.value.clone()).or_else(|| probe::read(&sv.path));
+        let current = probe
+            .entries
+            .get(&key)
+            .and_then(|e| e.value.clone())
+            .or_else(|| probe::read(&sv.path));
         if current.as_deref() == Some(sv.value.as_str()) {
             report.unchanged += 1;
             continue;

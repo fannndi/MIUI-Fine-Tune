@@ -31,13 +31,17 @@ impl Bridge {
         let changed = next != st.holds;
         match action {
             PerfAction::Write => {
-                let _ = settings::put("system", settings::POWER_MODE_KEY, PowerMode::Performance.key());
-                self.publisher.log("bridge: MIUI perf mirror ON (game)");
+                let _ = settings::put(
+                    "system",
+                    settings::POWER_MODE_KEY,
+                    PowerMode::Performance.key(),
+                );
+                self.log_event("MIUI perf mirror ON (game)".into());
             }
             PerfAction::Restore => {
                 let _ = settings::put("system", settings::POWER_MODE_KEY, next.perf_saved.key());
-                self.publisher.log(&format!(
-                    "bridge: MIUI perf mirror restored ({})",
+                self.log_event(format!(
+                    "MIUI perf mirror restored ({})",
                     next.perf_saved.key()
                 ));
             }
@@ -55,8 +59,8 @@ impl Bridge {
         match action {
             SaverAction::TurnOn => {
                 let _ = settings::put("global", settings::SAVER_KEY, "1");
-                self.publisher.log(&format!(
-                    "bridge: MIUI saver ON ({})",
+                self.log_event(format!(
+                    "MIUI saver ON ({})",
                     ctx.last_real.as_deref().unwrap_or("?")
                 ));
             }
@@ -66,7 +70,7 @@ impl Bridge {
                     settings::SAVER_KEY,
                     if next.saver_saved { "1" } else { "0" },
                 );
-                self.publisher.log("bridge: MIUI saver restored");
+                self.log_event("MIUI saver restored".into());
             }
             _ => {}
         }
@@ -91,7 +95,8 @@ impl Bridge {
         }
         st.game_warned_for = ctx.last_real.clone();
         if let Some(pkg) = &ctx.last_real {
-            self.publisher.emit(&Event::GameModeConflict { pkg: pkg.clone() });
+            self.publisher
+                .emit(&Event::GameModeConflict { pkg: pkg.clone() });
         }
     }
 }
@@ -116,13 +121,20 @@ fn read_game_mode_signature() -> bool {
 
 /// The profile the app map assigns to the current foreground, if any.
 fn mapped_profile(ctx: &SyncCtx) -> Option<&str> {
-    ctx.last_real.as_deref().and_then(|p| ctx.app_map.get(p)).map(|s| s.as_str())
+    ctx.last_real
+        .as_deref()
+        .and_then(|p| ctx.app_map.get(p))
+        .map(|s| s.as_str())
 }
 
 /// Perf mirror wants Performance: Dynamic ON + sync ON + mapped game in
 /// front + screen visible & unlocked.
 fn perf_want(ctx: &SyncCtx) -> bool {
-    ctx.dynamic && ctx.sync_perf && mapped_profile(ctx) == Some("game") && ctx.screen_on && !ctx.locked
+    ctx.dynamic
+        && ctx.sync_perf
+        && mapped_profile(ctx) == Some("game")
+        && ctx.screen_on
+        && !ctx.locked
 }
 
 /// Saver follow wants the saver ON: Dynamic ON + sync ON + a powersave-mapped
@@ -143,7 +155,6 @@ fn game_want(ctx: &SyncCtx) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     fn ctx(map: &[(&str, &str)], fg: Option<&str>) -> SyncCtx {
         SyncCtx {

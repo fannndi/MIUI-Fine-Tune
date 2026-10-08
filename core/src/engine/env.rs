@@ -70,18 +70,22 @@ impl Sampler {
         EnvSnapshot {
             battery_pct: self.read_parse("sys/class/power_supply/battery/capacity", parse_pct),
             charging: self.read_parse("sys/class/power_supply/battery/status", parse_charging),
-            battery_temp_c: self.read_parse("sys/class/power_supply/battery/temp", parse_temp_tenths),
+            battery_temp_c: self
+                .read_parse("sys/class/power_supply/battery/temp", parse_temp_tenths),
             cpu_temp_c: self
                 .cpu_temp
                 .as_deref()
-                .and_then(|p| read_trim(p))
+                .and_then(read_trim)
                 .and_then(|s| parse_temp_milli(&s)),
             gpu_temp_c: self
                 .gpu_temp
                 .as_deref()
-                .and_then(|p| read_trim(p))
+                .and_then(read_trim)
                 .and_then(|s| parse_temp_milli(&s)),
-            gpu_busy_pct: self.read_parse("sys/class/kgsl/kgsl-3d0/gpu_busy_percentage", parse_gpu_busy),
+            gpu_busy_pct: self.read_parse(
+                "sys/class/kgsl/kgsl-3d0/gpu_busy_percentage",
+                parse_gpu_busy,
+            ),
         }
     }
 
@@ -94,10 +98,14 @@ impl Sampler {
 fn discover_zones(root: &Path) -> Vec<(String, PathBuf)> {
     let base = root.join("sys/class/thermal");
     let mut zones = Vec::new();
-    let Ok(rd) = fs::read_dir(&base) else { return zones };
+    let Ok(rd) = fs::read_dir(&base) else {
+        return zones;
+    };
     for e in rd.flatten() {
         let p = e.path();
-        let Some(name) = p.file_name().and_then(|n| n.to_str()) else { continue };
+        let Some(name) = p.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
         if !name.starts_with("thermal_zone") {
             continue;
         }
@@ -116,7 +124,10 @@ fn read_trim(path: &Path) -> Option<String> {
 
 /// "95" -> Some(95), clamped to 0..=100; non-numeric -> None.
 pub fn parse_pct(raw: &str) -> Option<u8> {
-    raw.trim().parse::<i64>().ok().map(|v| v.clamp(0, 100) as u8)
+    raw.trim()
+        .parse::<i64>()
+        .ok()
+        .map(|v| v.clamp(0, 100) as u8)
 }
 
 /// power_supply battery temp: tenths of °C ("320" -> 32.0). <= 0 -> None.
@@ -198,7 +209,11 @@ mod tests {
         assert_eq!(parse_temp_tenths("-100"), None);
 
         assert_eq!(parse_temp_milli("38800"), Some(38.8));
-        assert_eq!(parse_temp_milli("-312"), None, "level zones are not temperatures");
+        assert_eq!(
+            parse_temp_milli("-312"),
+            None,
+            "level zones are not temperatures"
+        );
 
         assert_eq!(parse_charging("Charging"), Some(true));
         assert_eq!(parse_charging("Full"), Some(true));
@@ -218,7 +233,11 @@ mod tests {
         assert_eq!(s.battery_pct, Some(95));
         assert_eq!(s.charging, Some(true));
         assert_eq!(s.battery_temp_c, Some(32.0));
-        assert_eq!(s.cpu_temp_c, Some(38.8), "cpuss-0-usr must win over pm6150-tz");
+        assert_eq!(
+            s.cpu_temp_c,
+            Some(38.8),
+            "cpuss-0-usr must win over pm6150-tz"
+        );
         assert_eq!(s.gpu_temp_c, Some(41.2));
         assert_eq!(s.gpu_busy_pct, Some(3));
         let _ = fs::remove_dir_all(&root);

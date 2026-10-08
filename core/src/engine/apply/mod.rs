@@ -5,6 +5,7 @@
 //! - `write.rs`   apply a validated plan (ordered, read-back verified)
 //! - `restore.rs` write the stock snapshot back (engine OFF)
 //! - `verify.rs`  drift detection (read-only)
+//!
 //! Non-goals: deciding values (`plan.rs`), UI.
 
 mod restore;
@@ -24,7 +25,10 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 pub fn default_state_dir() -> PathBuf {
@@ -46,18 +50,12 @@ pub struct Snapshot {
     pub values: BTreeMap<String, SnapValue>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct State {
     pub active: Option<String>,
     pub updated: u64,
     #[serde(default)]
     pub last_mode: String,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        State { active: None, updated: 0, last_mode: String::new() }
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -95,7 +93,9 @@ pub struct ApplyReport {
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
-    fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok())
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
 }
 
 /// Atomic JSON write: tmp file in the same directory + fsync + rename, so a
@@ -110,7 +110,8 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     let tmp = path.with_extension("json.tmp");
     {
         let mut f = fs::File::create(&tmp).map_err(|e| format!("create {tmp:?}: {e}"))?;
-        f.write_all(s.as_bytes()).map_err(|e| format!("write {tmp:?}: {e}"))?;
+        f.write_all(s.as_bytes())
+            .map_err(|e| format!("write {tmp:?}: {e}"))?;
         f.sync_all().map_err(|e| format!("fsync {tmp:?}: {e}"))?;
     }
     fs::rename(&tmp, path).map_err(|e| format!("rename {tmp:?} -> {path:?}: {e}"))

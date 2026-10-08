@@ -78,7 +78,10 @@ pub struct ProbeData {
 }
 
 pub fn read(path: &str) -> Option<String> {
-    fs::read_to_string(path).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 pub fn write(path: &str, value: &str) -> Result<(), String> {
@@ -97,7 +100,10 @@ fn tokenize(s: &str) -> Vec<String> {
 /// `getprop` by absolute path: the binary runs under `su -c` with a minimal
 /// environment (same PATH quirk as `RootBridge.suBin` on the app side).
 fn getprop(name: &str) -> Option<String> {
-    let out = std::process::Command::new("/system/bin/getprop").arg(name).output().ok()?;
+    let out = std::process::Command::new("/system/bin/getprop")
+        .arg(name)
+        .output()
+        .ok()?;
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if s.is_empty() {
         None
@@ -110,8 +116,8 @@ fn getprop(name: &str) -> Option<String> {
 fn cpu_count() -> usize {
     read("/sys/devices/system/cpu/possible")
         .and_then(|s| {
-            let last = s.split(',').last()?;
-            let hi = last.split('-').last()?.parse::<usize>().ok()?;
+            let last = s.split(',').next_back()?;
+            let hi = last.split('-').next_back()?.parse::<usize>().ok()?;
             Some(hi + 1)
         })
         .unwrap_or(8)
@@ -122,7 +128,10 @@ pub fn probe() -> ProbeData {
     for e in catalog() {
         entries.insert(
             e.key.to_string(),
-            EntryState { exists: std::path::Path::new(e.path).exists(), value: read(e.path) },
+            EntryState {
+                exists: std::path::Path::new(e.path).exists(),
+                value: read(e.path),
+            },
         );
     }
 
@@ -136,7 +145,10 @@ pub fn probe() -> ProbeData {
             governors.insert(policy.to_string(), tokenize(&g));
         }
         if let Some(f) = read(&format!("{base}/scaling_available_frequencies")) {
-            let mut v: Vec<u64> = f.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+            let mut v: Vec<u64> = f
+                .split_whitespace()
+                .filter_map(|t| t.parse().ok())
+                .collect();
             v.sort_unstable();
             freqs.insert(policy.to_string(), v);
         }
@@ -145,7 +157,9 @@ pub fn probe() -> ProbeData {
         }
         // core_ctl lives under the policy's first CPU (cpu0, cpu6)
         if let Some(first) = policy.strip_prefix("policy") {
-            if let Some(v) = read(&format!("/sys/devices/system/cpu/cpu{first}/core_ctl/max_cpus")) {
+            if let Some(v) = read(&format!(
+                "/sys/devices/system/cpu/cpu{first}/core_ctl/max_cpus"
+            )) {
                 core_ctl_max.insert(policy.to_string(), v.trim().parse().unwrap_or(i64::MAX));
             }
         }
@@ -191,15 +205,29 @@ pub fn probe() -> ProbeData {
         perf_hal: getprop("init.svc.perf-hal-2-0"),
         perfservice: getprop("init.svc.vendor.perfservice"),
         thermal_sconfig: read("/sys/class/thermal/thermal_message/sconfig"),
-        msm_perf_locks: read("/sys/module/msm_performance/parameters/cpu_max_freq")
-            .map(|v| tokenize(&v).into_iter().take(2).collect::<Vec<_>>().join(" ")),
-        input_boost: read("/sys/module/cpu_boost/parameters/input_boost_freq")
-            .map(|v| format!("{v} @{}ms", read("/sys/module/cpu_boost/parameters/input_boost_ms").unwrap_or_default())),
+        msm_perf_locks: read("/sys/module/msm_performance/parameters/cpu_max_freq").map(|v| {
+            tokenize(&v)
+                .into_iter()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ")
+        }),
+        input_boost: read("/sys/module/cpu_boost/parameters/input_boost_freq").map(|v| {
+            format!(
+                "{v} @{}ms",
+                read("/sys/module/cpu_boost/parameters/input_boost_ms").unwrap_or_default()
+            )
+        }),
         sched_boost: read("/proc/sys/kernel/sched_boost"),
         game_cpuset: read("/dev/cpuset/game/cpus").or_else(|| Some(String::new())),
     };
 
-    ProbeData { device, entries, options, framework }
+    ProbeData {
+        device,
+        entries,
+        options,
+        framework,
+    }
 }
 
 /// Current value for a catalog entry (live read).

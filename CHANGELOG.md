@@ -29,9 +29,16 @@ the first env-aware guards — the foundation for everything after.
   (toggles + sliders, values commit on release).
 - **Doctor v2**: env telemetry checks, future-knob surface probe (f2fs /
   devfreq / kgsl / read-head), refresh-rate key, logcat `-v epoch` format.
-- **Tests**: 100 unit + 5 host E2E (new: fake-sysfs daemon test asserting
-  `env`/`diag`/`stats` end to end, and a guard-reaction test driving
-  battery/thermal flips through the real decision path).
+- **Tests**: 102 unit + 8 host E2E across three binaries (protocol/decision,
+  watcher streams, bridge hold/restore; plus fake-sysfs env/guard E2E).
+- **CI** (`.github/workflows/ci.yml`): Rust job (fmt check, clippy with
+  `-D warnings`, all tests) and an Android job (NDK arm64 core build +
+  `assembleDebug`); the identical coverage runs locally with `cargo test`.
+- **Host simulation**: `MIFINETUNE_SETTINGS_BIN` joins the existing
+  logcat/sysfs overrides — the bridge hold/restore cycle is now proven
+  host-side through the real `settings` plumbing. The daemon creates its
+  state dir at startup (holds/stats are writable from the first tick), and
+  bridge mode changes are emitted as `bridge` events (in-app timeline).
 - **Device E2E (POCO X3)**: doctor v2 all green; diagnostics screen shows
   live battery/thermal/GPU, uptime, watchers, holds; `stats.json` records
   `sleep -> game -> powersave` with battery/temp and survives restarts;

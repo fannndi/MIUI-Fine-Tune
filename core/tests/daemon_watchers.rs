@@ -8,87 +8,11 @@
 //! The fake script emits lines with the CURRENT epoch (`date +%s`), which is
 //! exactly what `logcat -v epoch` does on device.
 
-use serde_json::{json, Value};
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::time::{Duration, Instant};
+mod common;
 
-struct Daemon {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
-}
-
-impl Daemon {
-    fn spawn(dir: &std::path::Path) -> Self {
-        let bin = env!("CARGO_BIN_EXE_miui-ft");
-        let mut child = Command::new(bin)
-            .args([
-                "serve",
-                "--state-dir",
-                dir.join("state").to_str().unwrap(),
-                "--config",
-                dir.join("config.json").to_str().unwrap(),
-            ])
-            .env("MIFINETUNE_LOGCAT_BIN", dir.join("fake-logcat.sh"))
-            .env("MIFINETUNE_FG_FILE", dir.join("fg-on"))
-            .env("MIFINETUNE_MW_FILE", dir.join("mw-on"))
-            .env("MIFINETUNE_MW_OFF_FILE", dir.join("mw-off"))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn daemon");
-        let stdin = child.stdin.take().unwrap();
-        let stdout = BufReader::new(child.stdout.take().unwrap());
-        Daemon { child, stdin, stdout }
-    }
-
-    fn send(&mut self, v: Value) {
-        writeln!(self.stdin, "{v}").unwrap();
-        self.stdin.flush().unwrap();
-    }
-
-    fn wait_for(&mut self, pred: impl Fn(&Value) -> bool, timeout: Duration) -> Value {
-        let deadline = Instant::now() + timeout;
-        let mut line = String::new();
-        loop {
-            assert!(Instant::now() < deadline, "timeout; last: {line}");
-            line.clear();
-            if self.stdout.read_line(&mut line).unwrap_or(0) == 0 {
-                panic!("daemon stdout closed");
-            }
-            let v: Value = serde_json::from_str(line.trim()).expect("json line");
-            if pred(&v) {
-                return v;
-            }
-        }
-    }
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = writeln!(self.stdin, "{}", json!({"cmd":"shutdown"}));
-        let _ = self.stdin.flush();
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while Instant::now() < deadline {
-            if let Ok(Some(_)) = self.child.try_wait() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-fn tmp(tag: &str) -> std::path::PathBuf {
-    let mut d = std::env::temp_dir();
-    d.push(format!("mifinetune-watch-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
-    d
-}
+use common::{tmp, Daemon};
+use serde_json::json;
+use std::time::Duration;
 
 fn write_fake_logcat(dir: &std::path::Path) {
     let script = r#"#!/bin/sh
@@ -146,7 +70,20 @@ fn watchers_drive_the_full_pipeline() {
     )
     .unwrap();
 
-    let mut d = Daemon::spawn(&dir);
+    let logcat = dir.join("fake-logcat.sh");
+    let fg = dir.join("fg-on");
+    let mw = dir.join("mw-on");
+    let mw_off = dir.join("mw-off");
+    let mut d = Daemon::spawn_env(
+        &dir.join("state"),
+        &dir.join("config.json"),
+        &[
+            ("MIFINETUNE_LOGCAT_BIN", logcat.to_str().unwrap()),
+            ("MIFINETUNE_FG_FILE", fg.to_str().unwrap()),
+            ("MIFINETUNE_MW_FILE", mw.to_str().unwrap()),
+            ("MIFINETUNE_MW_OFF_FILE", mw_off.to_str().unwrap()),
+        ],
+    );
 
     // The fake foreground stream starts with whatsapp -> base apply.
     d.send(json!({"cmd":"hello"}));

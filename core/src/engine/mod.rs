@@ -19,8 +19,8 @@ pub mod catalog;
 pub mod doctor;
 pub mod env;
 pub mod plan;
-pub mod profile;
 pub mod probe;
+pub mod profile;
 pub mod readback;
 pub mod validate;
 

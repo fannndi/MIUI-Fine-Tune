@@ -74,7 +74,8 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     })
 }
 
-const USAGE: &str = "usage: miui-ft <command> [--json] [--state-dir DIR] [--profiles FILE] [--config FILE]
+const USAGE: &str =
+    "usage: miui-ft <command> [--json] [--state-dir DIR] [--profiles FILE] [--config FILE]
 commands:
   probe                 read device state (read-only)
   profiles              list bundled/available profiles
@@ -119,26 +120,39 @@ fn run(a: &Args) -> Result<(i32, String), String> {
         }
         "profiles" => {
             let files = store.load_profiles(a.profiles.as_deref())?;
-            let json = serde_json::to_string_pretty(&files.profiles.iter().map(|p| {
-                serde_json::json!({
-                    "id": p.id, "label": p.label, "desc": p.desc, "params": p.params.len()
-                })
-            }).collect::<Vec<_>>())
+            let json = serde_json::to_string_pretty(
+                &files
+                    .profiles
+                    .iter()
+                    .map(|p| {
+                        serde_json::json!({
+                            "id": p.id, "label": p.label, "desc": p.desc, "params": p.params.len()
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
             .map_err(|e| e.to_string())?;
             Ok((0, json))
         }
         "plan" | "apply" | "verify" => {
-            let id = a.id.as_deref().ok_or_else(|| format!("missing profile id\n{USAGE}"))?;
+            let id =
+                a.id.as_deref()
+                    .ok_or_else(|| format!("missing profile id\n{USAGE}"))?;
             if a.cmd == "apply" {
                 require_root()?;
             }
             let files = store.load_profiles(a.profiles.as_deref())?;
-            let profile = files
-                .profiles
-                .iter()
-                .find(|p| p.id == id)
-                .ok_or_else(|| format!("unknown profile '{id}' (have: {})",
-                    files.profiles.iter().map(|p| p.id.as_str()).collect::<Vec<_>>().join(", ")))?;
+            let profile = files.profiles.iter().find(|p| p.id == id).ok_or_else(|| {
+                format!(
+                    "unknown profile '{id}' (have: {})",
+                    files
+                        .profiles
+                        .iter()
+                        .map(|p| p.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })?;
             match a.cmd.as_str() {
                 "plan" => {
                     let p = probe::probe();
@@ -234,7 +248,7 @@ fn main() -> ExitCode {
     let args = match parse_args(&argv) {
         Ok(a) => a,
         Err(e) => {
-            if e.is_empty() || e == USAGE.to_string() {
+            if e.is_empty() || e == USAGE {
                 println!("{USAGE}");
                 return ExitCode::SUCCESS;
             }

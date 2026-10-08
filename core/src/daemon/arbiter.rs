@@ -102,7 +102,10 @@ pub fn decide(i: &ArbiterInput) -> Decision {
     }
 
     if !i.screen_on {
-        return Decision::Apply { profile: i.sleep_profile.clone(), reason: "screen off".into() };
+        return Decision::Apply {
+            profile: i.sleep_profile.clone(),
+            reason: "screen off".into(),
+        };
     }
 
     if i.keyguard_locked {
@@ -112,13 +115,19 @@ pub fn decide(i: &ArbiterInput) -> Decision {
     // Battery guard: below the floor (and not charging) the frugal base wins
     // over mapping, saver and multi-window — the device is about to die.
     if i.battery_low {
-        return Decision::Apply { profile: SAVER_PROFILE.into(), reason: "low battery".into() };
+        return Decision::Apply {
+            profile: SAVER_PROFILE.into(),
+            reason: "low battery".into(),
+        };
     }
 
     // dual-app concurrency overrides mapping AND saver: two visible apps
     // need the middle ground (user verdict 2026-10-08)
     if i.multi_window {
-        return Decision::Apply { profile: MULTI_WINDOW_PROFILE.into(), reason: "multi-window".into() };
+        return Decision::Apply {
+            profile: MULTI_WINDOW_PROFILE.into(),
+            reason: "multi-window".into(),
+        };
     }
 
     let pkg = i.foreground_pkg.as_deref();
@@ -135,10 +144,20 @@ pub fn decide(i: &ArbiterInput) -> Decision {
     };
     // MIUI battery saver: the unmapped universe is forced to the frugal
     // base — mapped apps still win (the user may game under saver).
-    let effective_base = if i.saver_on { SAVER_PROFILE } else { i.base_profile.as_str() };
+    let effective_base = if i.saver_on {
+        SAVER_PROFILE
+    } else {
+        i.base_profile.as_str()
+    };
     let decision = match mapped {
-        Some(profile) => Decision::Apply { profile, reason: "app".into() },
-        None => Decision::Apply { profile: effective_base.to_string(), reason: "base".into() },
+        Some(profile) => Decision::Apply {
+            profile,
+            reason: "app".into(),
+        },
+        None => Decision::Apply {
+            profile: effective_base.to_string(),
+            reason: "base".into(),
+        },
     };
 
     // Thermal guard: Game is the only profile worth stepping down (Balance
@@ -146,7 +165,10 @@ pub fn decide(i: &ArbiterInput) -> Decision {
     if i.thermal_high {
         if let Decision::Apply { profile, .. } = &decision {
             if profile == "game" {
-                return Decision::Apply { profile: MULTI_WINDOW_PROFILE.into(), reason: "thermal".into() };
+                return Decision::Apply {
+                    profile: MULTI_WINDOW_PROFILE.into(),
+                    reason: "thermal".into(),
+                };
             }
         }
     }
@@ -158,6 +180,7 @@ mod tests {
     use super::*;
     use crate::daemon::test_util::map;
 
+    #[allow(clippy::too_many_arguments)] // wide test matrix; a builder would hide the cases
     fn input(
         enabled: bool,
         screen_on: bool,
@@ -192,58 +215,163 @@ mod tests {
     }
 
     fn applied(profile: &str, reason: &str) -> Decision {
-        Decision::Apply { profile: profile.into(), reason: reason.into() }
+        Decision::Apply {
+            profile: profile.into(),
+            reason: reason.into(),
+        }
     }
 
     // --- base table (ported 1:1 from ModeArbiterTest) ----------------------
 
     #[test]
     fn service_off_is_none() {
-        assert_eq!(d(&input(false, true, false, Some("com.example.app"), &[], "balance", false, false, false, true)), Decision::None);
+        assert_eq!(
+            d(&input(
+                false,
+                true,
+                false,
+                Some("com.example.app"),
+                &[],
+                "balance",
+                false,
+                false,
+                false,
+                true
+            )),
+            Decision::None
+        );
     }
 
     #[test]
     fn screen_off_applies_sleep() {
         assert_eq!(
-            d(&input(true, false, false, Some("com.example.app"), &[], "balance", false, false, false, true)),
+            d(&input(
+                true,
+                false,
+                false,
+                Some("com.example.app"),
+                &[],
+                "balance",
+                false,
+                false,
+                false,
+                true
+            )),
             applied("sleep", "screen off")
         );
     }
 
     #[test]
     fn keyguard_locked_is_none() {
-        assert_eq!(d(&input(true, true, true, Some("com.example.app"), &[], "balance", false, false, false, true)), Decision::None);
+        assert_eq!(
+            d(&input(
+                true,
+                true,
+                true,
+                Some("com.example.app"),
+                &[],
+                "balance",
+                false,
+                false,
+                false,
+                true
+            )),
+            Decision::None
+        );
     }
 
     #[test]
     fn mapped_app_applies_mapped_profile() {
-        let i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", false, false, false, true);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.YoStarEN.AzurLane"),
+            &[("com.YoStarEN.AzurLane", "game")],
+            "balance",
+            false,
+            false,
+            false,
+            true,
+        );
         assert_eq!(d(&i), applied("game", "app"));
     }
 
     #[test]
     fn unmapped_app_applies_base() {
-        let i = input(true, true, false, Some("com.whatsapp"), &[], "powersave", false, false, false, true);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.whatsapp"),
+            &[],
+            "powersave",
+            false,
+            false,
+            false,
+            true,
+        );
         assert_eq!(d(&i), applied("powersave", "base"));
     }
 
     #[test]
     fn launcher_reverts_to_base() {
-        let i = input(true, true, false, Some("com.miui.home"), &[], "powersave", false, false, false, true);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.miui.home"),
+            &[],
+            "powersave",
+            false,
+            false,
+            false,
+            true,
+        );
         assert_eq!(d(&i), applied("powersave", "base"));
     }
 
     #[test]
     fn system_chrome_is_transient() {
-        for pkg in ["com.android.systemui", "com.mifinetune", "com.lbe.security.miui", "com.google.android.inputmethod.latin"] {
-            let i = input(true, true, false, Some(pkg), &[], "balance", false, false, false, true);
+        for pkg in [
+            "com.android.systemui",
+            "com.mifinetune",
+            "com.lbe.security.miui",
+            "com.google.android.inputmethod.latin",
+        ] {
+            let i = input(
+                true,
+                true,
+                false,
+                Some(pkg),
+                &[],
+                "balance",
+                false,
+                false,
+                false,
+                true,
+            );
             assert_eq!(d(&i), Decision::None, "{pkg}");
         }
     }
 
     #[test]
     fn null_foreground_is_none() {
-        assert_eq!(d(&input(true, true, false, None, &[], "balance", false, false, false, true)), Decision::None);
+        assert_eq!(
+            d(&input(
+                true,
+                true,
+                false,
+                None,
+                &[],
+                "balance",
+                false,
+                false,
+                false,
+                true
+            )),
+            Decision::None
+        );
     }
 
     #[test]
@@ -260,18 +388,62 @@ mod tests {
 
     #[test]
     fn saver_on_forces_powersave_base_but_mapping_still_wins() {
-        let i = input(true, true, false, Some("com.example.app"), &[], "game", true, false, false, true);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.example.app"),
+            &[],
+            "game",
+            true,
+            false,
+            false,
+            true,
+        );
         assert_eq!(d(&i), applied("powersave", "base"));
 
-        let i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", true, false, false, true);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.YoStarEN.AzurLane"),
+            &[("com.YoStarEN.AzurLane", "game")],
+            "balance",
+            true,
+            false,
+            false,
+            true,
+        );
         assert_eq!(d(&i), applied("game", "app"));
     }
 
     #[test]
     fn ultra_saver_retires_above_everything() {
-        let i = input(true, true, false, Some("com.example.app"), &[], "balance", false, true, false, true);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.example.app"),
+            &[],
+            "balance",
+            false,
+            true,
+            false,
+            true,
+        );
         assert_eq!(d(&i), Decision::Retire);
-        let i = input(true, false, false, Some("com.example.app"), &[], "balance", false, true, false, true);
+        let i = input(
+            true,
+            false,
+            false,
+            Some("com.example.app"),
+            &[],
+            "balance",
+            false,
+            true,
+            false,
+            true,
+        );
         assert_eq!(d(&i), Decision::Retire, "retire wins even over screen-off");
     }
 
@@ -279,19 +451,52 @@ mod tests {
 
     #[test]
     fn multi_window_forces_balance_over_mapping() {
-        let i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", false, false, true, true);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.YoStarEN.AzurLane"),
+            &[("com.YoStarEN.AzurLane", "game")],
+            "balance",
+            false,
+            false,
+            true,
+            true,
+        );
         assert_eq!(d(&i), applied("balance", "multi-window"));
     }
 
     #[test]
     fn multi_window_forces_balance_over_saver_base() {
-        let i = input(true, true, false, Some("com.example.app"), &[], "balance", true, false, true, true);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.example.app"),
+            &[],
+            "balance",
+            true,
+            false,
+            true,
+            true,
+        );
         assert_eq!(d(&i), applied("balance", "multi-window"));
     }
 
     #[test]
     fn multi_window_does_not_beat_screen_off() {
-        let i = input(true, false, false, Some("com.example.app"), &[], "balance", false, false, true, true);
+        let i = input(
+            true,
+            false,
+            false,
+            Some("com.example.app"),
+            &[],
+            "balance",
+            false,
+            false,
+            true,
+            true,
+        );
         assert_eq!(d(&i), applied("sleep", "screen off"));
     }
 
@@ -299,37 +504,103 @@ mod tests {
 
     #[test]
     fn dynamic_off_mapped_app_falls_back_to_base() {
-        let i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", false, false, false, false);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.YoStarEN.AzurLane"),
+            &[("com.YoStarEN.AzurLane", "game")],
+            "balance",
+            false,
+            false,
+            false,
+            false,
+        );
         assert_eq!(d(&i), applied("balance", "base"));
     }
 
     #[test]
     fn dynamic_off_still_forces_powersave_under_saver() {
-        let i = input(true, true, false, Some("com.example.app"), &[], "balance", true, false, false, false);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.example.app"),
+            &[],
+            "balance",
+            true,
+            false,
+            false,
+            false,
+        );
         assert_eq!(d(&i), applied("powersave", "base"));
     }
 
     #[test]
     fn dynamic_off_still_applies_sleep() {
-        let i = input(true, false, false, Some("com.example.app"), &[], "balance", false, false, false, false);
+        let i = input(
+            true,
+            false,
+            false,
+            Some("com.example.app"),
+            &[],
+            "balance",
+            false,
+            false,
+            false,
+            false,
+        );
         assert_eq!(d(&i), applied("sleep", "screen off"));
     }
 
     #[test]
     fn dynamic_off_still_forces_balance_on_multi_window() {
-        let i = input(true, true, false, Some("com.example.app"), &[], "balance", false, false, true, false);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.example.app"),
+            &[],
+            "balance",
+            false,
+            false,
+            true,
+            false,
+        );
         assert_eq!(d(&i), applied("balance", "multi-window"));
     }
 
     #[test]
     fn dynamic_off_keeps_transient_noop() {
-        let i = input(true, true, false, Some("com.android.systemui"), &[], "balance", false, false, false, false);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.android.systemui"),
+            &[],
+            "balance",
+            false,
+            false,
+            false,
+            false,
+        );
         assert_eq!(d(&i), Decision::None);
     }
 
     #[test]
     fn dynamic_on_mapped_app_applies_mapped_profile() {
-        let i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", false, false, false, true);
+        let i = input(
+            true,
+            true,
+            false,
+            Some("com.YoStarEN.AzurLane"),
+            &[("com.YoStarEN.AzurLane", "game")],
+            "balance",
+            false,
+            false,
+            false,
+            true,
+        );
         assert_eq!(d(&i), applied("game", "app"));
     }
 
@@ -337,58 +608,172 @@ mod tests {
 
     #[test]
     fn battery_guard_forces_powersave_over_mapping() {
-        let mut i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", false, false, false, true);
+        let mut i = input(
+            true,
+            true,
+            false,
+            Some("com.YoStarEN.AzurLane"),
+            &[("com.YoStarEN.AzurLane", "game")],
+            "balance",
+            false,
+            false,
+            false,
+            true,
+        );
         i.battery_low = true;
         assert_eq!(d(&i), applied("powersave", "low battery"));
     }
 
     #[test]
     fn battery_guard_beats_saver_and_multi_window() {
-        let mut i = input(true, true, false, Some("com.example.app"), &[], "balance", true, false, true, true);
+        let mut i = input(
+            true,
+            true,
+            false,
+            Some("com.example.app"),
+            &[],
+            "balance",
+            true,
+            false,
+            true,
+            true,
+        );
         i.battery_low = true;
         assert_eq!(d(&i), applied("powersave", "low battery"));
     }
 
     #[test]
     fn battery_guard_does_not_beat_screen_off_or_keyguard() {
-        let mut i = input(true, false, false, Some("com.example.app"), &[], "balance", false, false, false, true);
+        let mut i = input(
+            true,
+            false,
+            false,
+            Some("com.example.app"),
+            &[],
+            "balance",
+            false,
+            false,
+            false,
+            true,
+        );
         i.battery_low = true;
         assert_eq!(d(&i), applied("sleep", "screen off"));
-        let mut i = input(true, true, true, Some("com.example.app"), &[], "balance", false, false, false, true);
+        let mut i = input(
+            true,
+            true,
+            true,
+            Some("com.example.app"),
+            &[],
+            "balance",
+            false,
+            false,
+            false,
+            true,
+        );
         i.battery_low = true;
         assert_eq!(d(&i), Decision::None);
     }
 
     #[test]
     fn thermal_guard_steps_game_down_to_balance() {
-        let mut i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", false, false, false, true);
+        let mut i = input(
+            true,
+            true,
+            false,
+            Some("com.YoStarEN.AzurLane"),
+            &[("com.YoStarEN.AzurLane", "game")],
+            "balance",
+            false,
+            false,
+            false,
+            true,
+        );
         i.thermal_high = true;
         assert_eq!(d(&i), applied("balance", "thermal"));
     }
 
     #[test]
     fn thermal_guard_steps_a_game_base_down_too() {
-        let mut i = input(true, true, false, Some("com.whatsapp"), &[], "game", false, false, false, true);
+        let mut i = input(
+            true,
+            true,
+            false,
+            Some("com.whatsapp"),
+            &[],
+            "game",
+            false,
+            false,
+            false,
+            true,
+        );
         i.thermal_high = true;
         assert_eq!(d(&i), applied("balance", "thermal"));
     }
 
     #[test]
     fn thermal_guard_leaves_other_profiles_alone() {
-        let mut i = input(true, true, false, Some("com.whatsapp"), &[], "powersave", false, false, false, true);
+        let mut i = input(
+            true,
+            true,
+            false,
+            Some("com.whatsapp"),
+            &[],
+            "powersave",
+            false,
+            false,
+            false,
+            true,
+        );
         i.thermal_high = true;
         assert_eq!(d(&i), applied("powersave", "base"));
-        let mut i = input(true, true, false, Some("com.whatsapp"), &[], "balance", false, false, false, true);
+        let mut i = input(
+            true,
+            true,
+            false,
+            Some("com.whatsapp"),
+            &[],
+            "balance",
+            false,
+            false,
+            false,
+            true,
+        );
         i.thermal_high = true;
         assert_eq!(d(&i), applied("balance", "base"));
-        let mut i = input(true, false, false, Some("com.whatsapp"), &[], "game", false, false, false, true);
+        let mut i = input(
+            true,
+            false,
+            false,
+            Some("com.whatsapp"),
+            &[],
+            "game",
+            false,
+            false,
+            false,
+            true,
+        );
         i.thermal_high = true;
-        assert_eq!(d(&i), applied("sleep", "screen off"), "sleep is already frugal");
+        assert_eq!(
+            d(&i),
+            applied("sleep", "screen off"),
+            "sleep is already frugal"
+        );
     }
 
     #[test]
     fn battery_guard_wins_over_thermal_guard() {
-        let mut i = input(true, true, false, Some("com.YoStarEN.AzurLane"), &[("com.YoStarEN.AzurLane", "game")], "balance", false, false, false, true);
+        let mut i = input(
+            true,
+            true,
+            false,
+            Some("com.YoStarEN.AzurLane"),
+            &[("com.YoStarEN.AzurLane", "game")],
+            "balance",
+            false,
+            false,
+            false,
+            true,
+        );
         i.battery_low = true;
         i.thermal_high = true;
         assert_eq!(d(&i), applied("powersave", "low battery"));

@@ -3,16 +3,17 @@
 //! Responsibility: types + lookup + the forbidden-path guard.
 //! - `entries.rs`   the registry table (keys, paths, kinds, tiers)
 //! - `forbidden.rs` framework-owned prefixes/keys — never written
+//!
 //! Non-goals: probing devices, profile logic, IO.
 //!
 //! Tiers:
-//!  - `Free`     : no writer found in ROM scripts / perf configs (safe to tune).
-//!  - `Baseline` : written once by `init.qcom.post_boot.sh` or transiently by
-//!                 the perf HAL; we set it as a profile baseline and the
-//!                 framework may overlay it (coexist, never fight).
-//!  - forbidden  : runtime-owned by MIUI (thermal, perf locks, PowerKeeper
-//!                 game cpuset, LMK/zram, charge, cpu_boost, SELinux).
-//!                 Rejected even if a profile mentions them — [`guard_path`].
+//! - `Free`: no writer found in ROM scripts / perf configs (safe to tune).
+//! - `Baseline`: written once by `init.qcom.post_boot.sh` or transiently by
+//!   the perf HAL; we set it as a profile baseline and the framework may
+//!   overlay it (coexist, never fight).
+//! - forbidden: runtime-owned by MIUI (thermal, perf locks, PowerKeeper game
+//!   cpuset, LMK/zram, charge, cpu_boost, SELinux). Rejected even if a
+//!   profile mentions them — [`guard_path`].
 
 use serde::{Deserialize, Serialize};
 
@@ -178,9 +179,15 @@ mod tests {
 
     #[test]
     fn profile_keys_resolve() {
-        for k in ["policy0.scaling_governor", "gpu.governor", "io.scheduler",
-                  "vm.dirty_ratio", "net.tcp_rmem", "cpuset.top-app.cpus",
-                  "stune.top-app.boost"] {
+        for k in [
+            "policy0.scaling_governor",
+            "gpu.governor",
+            "io.scheduler",
+            "vm.dirty_ratio",
+            "net.tcp_rmem",
+            "cpuset.top-app.cpus",
+            "stune.top-app.boost",
+        ] {
             assert!(find(k).is_some(), "missing catalog entry: {k}");
         }
     }
@@ -209,7 +216,10 @@ mod tests {
             "/sys/class/mmc_host/mmc0/clk_scaling/enable",
             "/proc/sys/vm/swap_ratio",
         ] {
-            assert!(guard_path(p).is_err(), "{p} must be forbidden (perf HAL runtime-owned)");
+            assert!(
+                guard_path(p).is_err(),
+                "{p} must be forbidden (perf HAL runtime-owned)"
+            );
         }
     }
 }

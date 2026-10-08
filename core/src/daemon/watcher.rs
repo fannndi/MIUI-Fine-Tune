@@ -92,11 +92,19 @@ pub fn spawn_fg(tx: Sender<Msg>) -> Option<Watcher> {
 /// The buffer replay IS the seed: last line = current state (split mode
 /// persists until exited), so stale lines are not skipped here.
 pub fn spawn_mw(tx: Sender<Msg>) -> Option<Watcher> {
-    spawn(WatcherKind::Mw, &["-b", "main", "-v", "epoch", "-s", "GameBoosterService:V"], tx, |line, tx| {
-        if let Some(other) = parse_mw_line(line) {
-            let _ = tx.send(Msg::Mw { active: other.is_some(), other });
-        }
-    })
+    spawn(
+        WatcherKind::Mw,
+        &["-b", "main", "-v", "epoch", "-s", "GameBoosterService:V"],
+        tx,
+        |line, tx| {
+            if let Some(other) = parse_mw_line(line) {
+                let _ = tx.send(Msg::Mw {
+                    active: other.is_some(),
+                    other,
+                });
+            }
+        },
+    )
 }
 
 fn spawn(
@@ -152,8 +160,7 @@ pub fn peek_fg() -> Option<String> {
     let now = now_epoch();
     text.lines()
         .filter_map(parse_fg_line)
-        .filter(|(epoch, _)| is_fresh(*epoch, now))
-        .last()
+        .rfind(|(epoch, _)| is_fresh(*epoch, now))
         .map(|(_, pkg)| pkg)
 }
 
@@ -243,7 +250,10 @@ mod tests {
 
     #[test]
     fn parse_rejects_unrelated_lines() {
-        assert!(parse_fg_line("1760022735.123  1234  1234 I am_pause_activity: [0,123,com.x/.Y]").is_none());
+        assert!(
+            parse_fg_line("1760022735.123  1234  1234 I am_pause_activity: [0,123,com.x/.Y]")
+                .is_none()
+        );
         assert!(parse_fg_line("").is_none());
         assert!(parse_fg_line("no-epoch am_resume_activity: [0,1,2,com.x/.Y,9]").is_none());
     }
@@ -260,7 +270,10 @@ mod tests {
     #[test]
     fn parse_multi_window_state() {
         let on = "1760022735.123  1234  1234 D GameBoosterService: onGameStatusChange id=1 mForegroundPackageName='com.google.android.youtube' mMultiWindowForegroundPackageName='com.android.chrome'";
-        assert_eq!(parse_mw_line(on).unwrap(), Some("com.android.chrome".to_string()));
+        assert_eq!(
+            parse_mw_line(on).unwrap(),
+            Some("com.android.chrome".to_string())
+        );
         let off = "1760022735.123  1234  1234 D GameBoosterService: onGameStatusChange id=1 mForegroundPackageName='com.miui.home' mMultiWindowForegroundPackageName='null'";
         assert_eq!(parse_mw_line(off).unwrap(), None);
         assert!(parse_mw_line("unrelated line").is_none());
