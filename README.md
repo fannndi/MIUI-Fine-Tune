@@ -66,14 +66,25 @@ core/  (Rust — satu-satunya writer)
 - **Network stack**: `net.tcp_rmem/wmem` tidak lagi diatur profile
   (ConnectivityService+netd memilikinya — lihat audit v2).
 
-### Automasi (v0.3)
+### Dynamic Profile (v0.5)
+
+Konsep 4 komponen:
+
+1. **Profiles**: 3 aktif (Powersave/Balance/Game) + `sleep` (layar mati).
+   Tap kartu = pakai sekarang + jadi *base universal*.
+2. **Apps Profile**: cari app/game → tap → pilih profile (mis. Azur Lane → Game).
+3. **Service** (switch): master — ON = app jalan; OFF = semua nilai kembali
+   stock + service berhenti.
+4. **Dynamic Profile** (switch, di bawah Service): ON = app yang dipetakan
+   otomatis menimpa base saat dibuka (keluar → kembali ke base); OFF = **base
+   universal selalu dipakai**, walaupun app punya profile — buka game pun tetap
+   base. Butuh Service ON.
 
 Cara pakai singkat:
 
-1. **Service** (bawah, switch): ON = otomatis penuh; OFF = kembali stock.
-2. **Kartu profile**: tap = pakai sekarang + jadi *base universal* untuk semua
-   app yang tidak dipetakan.
-3. **Apps Profile**: cari app/game → tap → pilih profile (mis. Azur Lane → Game).
+1. Tap kartu profile → jadi base universal.
+2. **Apps Profile**: petakan app → profile (opsional).
+3. **Dynamic Profile**: ON kalau mau switching otomatis, OFF kalau mau manual.
 4. **Settings** (ikon gerigi): izin root/autostart/baterai + diagnostik.
 
 Perilaku (terverifikasi di device):
@@ -82,11 +93,17 @@ Perilaku (terverifikasi di device):
 |---|---|
 | Baru install / Service OFF | Stock (tanpa intervensi) |
 | App biasa (WA, YouTube, dll) | Base (yang terakhir kamu tap; default Balance) |
-| App terpetakan dibuka | profile-nya, otomatis (≤2 dtk via event system) |
+| App terpetakan dibuka (Dynamic ON) | profile-nya, otomatis (~1 dtk via event system) |
 | Keluar dari app terpetakan | balik ke base |
+| App terpetakan dibuka (Dynamic OFF) | tetap base — mapping diabaikan |
 | Layar mati (±10 dtk) | Sleep |
-| Unlock | base / profile app di depan |
+| Unlock | base / profile app di depan (sesuai Dynamic) |
 | Service OFF | semua nilai ditulis balik ke stock + service berhenti |
+
+Catatan: saat Dynamic OFF, aturan non-app tetap jalan — Sleep, multi-window
+(split/floating) → Balance, dan MIUI battery saver (user) → base dipaksa
+PowerSave. Sync mode MIUI (Performance/Battery saver follow) ikut nonaktif
+karena digerakkan oleh mapping app.
 
 Notifikasi & telpon tetap masuk saat Sleep: profile ini tidak menyentuh
 jaringan, LMK, swap, atau cpuset (diuji: ping lolos, doze normal, cap CPU

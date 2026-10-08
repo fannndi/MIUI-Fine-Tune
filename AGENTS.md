@@ -140,14 +140,25 @@ State di device: `/data/adb/mifinetune/{profiles.json,state.json,snapshot.json}`
 - `net.tcp_rmem/wmem` direset network stack saat siklus display-off — profile
   tidak menyentuhnya (lihat Hard rule 2).
 
-## Automasi (v0.3 final, bridge v0.4.2)
+## Dynamic Profile (v0.5, ex-automasi; bridge v0.4.2)
+
+**Konsep 4 komponen** (dikonfirmasi user):
+1. **Profiles** — 3 aktif (powersave/balance/game) + `sleep` (layar mati).
+   Tap kartu = apply sekarang + jadi **BASE universal**.
+2. **Apps Profile** — peta app → profile (opsional).
+3. **Service** — master switch: OFF = restore stock + stop; ON = service jalan.
+4. **Dynamic Profile** — ON = app terpetakan menimpa base saat di depan
+   (keluar → base); OFF = **base universal selalu menang**, mapping diabaikan
+   (sleep / multi-window / saver-force tetap jalan — bukan app-driven).
+   Toggle bereaksi instan via flow + `fgOverride = lastRealPkg` (saat toggle,
+   foreground = app kita yang transient). Default ON (fresh & upgrade).
 
 **Model perilaku** (dikonfirmasi user):
-- Tap kartu = apply sekarang + jadi **BASE universal** (dipakai semua app yang
-  tidak dipetakan). App terpetakan menimpa base saat di depan; keluar → base.
 - **Service OFF = restore stock + stop** (tidak intervensi apa pun).
 - Layar mati → profile `sleep` (selalu, ±10 dtk). Wake/unlock → base/mapped.
-- Fresh install: base = Balance; `enabled` default true.
+- Fresh install: base = Balance; `enabled` + `dynamic_enabled` default true.
+- Bridge MIUI app-driven (perf mirror, saver follow, game-checker) **gated
+  oleh Dynamic Profile** — saat OFF tidak ada mode MIUI yang dikejar.
 - Supervisor tick 3 dtk juga **mereonsiliasi screen state** langsung dari
   `PowerManager.isInteractive` — MIUI kadang menjatuhkan broadcast `SCREEN_ON`,
   jangan andalkan broadcast saja.
@@ -156,7 +167,7 @@ State di device: `/data/adb/mifinetune/{profiles.json,state.json,snapshot.json}`
 - **`Tuner`** (core/): satu mutex untuk apply/verify/restore dari UI, service,
   dan drift guard (guard 15 dtk = satu call `apply` — engine yang melewati key
   unchanged, repair diputuskan di core Rust).
-- **`AutomationService`** (FGS senyap, IMPORTANCE_MIN):
+- **`DynamicProfileService`** (FGS senyap, IMPORTANCE_MIN):
   - **Watcher event-driven**: root `logcat -b events -s am_resume_activity:V`
     → switch instan. Supervisor restart (backoff 10 dtk) + fallback
     `peekEvents()` (logcat -d, event terakhir) saat stream mati.
@@ -165,7 +176,11 @@ State di device: `/data/adb/mifinetune/{profiles.json,state.json,snapshot.json}`
     (kernel buffer) untuk peek; jangan tambahkan pipe/quotes di command su
     (tidak selamat).
   - **Coalescing**: burst event (task restore/keyguard) → satu apply setelah
-    settle 700 ms; apply berjalan tidak menumpuk (`pendingDecision` supersede).
+    settle **400 ms** (terukur 2026-10-08: sama akurat vs 700 ms, ~300 ms
+    lebih cepat; event pair satu transisi tiba dalam ~50 ms); apply berjalan
+    tidak menumpuk (`pendingDecision` supersede).
+  - **Instrumentasi latensi**: log `apply <id>: done in <ms> (settle <ms>)` —
+    event→applied terbaca dari logcat (typikal ~0.8–1.2 dtk).
   - **Retry sekali** untuk apply & restore yang gagal transient (race QoS
     Game Turbo/PowerKeeper, thermal) + log key yang gagal.
   - Seed wake/unlock: `peekEvents()` + `lastRealPkg` (paket non-transient
@@ -173,15 +188,16 @@ State di device: `/data/adb/mifinetune/{profiles.json,state.json,snapshot.json}`
 - **`ModeArbiter`** (murni, test JVM): prioritas terkini =
   ultraSaver → Retire; layar mati → sleep; keyguard → no-op; **multi-window
   (split/floating) → Balance fixed** (menang atas mapping & saver);
-  app terpetakan → profile-nya; saver user → base dipaksa powersave;
-  lainnya → base. SystemUI/IME/app sendiri/dialog izin/**Settings** =
-  transient (jangan switch); launcher = sinyal balik ke base.
-- **Bridge MIUI (`miui/MiStateBridge` + `MiBridgeState` + `AutomationService`
+  **Dynamic OFF → base** (mapping dilewati); app terpetakan → profile-nya;
+  saver user → base dipaksa powersave; lainnya → base.
+  SystemUI/IME/app sendiri/dialog izin/**Settings** = transient (jangan
+  switch); launcher = sinyal balik ke base.
+- **Bridge MIUI (`miui/MiStateBridge` + `MiBridgeState` + `DynamicProfileService`
   sync)**: mode bawaan MIUI dipantau & dikejar dengan pola hold/restore
   (snapshot pilihan user; tulisan kita tidak dianggap pilihan user oleh
   arbiter). Detail jalur baca/tulis tiap mode → `docs/ROM-HARMONY.md`
   tabel "Mode bawaan MIUI". Timeline bridge tampil di Settings → MIUI
-  bridge (AutomationState.bridgeLog, 20 entri terakhir).
+  bridge (DynamicProfileState.bridgeLog, 20 entri terakhir).
   - **Perf sync = mirror key saja** (property asli tak terjangkau root; jangan
     pakai dialog otomatis untuk flip mode — ditolak MIUI di atas game dan
     terbaca salah oleh watcher; sudah dua kali dibuang).
@@ -201,8 +217,12 @@ State di device: `/data/adb/mifinetune/{profiles.json,state.json,snapshot.json}`
 - **UsageStats TIDAK dipakai** (MIUI jarang mengirim event resume; permission
   PACKAGE_USAGE_STATS sudah dihapus dari manifest).
 - **Screens** (English only): Home (3 baris profile + Detail, Apps Profile,
-  Service switch) · Apps Profile (search + bottom sheet) · Settings (izin +
-  diagnostik). Hapus/restore = switch Service (confirm bila ada snapshot).
+  Service, **Dynamic Profile**) · Apps Profile (search + bottom sheet) ·
+  Settings (izin + diagnostik). Hapus/restore = switch Service (confirm bila
+  ada snapshot).
+- **Prefs**: file `dynamic_profile.xml`; migrasi sekali jalan dari
+  `automation.xml` lama (semua key termasuk bridge hold; file lama tidak
+  dihapus). Key `dynamic_enabled` default true.
 - **Gradle `syncCore`**: menyalin `core/profiles.json` + binary rilis ke
   `app/src/main/assets/` pada setiap build (mencegah bug asset basi).
 

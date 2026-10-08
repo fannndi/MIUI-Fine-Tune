@@ -166,6 +166,11 @@ di-reorder sesuai aturan di atas. Restore memakai urutan yang sama.
 | Split screen / floating window | `GameBoosterService` log `mMultiWindowForegroundPackageName` != 'null' | deteksi via stream logcat -b main (RootBridge) | arbiter memaksa `Balance` menang atas mapping & saver (keputusan user); layar mati tetap lebih tinggi |
 | Game Booster (checker) | `thermal_message/sconfig != 0` | root cat | notifikasi konflik sekali per sesi game |
 
+**Gate v0.5**: seluruh sync app-driven (perf mirror, saver follow, checker)
+hanya aktif saat **Dynamic Profile ON** — OFF = base universal selalu menang,
+tidak ada mode MIUI yang dikejar (sleep & multi-window tetap berjalan karena
+bukan app-driven).
+
 Pola tulis/snapshot mode = state machine murni `MiBridgeState`
 (hold → capture nilai user → release → restore; attribution: tulisan kita
 tidak dianggap pilihan user oleh arbiter). Prefs menyimpan hold agar death
