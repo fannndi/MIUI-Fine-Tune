@@ -140,7 +140,7 @@ State di device: `/data/adb/mifinetune/{profiles.json,state.json,snapshot.json}`
 - `net.tcp_rmem/wmem` direset network stack saat siklus display-off — profile
   tidak menyentuhnya (lihat Hard rule 2).
 
-## Automasi (v0.3 final)
+## Automasi (v0.3 final, bridge v0.4.2)
 
 **Model perilaku** (dikonfirmasi user):
 - Tap kartu = apply sekarang + jadi **BASE universal** (dipakai semua app yang
@@ -170,9 +170,34 @@ State di device: `/data/adb/mifinetune/{profiles.json,state.json,snapshot.json}`
     Game Turbo/PowerKeeper, thermal) + log key yang gagal.
   - Seed wake/unlock: `peekEvents()` + `lastRealPkg` (paket non-transient
     terakhir) → selalu evaluate sekali setelah unlock.
-- **`ModeArbiter`** (murni, test JVM): layar mati → sleep; app terpetakan →
-  profile-nya; lainnya → base; SystemUI/IME/app sendiri/dialog izin =
-  transient (jangan switch); launcher = sinyal balik ke base; keyguard = no-op.
+- **`ModeArbiter`** (murni, test JVM): prioritas terkini =
+  ultraSaver → Retire; layar mati → sleep; keyguard → no-op; **multi-window
+  (split/floating) → Balance fixed** (menang atas mapping & saver);
+  app terpetakan → profile-nya; saver user → base dipaksa powersave;
+  lainnya → base. SystemUI/IME/app sendiri/dialog izin/**Settings** =
+  transient (jangan switch); launcher = sinyal balik ke base.
+- **Bridge MIUI (`miui/MiStateBridge` + `MiBridgeState` + `AutomationService`
+  sync)**: mode bawaan MIUI dipantau & dikejar dengan pola hold/restore
+  (snapshot pilihan user; tulisan kita tidak dianggap pilihan user oleh
+  arbiter). Detail jalur baca/tulis tiap mode → `docs/ROM-HARMONY.md`
+  tabel "Mode bawaan MIUI". Timeline bridge tampil di Settings → MIUI
+  bridge (AutomationState.bridgeLog, 20 entri terakhir).
+  - **Perf sync = mirror key saja** (property asli tak terjangkau root; jangan
+    pakai dialog otomatis untuk flip mode — ditolak MIUI di atas game dan
+    terbaca salah oleh watcher; sudah dua kali dibuang).
+  - **Saver sync = `settings put global low_power` LIVE** — jalan, silent.
+  - async: seluruh mutasi bridge state + tulis MIUI **di dalam satu Mutex**
+    (dumpsys/konteks root selalu dapat diulang; jangan tempel state machine
+    pada thread event mentah — hayo, yoyo ON/restore sudah pernah terjadi).
+  - `peekEvents` + isFresh: **Calendar, bukan SimpleDateFormat** — stamp
+    logcat tanpa tahun ke-parse 1970 → stream mati senyap (regresi nyata
+    2026-10-08).
+- **`ForegroundWatcher` + `MultiWindowWatcher`** (DeviceContext.kt): dua
+  stream root logcat — events (`am_resume_activity` **dan**
+  `am_set_resumed_activity`; beberapa jalur launch hanya mengirim yang
+  kedua) dan main (GameBoosterService = sinyal multi-window). Event segar
+  saja untuk foreground (seed ≤60 dtk); MW mereplay seluruh buffer (line
+  terakhir = state sekarang) lalu service menduplikasi state.
 - **UsageStats TIDAK dipakai** (MIUI jarang mengirim event resume; permission
   PACKAGE_USAGE_STATS sudah dihapus dari manifest).
 - **Screens** (English only): Home (3 baris profile + Detail, Apps Profile,

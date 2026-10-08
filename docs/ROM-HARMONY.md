@@ -156,6 +156,26 @@ di-reorder sesuai aturan di atas. Restore memakai urutan yang sama.
 - Siklus display-off (stock): network stack me-reset `net.tcp_rmem/wmem`;
   profile tidak lagi menyentuhnya supaya tidak melawan framework.
 
+## Mode bawaan MIUI (bridge v0.4.2, eksekusi 2026-10-08)
+
+| Mode MIUI | State asli | Tulis aplikasi | Keterangan |
+|---|---|---|---|
+| Battery saver | `Settings.Global low_power` | root put — **live** ✓ | page MIUI mengikuti flag; restore ke snapshot via `MiBridgeState` |
+| Performance (hidden sheet) | `persist.sys.aries.power_profile` | **tidak bisa** — SELinux menolak setprop dari semua ctx su (shell/run-as/untrusted_app); dialog tersembunyi tak bisa dibuka di atas game terkunci | yang ditulis = mirror `Settings.System power_mode` saja (silent); label switch menyebut keterbatasan |
+| Ultra battery saver | broadcast `EXTREME_POWER_SAVE_MODE_CHANGED` (tidak persisten) | retire: restore + stop + config off | MIUI membekukan service kita sendiri — nol intervensi = tujuan tercapai |
+| Split screen / floating window | `GameBoosterService` log `mMultiWindowForegroundPackageName` != 'null' | deteksi via stream logcat -b main (RootBridge) | arbiter memaksa `Balance` menang atas mapping & saver (keputusan user); layar mati tetap lebih tinggi |
+| Game Booster (checker) | `thermal_message/sconfig != 0` | root cat | notifikasi konflik sekali per sesi game |
+
+Pola tulis/snapshot mode = state machine murni `MiBridgeState`
+(hold → capture nilai user → release → restore; attribution: tulisan kita
+tidak dianggap pilihan user oleh arbiter). Prefs menyimpan hold agar death
+mid-hold tetap bisa dipulihkan di service berikutnya.
+
+Catatan deteksi transisi: dva tag event `am_resume_activity` dan
+`am_set_resumed_activity` (beberapa jalur launch — monkey/new task — hanya
+mengeluarkan yang kedua). Seed `peekEvents` hanya mempercayai event segar
+(≤60 dtk) karena buffer events memuat berjam-jam sejarah.
+
 ## Verifikasi
 
 ```bash
