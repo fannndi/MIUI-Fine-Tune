@@ -4,10 +4,15 @@
 //! - `proto.rs`         wire format (Command/Event)
 //! - `config.rs`        config.json cache (app-owned file)
 //! - `arbiter.rs`       pure decision table
+//! - `runtime.rs`       main-loop state emission + applied/restored events
+//! - `commands.rs`      command dispatch (IPC + watchers)
+//! - `evaluate.rs`      decision point + supervisor timer
 //! - `worker.rs`        coalescing apply worker (thread)
 //! - `engine_driver.rs` engine adapter (in-process, no `su`)
 //! - `settings.rs`      live flags via the `settings` CLI
-//! - `mod.rs`           this file: state, timers, command dispatch
+//! - `watcher.rs`       logcat streams (foreground + multi-window)
+//! - `bridge/`          MIUI mode hold/restore (settings IO thread)
+//! - `mod.rs`           this file: state type, constants, threads, main loop
 //!
 //! Lifecycle: spawned by the app's foreground service with the app's stdio
 //! bridged. stdin EOF (app death) or `shutdown` ends the process; the app
@@ -15,9 +20,12 @@
 
 mod arbiter;
 mod bridge;
+mod commands;
 mod config;
 mod engine_driver;
+mod evaluate;
 mod proto;
+mod runtime;
 mod settings;
 #[cfg(test)]
 mod test_util;
@@ -29,7 +37,6 @@ pub use proto::{Command, Event, Publisher, Snapshot, VERSION};
 /// Config shape shared with `doctor` (and future tools).
 pub use config::DaemonConfig;
 
-use crate::daemon::arbiter::{ArbiterInput, Decision, SLEEP_PROFILE};
 use crate::daemon::bridge::{Bridge, SyncCtx};
 use crate::daemon::config::ConfigFile;
 use crate::daemon::settings::LiveFlags;
@@ -98,297 +105,6 @@ struct Runtime {
     last_watcher_restart: Instant,
     // event dedupe
     last_state: Snapshot,
-}
-
-impl Runtime {
-    fn log(&self, msg: &str) {
-        self.publisher.log(msg);
-    }
-
-    fn emit_state(&mut self, force: bool) {
-        let snap = Snapshot {
-            screen_on: self.screen_on,
-            locked: self.locked,
-            multi_window: self.multi_window,
-            second_window: self.second_window.clone(),
-            foreground: self.last_fg.clone(),
-            active: self.active.clone(),
-            reason: self.reason.clone(),
-            src_pkg: self.src_pkg.clone(),
-        };
-        if force || snap != self.last_state {
-            self.last_state = snap.clone();
-            self.publisher.emit(&Event::State { state: snap });
-        }
-    }
-
-    fn emit_decision(&self, trigger: &str, action: &str, profile: Option<String>, reason: Option<String>) {
-        self.publisher.emit(&Event::Decision {
-            trigger: trigger.into(),
-            action: action.into(),
-            profile,
-            reason,
-        });
-    }
-
-    /// The one decision point. `fg_override` mirrors the old `evaluate`:
-    /// config toggles and unlocks evaluate for the *real* package even
-    /// though our own (transient) app is technically in front.
-    fn evaluate(&mut self, trigger: &str, fg_override: Option<String>) {
-        if self.retired {
-            return;
-        }
-        let cfg = self.config.get();
-        if !cfg.enabled {
-            // the app owns lifecycle: it stops the service (and thus us)
-            return;
-        }
-        let fg = fg_override.or_else(|| self.last_fg.clone());
-        let input = ArbiterInput {
-            service_enabled: true,
-            screen_on: self.screen_on,
-            keyguard_locked: self.locked,
-            foreground_pkg: fg.clone(),
-            app_map: cfg.app_map.clone(),
-            base_profile: cfg.base_profile.clone(),
-            sleep_profile: SLEEP_PROFILE.to_string(),
-            // attribution: a saver flag WE hold for a mapped app is invisible
-            // to the decision — only the user's own saver forces the base
-            saver_on: self.bridge.user_saver(self.flags.saver()),
-            ultra_saver: self.ultra,
-            multi_window: self.multi_window,
-            dynamic_profile: cfg.dynamic,
-        };
-        match arbiter::decide(&input) {
-            Decision::None => {
-                self.log(&format!("evaluate({trigger}): no-op"));
-                self.emit_decision(trigger, "none", None, None);
-            }
-            Decision::Apply { profile, reason } => {
-                self.log(&format!("evaluate({trigger}): -> {profile} ({reason})"));
-                self.emit_decision(trigger, "apply", Some(profile.clone()), Some(reason.clone()));
-                let job = worker::Job {
-                    profile,
-                    reason,
-                    src_pkg: fg,
-                    used_saver: input.saver_on,
-                    queued: Instant::now(),
-                };
-                let _ = self.work_tx.send(Work::Apply(job));
-            }
-            Decision::Retire => {
-                self.log(&format!("evaluate({trigger}): MIUI ultra saver — retiring service"));
-                self.emit_decision(trigger, "retire", None, None);
-                self.retired = true;
-                let _ = self.work_tx.send(Work::Restore { retire: true });
-            }
-        }
-        // MIUI bridge extras: settings IO on the bridge thread (never blocks
-        // the decision loop); serialized there by the bridge Mutex.
-        let _ = self.sync_tx.send(SyncCtx {
-            last_real: self.last_real.clone(),
-            screen_on: self.screen_on,
-            locked: self.locked,
-            dynamic: cfg.dynamic,
-            sync_perf: cfg.sync_miui_perf,
-            sync_saver: cfg.sync_miui_saver,
-            game_checker: cfg.game_mode_checker,
-            app_map: cfg.app_map.clone(),
-        });
-    }
-
-    fn on_command(&mut self, cmd: Command) -> bool {
-        match cmd {
-            Command::Hello => {
-                self.log("ipc: hello");
-                self.emit_state(true);
-            }
-            Command::Ping => self.publisher.emit(&Event::Pong),
-            Command::Shutdown => {
-                self.log("ipc: shutdown");
-                return false;
-            }
-            Command::ConfigChanged => {
-                // explicit hint: force the reload (mtime granularity must
-                // never swallow a write)
-                if self.config.reload() {
-                    self.log("config reloaded");
-                }
-                let fg = self.last_real.clone().or_else(|| self.last_fg.clone());
-                self.evaluate("config", fg);
-            }
-            Command::Screen { on, locked } => {
-                let was_on = self.screen_on;
-                self.screen_on = on;
-                self.locked = locked;
-                if !on {
-                    if was_on {
-                        self.log("screen off");
-                    }
-                    self.sleep_deadline = Some(Instant::now() + Duration::from_millis(SLEEP_DELAY_MS));
-                } else {
-                    self.sleep_deadline = None;
-                    if !was_on {
-                        self.log("screen on");
-                    }
-                    if !self.locked {
-                        self.peek_now("unlock");
-                    }
-                }
-                self.emit_state(false);
-            }
-            Command::UserPresent => {
-                self.locked = false;
-                self.peek_now("unlock");
-                self.emit_state(false);
-            }
-            Command::Fg { pkg } => self.on_fg(pkg),
-            Command::Seed { pkg } => self.on_seed(pkg, "unlock"),
-            Command::Mw { active, other } => self.on_mw(active, other),
-            Command::Ultra { on } => {
-                self.ultra = on;
-                self.log(&format!("MIUI extreme saver: {on}"));
-                if on {
-                    self.evaluate("ultra", None);
-                }
-            }
-            Command::SetBase { profile } => {
-                // the app writes config.json first; force-sync, then apply
-                self.config.reload();
-                self.log(&format!("set_base: {profile}"));
-                let job = worker::Job {
-                    profile,
-                    reason: "base".into(),
-                    src_pkg: None,
-                    used_saver: false,
-                    queued: Instant::now(),
-                };
-                let _ = self.work_tx.send(Work::Apply(job));
-            }
-            Command::Restore => {
-                self.log("ipc: restore");
-                let _ = self.work_tx.send(Work::Restore { retire: false });
-            }
-        }
-        true
-    }
-
-    /// Foreground package event (own watcher or the app's forwarder).
-    fn on_fg(&mut self, pkg: String) {
-        if !arbiter::is_transient(Some(&pkg)) {
-            self.last_real = Some(pkg.clone());
-        }
-        if self.last_fg.as_deref() == Some(pkg.as_str()) {
-            return;
-        }
-        self.last_fg = Some(pkg);
-        self.emit_state(false);
-        if self.screen_on && !self.locked {
-            self.evaluate("event", None);
-        }
-    }
-
-    /// Wake/unlock seed: peeked package (None = peek found nothing).
-    /// `triggers`: "unlock" always evaluates (wake re-asserts the decision);
-    /// "peek" only evaluates when the package changed (stream-down fallback).
-    fn on_seed(&mut self, peeked: Option<String>, trigger: &str) {
-        let best = match peeked.as_deref() {
-            Some(p) if !arbiter::is_transient(Some(p)) => Some(p.to_string()),
-            _ => self.last_real.clone().or_else(|| peeked.clone()),
-        };
-        self.log(&format!("seed: peeked={peeked:?} best={best:?}"));
-        let changed = best.is_some() && best != self.last_fg;
-        if let Some(b) = best {
-            self.last_fg = Some(b);
-        }
-        self.emit_state(false);
-        if trigger == "unlock" || changed {
-            self.evaluate(trigger, None);
-        }
-    }
-
-    /// Multi-window state change from the daemon's own watcher.
-    fn on_mw(&mut self, active: bool, other: Option<String>) {
-        if self.multi_window != active || self.second_window != other {
-            self.multi_window = active;
-            self.second_window = other.clone();
-            let msg = if active {
-                format!("multi-window ON ({})", other.unwrap_or_default())
-            } else {
-                "multi-window off".into()
-            };
-            self.log(&format!("bridge: {msg}"));
-            self.publisher.emit(&Event::Bridge { msg });
-            self.emit_state(false);
-            self.evaluate("multiwindow", None);
-        }
-    }
-
-    /// One-shot peek on a short thread (never blocks the main loop).
-    fn peek_now(&mut self, trigger: &'static str) {
-        let tx = self.tx.clone();
-        let _ = std::thread::Builder::new().name("peek".into()).spawn(move || {
-            let pkg = watcher::peek_fg();
-            let _ = tx.send(Msg::Peek { pkg, trigger });
-        });
-    }
-
-    fn on_applied(&mut self, ev: worker::AppliedEvent) {
-        if ev.ok {
-            if ev.wrote == 0 {
-                self.log(&format!("apply {}: in place", ev.profile));
-            } else {
-                self.log(&format!(
-                    "apply {}: done in {}ms (settle {}ms)",
-                    ev.profile, ev.ms, ev.settle_ms
-                ));
-            }
-            self.active = Some(ev.profile.clone());
-            self.reason = Some(ev.reason.clone());
-            self.src_pkg = ev.src_pkg.clone();
-        } else {
-            self.log(&format!("apply {} failed after retry ({})", ev.profile, ev.failed));
-            self.reason = Some(format!("apply failed ({})", ev.failed));
-        }
-        self.publisher.emit(&Event::Applied {
-            profile: ev.profile,
-            reason: ev.reason,
-            src_pkg: ev.src_pkg,
-            ok: ev.ok,
-            wrote: ev.wrote,
-            verified: ev.verified,
-            failed: ev.failed,
-            ms: ev.ms,
-            settle_ms: ev.settle_ms,
-        });
-        self.emit_state(false);
-    }
-
-    fn on_restored(&mut self, ev: RestoredEvent) {
-        if ev.ok {
-            self.active = None;
-            self.reason = None;
-            self.src_pkg = None;
-        }
-        if ev.retire {
-            self.log(&format!("retire: restore ok={} failed={}", ev.ok, ev.failed));
-            self.publisher.emit(&Event::Retired {
-                ok: ev.ok,
-                wrote: ev.wrote,
-                verified: ev.verified,
-                failed: ev.failed,
-            });
-        } else {
-            self.log(&format!("restore: ok={} failed={}", ev.ok, ev.failed));
-            self.publisher.emit(&Event::Restored {
-                ok: ev.ok,
-                wrote: ev.wrote,
-                verified: ev.verified,
-                failed: ev.failed,
-            });
-        }
-        self.emit_state(false);
-    }
 }
 
 /// Entry point for `miui-ft serve`.
@@ -592,39 +308,4 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
     rt.bridge.release_all();
     rt.publisher.emit(&Event::Bye);
     Ok(())
-}
-
-impl Runtime {
-    /// 3 s supervisor: periodic re-evaluate + watcher health + fallback peek.
-    fn supervise(&mut self, ticks: u64) {
-        if ticks % PERIODIC_TICKS == 0 && self.screen_on && !self.locked {
-            self.evaluate("periodic", None);
-        }
-        // stream health
-        let fg_alive = self.fg_watcher.as_ref().map(|w| w.is_alive()).unwrap_or(false);
-        let mw_alive = self.mw_watcher.as_ref().map(|w| w.is_alive()).unwrap_or(false);
-        if !fg_alive || !mw_alive {
-            if self.last_watcher_restart.elapsed() >= watcher::RESTART_BACKOFF {
-                self.last_watcher_restart = Instant::now();
-                if !fg_alive {
-                    self.log("foreground stream down — restarting");
-                    if let Some(w) = self.fg_watcher.as_mut() {
-                        w.stop();
-                    }
-                    self.fg_watcher = watcher::spawn_fg(self.tx.clone());
-                }
-                if !mw_alive {
-                    self.log("multi-window stream down — restarting");
-                    if let Some(w) = self.mw_watcher.as_mut() {
-                        w.stop();
-                    }
-                    self.mw_watcher = watcher::spawn_mw(self.tx.clone());
-                }
-            }
-            // fallback peek while the event stream is down (screen visible)
-            if !fg_alive && self.screen_on && !self.locked {
-                self.peek_now("peek");
-            }
-        }
-    }
 }

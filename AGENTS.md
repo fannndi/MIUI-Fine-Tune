@@ -41,14 +41,19 @@ parameters, always through the catalog guard.
 | `src/engine/apply/verify.rs` | drift detection + verified read-back helper |
 | `src/engine/doctor.rs` | `doctor` environment self-check (JSON) |
 | `src/engine/testutil.rs` | shared engine test fixtures (`cfg(test)`) |
-| `src/daemon/mod.rs` | daemon main loop: state, timers, command dispatch, supervisor |
+| `src/daemon/mod.rs` | daemon wiring: constants, state type, threads, main loop |
+| `src/daemon/runtime.rs` | state emission + applied/restored event handling |
+| `src/daemon/commands.rs` | command dispatch (IPC + watcher messages) |
+| `src/daemon/evaluate.rs` | decision point + 3 s supervisor timer |
 | `src/daemon/proto.rs` | IPC wire format (Command/Event) + stdout Publisher |
 | `src/daemon/config.rs` | `config.json` cache (app writes; daemon reloads) |
 | `src/daemon/arbiter.rs` | pure decision table (ported from Kotlin; all cases tested) |
-| `src/daemon/worker.rs` | coalescing apply worker: settle/supersede/retry/restore-cancel |
+| `src/daemon/worker.rs` + `worker/tests.rs` | coalescing apply worker: settle/supersede/retry/restore-cancel |
 | `src/daemon/engine_driver.rs` | engine adapter for the worker (in-process, no `su`) |
 | `src/daemon/watcher.rs` | logcat watchers (`-v epoch`): foreground + multi-window + peek |
-| `src/daemon/bridge.rs` | MIUI bridge: hold/restore state machine, perf/saver/game-check |
+| `src/daemon/bridge/mod.rs` | Bridge: shared state + one Mutex, recover/release/persist |
+| `src/daemon/bridge/holds.rs` | PowerMode + hold/restore state machine + holds.json |
+| `src/daemon/bridge/sync.rs` | SyncCtx + pure gates + settings-CLI sync IO |
 | `src/daemon/settings.rs` | `settings` CLI read/write helpers (saver, power_mode) |
 | `tests/daemon_smoke.rs` | end-to-end protocol tests: full decision path, EOF exit |
 
