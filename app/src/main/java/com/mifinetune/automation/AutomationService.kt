@@ -75,6 +75,8 @@ class AutomationService : Service() {
     private lateinit var watcher: ForegroundWatcher
     private lateinit var reader: DeviceContextReader
     private lateinit var miState: MiStateBridge
+    private val mwWatcher = MultiWindowWatcher(Tuner.bridge)
+    private var multiWindow = false
 
     private var sleepJob: Job? = null
     private var supervisorJob: Job? = null
@@ -135,6 +137,14 @@ class AutomationService : Service() {
         watcher.start(scope) { pkg -> onForegroundEvent(pkg) }
         miState.start()
         recoverBridge()
+        mwWatcher.start(scope) { st ->
+            if (st.active != multiWindow) {
+                multiWindow = st.active
+                AutomationState.secondWindow.value = st.otherPkg
+                logEvent(if (st.active) "multi-window ON (${st.otherPkg})" else "multi-window off")
+                evaluate("multiwindow")
+            }
+        }
 
         scope.launch(Dispatchers.IO) {
             if (screenOn && !locked) seedForeground() else evaluate("start")
@@ -153,6 +163,7 @@ class AutomationService : Service() {
     override fun onDestroy() {
         runCatching { unregisterReceiver(receiver) }
         watcher.stop()
+        mwWatcher.stop()
         // release bridge holds on a detached thread: scope is about to be
         // cancelled and the su writes take ~0.5 s. Prefs carry the restore
         // points regardless, so an abrupt death still self-heals next start.
@@ -246,7 +257,7 @@ class AutomationService : Service() {
                 ticks++
                 if (ticks % 5 == 0 && screenOn && !locked) evaluate("periodic")
                 if (ticks % 10 == 0) {
-                    Log.d(TAG, "supervisor tick $ticks: watcherAlive=${watcher.isAlive} screenOn=$screenOn locked=$locked lastSeen=$lastSeenPkg")
+                    Log.d(TAG, "supervisor tick $ticks: watcherAlive=${watcher.isAlive} mw=${mwWatcher.isAlive} screenOn=$screenOn locked=$locked lastSeen=$lastSeenPkg")
                 }
                 // screen-state reconciliation (missed SCREEN_ON/OFF recovery)
                 val actualOn = reader.screenOn
@@ -301,6 +312,7 @@ class AutomationService : Service() {
             // to the decision — only the user's own saver forces the base
             saverOn = bridge.value.userSaver(liveSaver),
             ultraSaver = miState.ultra(),
+            multiWindow = multiWindow,
         )
         pendingSaver = input.saverOn
         when (val d = ModeArbiter.decide(input)) {

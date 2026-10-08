@@ -20,6 +20,8 @@ data class ArbiterInput(
     val saverOn: Boolean = false,
     /** MIUI Ultra battery saver — framework owns the device; we retire. */
     val ultraSaver: Boolean = false,
+    /** Split screen / floating window active — dual-app concurrency. */
+    val multiWindow: Boolean = false,
 )
 
 sealed interface Decision {
@@ -39,6 +41,13 @@ object ModeArbiter {
 
     /** MIUI/Android battery saver forces the frugal base. */
     const val SAVER_PROFILE = "powersave"
+
+    /**
+     * Dual-app concurrency (split screen / floating window) is always tuned
+     * Balanced: a second visible app changes the load profile enough that
+     * powersave stutters and game runs hot. Fixed regardless of base.
+     */
+    const val MULTI_WINDOW_PROFILE = "balance"
 
     /**
      * Packages that must not trigger a switch: system chrome and dialogs
@@ -76,6 +85,12 @@ object ModeArbiter {
         }
 
         if (input.keyguardLocked) return Decision.None
+
+        // dual-app concurrency overrides mapping AND saver: two visible apps
+        // need the middle ground (user verdict 2026-10-08)
+        if (input.multiWindow) {
+            return Decision.Apply(MULTI_WINDOW_PROFILE, "multi-window")
+        }
 
         val pkg = input.foregroundPkg
         if (isTransient(pkg)) return Decision.None

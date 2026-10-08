@@ -25,6 +25,9 @@ object AutomationState {
     /** Last foreground package seen by the watcher. */
     val lastForeground = MutableStateFlow<String?>(null)
 
+    /** The second pane's package while split screen / floating window is on. */
+    val secondWindow = MutableStateFlow<String?>(null)
+
     /**
      * Bridge timeline (newest first, capped): MIUI mode writes the bridge
      * performed, so the user can verify behaviour without a cable.

@@ -17,6 +17,7 @@ class ModeArbiterTest {
         sleep: String = "sleep",
         saverOn: Boolean = false,
         ultraSaver: Boolean = false,
+        mw: Boolean = false,
     ) = ArbiterInput(
         automationEnabled = enabled,
         screenOn = screenOn,
@@ -27,6 +28,7 @@ class ModeArbiterTest {
         sleepProfile = sleep,
         saverOn = saverOn,
         ultraSaver = ultraSaver,
+        multiWindow = mw,
     )
 
     @Test
@@ -118,5 +120,27 @@ class ModeArbiterTest {
             Decision.Retire,
             ModeArbiter.decide(input(ultraSaver = true, screenOn = false)),
         )
+    }
+
+    // --- multi-window rule --------------------------------------------------
+
+    @Test
+    fun multi_window_forces_balance_over_mapping() {
+        val d = ModeArbiter.decide(
+            input(fg = "com.YoStarEN.AzurLane", map = mapOf("com.YoStarEN.AzurLane" to "game"), mw = true),
+        )
+        assertEquals(Decision.Apply("balance", "multi-window"), d)
+    }
+
+    @Test
+    fun multi_window_forces_balance_over_saver_base() {
+        val d = ModeArbiter.decide(input(saverOn = true, mw = true))
+        assertEquals(Decision.Apply("balance", "multi-window"), d)
+    }
+
+    @Test
+    fun multi_window_does_not_beat_screen_off() {
+        val d = ModeArbiter.decide(input(screenOn = false, mw = true))
+        assertEquals(Decision.Apply("sleep", "screen off"), d)
     }
 }

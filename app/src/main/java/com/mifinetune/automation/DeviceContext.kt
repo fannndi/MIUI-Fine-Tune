@@ -83,6 +83,7 @@ class ForegroundWatcher(private val bridge: RootBridge) {
                 p.inputStream.bufferedReader().useLines { lines ->
                     for (line in lines) {
                         if (!isActive) break
+                        if (!isFresh(line)) continue
                         if (ANY_RE.find(line) == null) continue
                         val pkg = RESUME_RE.find(line)?.groupValues?.get(1)
                             ?: SET_RESUMED_RE.find(line)?.groupValues?.get(1)
@@ -125,10 +126,97 @@ class ForegroundWatcher(private val bridge: RootBridge) {
         return pkg
     }
 
+    /**
+     * Age check of a raw logcat line. Built from Calendar (not
+     * SimpleDateFormat) on purpose: two-digit-log stamps without a year
+     * defaulted to 1970 there, making every line look ~56 years old and
+     * disabling the whole stream (verified 2026-10-08). Calendar keeps the
+     * parse inside the current year on the same clock.
+     */
     private fun isFresh(line: String): Boolean = runCatching {
-        val m = Regex("(\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})").find(line) ?: return false
-        val t = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US).parse(m.groupValues[1])
-        val age = System.currentTimeMillis() - (t?.time ?: return false)
+        val m = Regex("(\\d{2})-(\\d{2}) (\\d{2}):(\\d{2}):(\\d{2})").find(line) ?: return false
+        val (mo, dd, hh, mi, ss) = m.destructured
+        val cal = java.util.Calendar.getInstance()
+        cal.set(
+            cal.get(java.util.Calendar.YEAR),
+            mo.toInt() - 1,
+            dd.toInt(),
+            hh.toInt(),
+            mi.toInt(),
+            ss.toInt(),
+        )
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        val age = System.currentTimeMillis() - cal.timeInMillis
         age in 0..MAX_PEEK_AGE_MS
     }.getOrDefault(false)
+}
+
+/**
+ * Multi-window (split screen / floating window) detector.
+ *
+ * Signal (verified 2026-10-08 with YouTube+Chrome in split): MIUI's own
+ * GameBoosterService logs the dual-pane state in its onGameStatusChange line:
+ *
+ *   mForegroundPackageName='<focused>' ... mMultiWindowForegroundPackageName='<other>'
+ *
+ * `mMultiWindowForegroundPackageName` is 'null' in full-screen and holds the
+ * other pane's package while two windows are visible. Root `logcat -b main`
+ * streaming is the reliable channel (dumpsys/binder stays unusable from the
+ * app's su context). Plain `logcat` replays the existing buffer first, so
+ * the last parsed line seeds the initial state — no missed split at start.
+ */
+class MultiWindowWatcher(private val bridge: RootBridge) {
+
+    companion object {
+        private const val TAG = "MiFineTune"
+        /** Extracted name is 'null' (literal) when no second window exists. */
+        private val MW_RE =
+            Regex("mMultiWindowForegroundPackageName='([^']+)'")
+    }
+
+    data class State(val active: Boolean = false, val otherPkg: String? = null)
+
+    private var process: Process? = null
+    private var readerJob: Job? = null
+
+    val isAlive: Boolean get() = process?.isAlive == true
+
+    fun start(scope: CoroutineScope, onState: (State) -> Unit) {
+        stop()
+        val p = runCatching {
+            bridge.stream("logcat -b main -s GameBoosterService:V")
+        }.getOrNull() ?: run {
+            Log.w(TAG, "multi-window watcher: failed to spawn logcat")
+            return
+        }
+        process = p
+        readerJob = scope.launch(Dispatchers.IO) {
+            try {
+                p.inputStream.bufferedReader().useLines { lines ->
+                    // NOTE: the buffer replay is the seed — the LAST line's
+                    // state is the current one regardless of age (split mode
+                    // persists until exited), so stale lines are NOT skipped
+                    // here. The service dedupes identical states.
+                    for (line in lines) {
+                        if (!isActive) break
+                        val name = MW_RE.find(line)?.groupValues?.get(1) ?: continue
+                        val st = if (name == "null") State(false, null)
+                        else State(true, name)
+                        onState(st)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "multi-window watcher stream ended: $e")
+            } finally {
+                if (process === p) process = null
+            }
+        }
+    }
+
+    fun stop() {
+        readerJob?.cancel()
+        readerJob = null
+        process?.destroy()
+        process = null
+    }
 }
