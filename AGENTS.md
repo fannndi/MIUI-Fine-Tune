@@ -67,12 +67,16 @@ parameters, always through the catalog guard.
 | `core/Models.kt` | CLI JSON shapes (status/plan/report/profiles) |
 | `core/Tuner.kt` | serialized CLI access + manual drift guard (service-off only) |
 | `dynamic/DaemonClient.kt` | daemon spawn, JSON-lines framing, stderr→logcat relay, `DaemonLink` |
-| `dynamic/DynamicProfileService.kt` | FGS + notification; forwards screen/keyguard/ultra; maps events to state |
+| `dynamic/DynamicProfileService.kt` | FGS lifecycle; forwards screen/keyguard/ultra; maps events to state |
+| `dynamic/DaemonNotifications.kt` | notification channels + builders (service notification, GM warning) |
 | `dynamic/DynamicProfileConfig.kt` | `config.json` writer (atomic), prefs migration, daemon hints |
 | `dynamic/DynamicProfileState.kt` | process-wide StateFlows mirrored from daemon events |
 | `dynamic/DeviceContext.kt` | PowerManager/KeyguardManager reader only |
 | `dynamic/DynamicProfileBootReceiver.kt` | best-effort service start on boot |
-| `ui/HomeScreen.kt` / `HomeViewModel.kt` | profile cards, service/dynamic switches, report dialogs |
+| `ui/HomeScreen.kt` | screen scaffold + navigation + service-off confirm |
+| `ui/HomeRows.kt` | profile cards, Apps entry, Service + Dynamic Profile rows |
+| `ui/HomeDialogs.kt` | report / profile detail / locked-keys dialogs |
+| `ui/HomeViewModel.kt` + `HomeUiState.kt` | Home controller + UI state shapes |
 | `ui/DynamicProfileViewModel.kt` | apps list + settings toggles controller |
 | `ui/AppsProfileScreen.kt` / `SettingsScreen.kt` / `UiBits.kt` / `ProfileLabels.kt` / `theme/` | Compose UI |
 

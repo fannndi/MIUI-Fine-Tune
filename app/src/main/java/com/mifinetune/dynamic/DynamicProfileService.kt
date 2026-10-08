@@ -1,9 +1,6 @@
 package com.mifinetune.dynamic
 
-import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -12,10 +9,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import com.mifinetune.MainActivity
-import com.mifinetune.R
 import com.mifinetune.core.Tuner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,11 +33,6 @@ class DynamicProfileService : Service() {
 
     companion object {
         private const val TAG = "MiFineTune"
-        private const val NOTIF_ID = 41
-        private const val CHANNEL_ID = "automation"
-        private const val GM_CHANNEL_ID = "gmode"
-        private const val GM_NOTIF_ID = 42
-
         private const val SUPERVISE_MS = 3_000L
         private const val RESTART_BACKOFF_MS = 10_000L
 
@@ -97,8 +86,11 @@ class DynamicProfileService : Service() {
         config = DynamicProfileConfig.get(this)
         reader = DeviceContextReader(this)
 
-        createChannel()
-        startForeground(NOTIF_ID, buildNotification("starting…"))
+        DaemonNotifications.createChannels(this)
+        startForeground(
+            DaemonNotifications.NOTIF_ID,
+            DaemonNotifications.buildServiceNotification(this, "starting…"),
+        )
         DynamicProfileState.running.value = true
         DaemonLink.client = null
 
@@ -270,7 +262,8 @@ class DynamicProfileService : Service() {
 
             "bridge" -> DynamicProfileState.pushBridgeEvent(ev.optString("msg"))
 
-            "game_mode_conflict" -> notifyGameModeConflict(ev.optString("pkg"))
+            "game_mode_conflict" ->
+                DaemonNotifications.notifyGameModeConflict(this, labelFor(ev.optString("pkg")))
 
             "restored" -> {
                 DynamicProfileState.pushRestored(
@@ -320,81 +313,17 @@ class DynamicProfileService : Service() {
             pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
         }.getOrDefault(pkg)
     }
-
-    // --- notifications ------------------------------------------------------
-
-    private fun createChannel() {
-        val nm = getSystemService(NotificationManager::class.java)
-        val ch = NotificationChannel(
-            CHANNEL_ID,
-            "Service",
-            NotificationManager.IMPORTANCE_MIN,
-        ).apply {
-            description = "Dynamic profile status (silent)"
-            setShowBadge(false)
-            enableVibration(false)
-            setSound(null, null)
-        }
-        nm.createNotificationChannel(ch)
-        val gm = NotificationChannel(
-            GM_CHANNEL_ID,
-            "MIUI bridge warnings",
-            NotificationManager.IMPORTANCE_DEFAULT,
-        ).apply { description = "MIUI Game mode conflicts" }
-        nm.createNotificationChannel(gm)
-    }
-
-    private fun buildNotification(status: String): Notification {
-        val openPi = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val stopPi = PendingIntent.getService(
-            this, 1,
-            Intent(this, DynamicProfileService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_app)
-            .setContentTitle("MiFineTune")
-            .setContentText(status)
-            .setOngoing(true)
-            .setShowWhen(false)
-            .setContentIntent(openPi)
-            .addAction(0, "Turn off", stopPi)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .build()
-    }
-
     private fun updateNotification(profileId: String, reason: String) {
         // state events arrive on every visible change; the notification only
         // needs a re-post when the profile or the reason changed
         val key = profileId to reason
         if (lastNotified == key) return
         lastNotified = key
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIF_ID, buildNotification("active · $profileId · $reason"))
+        getSystemService(NotificationManager::class.java).notify(
+            DaemonNotifications.NOTIF_ID,
+            DaemonNotifications.buildServiceNotification(this, "active · $profileId · $reason"),
+        )
     }
 
     /** One-shot conflict notice: MIUI Game Booster holds the tuned game. */
-    private fun notifyGameModeConflict(pkg: String) {
-        val label = labelFor(pkg)
-        val openPi = PendingIntent.getActivity(
-            this, 2,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val n = NotificationCompat.Builder(this, GM_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_app)
-            .setContentTitle("MIUI Game mode is boosting $label")
-            .setContentText(
-                "Our Game profile is already applied — exclude $label from " +
-                    "MIUI Game Booster (or turn Game mode off) so it stays out of the way."
-            )
-            .setContentIntent(openPi)
-            .setAutoCancel(true)
-            .build()
-        getSystemService(NotificationManager::class.java).notify(GM_NOTIF_ID, n)
-    }
 }
