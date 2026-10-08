@@ -66,8 +66,9 @@ object Tuner {
             guardActive.value = true
             while (isActive) {
                 delay(15_000)
-                val active = runCatching { client.status().active }.getOrNull() ?: continue
-                val id = active ?: break
+                // status() failure -> retry next tick; no active profile -> done
+                val status = runCatching { client.status() }.getOrNull() ?: continue
+                val id = status.active ?: break
                 runCatching { mutex.withLock { client.apply(id) } }
                     .onSuccess { rep ->
                         // re-written keys = keys the framework had drifted
