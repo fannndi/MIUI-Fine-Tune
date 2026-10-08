@@ -57,6 +57,7 @@ class DynamicProfileService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private lateinit var config: DynamicProfileConfig
     private lateinit var reader: DeviceContextReader
+    private lateinit var dnd: DndController
     private var client: DaemonClient? = null
     private var lastClientStart = 0L
     private var lastScreen: Boolean? = null
@@ -91,6 +92,7 @@ class DynamicProfileService : Service() {
         super.onCreate()
         config = DynamicProfileConfig.get(this)
         reader = DeviceContextReader(this)
+        dnd = DndController(this)
 
         DaemonNotifications.createChannels(this)
         startForeground(
@@ -123,6 +125,9 @@ class DynamicProfileService : Service() {
 
     override fun onDestroy() {
         runCatching { unregisterReceiver(receiver) }
+        // safety: never leave a DND filter we set behind (the daemon also
+        // releases on service-off, this covers an abrupt service kill)
+        runCatching { dnd.restore() }
         DaemonLink.client = null
         client?.stop()
         client = null
@@ -150,7 +155,11 @@ class DynamicProfileService : Service() {
             client = c
             DaemonLink.client = c
             lastClientStart = System.currentTimeMillis()
+            // reconcile any DND filter left from a previous service run, then
+            // tell the daemon whether the official-API bridge is usable
+            dnd.restore()
             c.send(JSONObject().put("cmd", "hello"))
+            c.send(JSONObject().put("cmd", "dnd_access").put("granted", dnd.isGranted()))
             // seed the diagnostics screen (on-demand, cheap)
             c.send(JSONObject().put("cmd", "diag"))
             c.send(JSONObject().put("cmd", "stats"))
@@ -271,6 +280,19 @@ class DynamicProfileService : Service() {
             }
 
             "bridge" -> DynamicProfileState.pushBridgeEvent(ev.optString("msg"))
+
+            "dnd" -> {
+                // decided by the daemon, executed here through the official
+                // API (zen_mode is framework-owned; never written directly)
+                val mode = ev.optString("mode").ifEmpty { null }
+                if (mode != null) {
+                    if (!dnd.apply(mode)) {
+                        Log.w(TAG, "dnd requested ($mode) but access is not granted")
+                    }
+                } else {
+                    dnd.restore()
+                }
+            }
 
             "env" -> DynamicProfileState.env.value = DiagnosticsParse.env(ev)
 

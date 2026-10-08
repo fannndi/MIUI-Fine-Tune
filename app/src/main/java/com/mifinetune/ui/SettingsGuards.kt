@@ -33,24 +33,18 @@ internal fun GuardsCard(
     guardThermal: Boolean,
     thermalCeiling: Float,
     maintenance: Boolean,
-    chargeLimit: Boolean,
-    chargeLimitPct: Int,
     jankBoost: Boolean,
     onGuardBattery: (Boolean) -> Unit,
     onBatteryFloor: (Int) -> Unit,
     onGuardThermal: (Boolean) -> Unit,
     onThermalCeiling: (Float) -> Unit,
     onMaintenance: (Boolean) -> Unit,
-    onChargeLimit: (Boolean) -> Unit,
-    onChargeLimitPct: (Int) -> Unit,
     onJankBoost: (Boolean) -> Unit,
 ) {
     var floor by remember { mutableFloatStateOf(batteryFloor.toFloat()) }
     LaunchedEffect(batteryFloor) { floor = batteryFloor.toFloat() }
     var ceiling by remember { mutableFloatStateOf(thermalCeiling) }
     LaunchedEffect(thermalCeiling) { ceiling = thermalCeiling }
-    var chargePct by remember { mutableFloatStateOf(chargeLimitPct.toFloat()) }
-    LaunchedEffect(chargeLimitPct) { chargePct = chargeLimitPct.toFloat() }
 
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -111,28 +105,6 @@ internal fun GuardsCard(
                     )
                 }
                 Switch(checked = maintenance, onCheckedChange = onMaintenance)
-            }
-
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Charge limit", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "Pause charging at ${chargePct.roundToInt()}% " +
-                            "(resumes 5% lower; the stock switch returns on exit)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(checked = chargeLimit, onCheckedChange = onChargeLimit)
-            }
-            if (chargeLimit) {
-                Slider(
-                    value = chargePct,
-                    onValueChange = { chargePct = it },
-                    onValueChangeFinished = { onChargeLimitPct(chargePct.roundToInt()) },
-                    valueRange = 60f..95f,
-                    steps = 6,
-                )
             }
 
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

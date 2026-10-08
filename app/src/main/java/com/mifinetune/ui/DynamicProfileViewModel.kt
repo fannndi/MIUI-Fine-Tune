@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mifinetune.dynamic.AppProfileEntry
 import com.mifinetune.dynamic.DynamicProfileConfig
 import com.mifinetune.dynamic.DynamicProfileState
 import com.mifinetune.core.Tuner
@@ -45,6 +46,10 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
 
     val appMap: StateFlow<Map<String, String>> = config.appMapFlow
 
+    /** Apps Profile entries (software layer) + the bypass floor. */
+    val appProfiles: StateFlow<Map<String, AppProfileEntry>> = config.appProfilesFlow
+    val bypassFloor: StateFlow<Int> = config.bypassFloorFlow
+
     /** MIUI bridge switches (Settings page). */
     val syncMiuiPerf: StateFlow<Boolean> = config.syncMiuiPerfFlow
     val syncSaver: StateFlow<Boolean> = config.syncSaverFlow
@@ -73,6 +78,15 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setAppProfile(pkg: String, profileId: String?) {
         config.setAppProfile(pkg, profileId)
+    }
+
+    /** Replaces the whole Apps Profile entry (null = remove the app). */
+    fun setAppEntry(pkg: String, entry: AppProfileEntry?) {
+        config.setAppEntry(pkg, entry)
+    }
+
+    fun setBypassFloor(v: Int) {
+        config.bypassFloor = v
     }
 
     fun setSyncMiuiPerf(v: Boolean) {

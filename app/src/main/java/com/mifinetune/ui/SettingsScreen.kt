@@ -64,6 +64,7 @@ fun SettingsScreen(
     val maintenance = vm?.maintenance?.collectAsStateWithLifecycle()?.value
     val chargeLimit = vm?.chargeLimit?.collectAsStateWithLifecycle()?.value
     val chargeLimitPct = vm?.chargeLimitPct?.collectAsStateWithLifecycle()?.value
+    val bypassFloor = vm?.bypassFloor?.collectAsStateWithLifecycle()?.value
     val jankBoost = vm?.jankBoost?.collectAsStateWithLifecycle()?.value
 
     Scaffold(
@@ -88,7 +89,7 @@ fun SettingsScreen(
         ) {
             if (vm != null && guardBattery != null && batteryFloor != null &&
                 guardThermal != null && thermalCeiling != null && maintenance != null &&
-                chargeLimit != null && chargeLimitPct != null && jankBoost != null
+                jankBoost != null
             ) {
                 GuardsCard(
                     guardBattery = guardBattery,
@@ -96,17 +97,24 @@ fun SettingsScreen(
                     guardThermal = guardThermal,
                     thermalCeiling = thermalCeiling,
                     maintenance = maintenance,
-                    chargeLimit = chargeLimit,
-                    chargeLimitPct = chargeLimitPct,
                     jankBoost = jankBoost,
                     onGuardBattery = vm::setGuardBattery,
                     onBatteryFloor = vm::setBatteryFloor,
                     onGuardThermal = vm::setGuardThermal,
                     onThermalCeiling = vm::setThermalCeiling,
                     onMaintenance = vm::setMaintenance,
+                    onJankBoost = vm::setJankBoost,
+                )
+            }
+
+            if (vm != null && chargeLimit != null && chargeLimitPct != null && bypassFloor != null) {
+                ChargingCard(
+                    chargeLimit = chargeLimit,
+                    chargeLimitPct = chargeLimitPct,
+                    bypassFloor = bypassFloor,
                     onChargeLimit = vm::setChargeLimit,
                     onChargeLimitPct = vm::setChargeLimitPct,
-                    onJankBoost = vm::setJankBoost,
+                    onBypassFloor = vm::setBypassFloor,
                 )
             }
 

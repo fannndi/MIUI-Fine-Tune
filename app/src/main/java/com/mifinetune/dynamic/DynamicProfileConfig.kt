@@ -41,6 +41,7 @@ class DynamicProfileConfig private constructor(context: Context) {
             "sync_miui_perf", "sync_miui_saver", "game_mode_checker",
             "guard_battery", "battery_floor_pct", "guard_thermal", "thermal_ceiling_c",
             "maintenance", "charge_limit", "charge_limit_pct", "jank_boost",
+            "app_profiles", "bypass_floor_pct",
         )
 
         @Volatile
@@ -140,8 +141,17 @@ class DynamicProfileConfig private constructor(context: Context) {
         get() = _chargeLimitPct.value
         set(v) = put { it.put("charge_limit_pct", v.coerceIn(60, 95)) }
 
+    private val _bypassFloor = MutableStateFlow(30)
+    val bypassFloorFlow: StateFlow<Int> = _bypassFloor
+    var bypassFloor: Int
+        get() = _bypassFloor.value
+        set(v) = put { it.put("bypass_floor_pct", v.coerceIn(15, 50)) }
+
     private val _appMap = MutableStateFlow<Map<String, String>>(emptyMap())
     val appMapFlow: StateFlow<Map<String, String>> = _appMap
+
+    private val _appProfiles = MutableStateFlow<Map<String, AppProfileEntry>>(emptyMap())
+    val appProfilesFlow: StateFlow<Map<String, AppProfileEntry>> = _appProfiles
 
     private var _baseProfile: String = DEFAULT_BASE
 
@@ -157,12 +167,35 @@ class DynamicProfileConfig private constructor(context: Context) {
 
     fun appMap(): Map<String, String> = _appMap.value
 
-    /** null profileId removes the mapping (app falls back to the base). */
-    fun setAppProfile(pkg: String, profileId: String?) = put { json ->
-        val map = JSONObject()
-        val next = _appMap.value.toMutableMap()
-        if (profileId == null) next.remove(pkg) else next[pkg] = profileId
-        for ((k, v) in next) map.put(k, v)
+    fun appProfiles(): Map<String, AppProfileEntry> = _appProfiles.value
+
+    /**
+     * Replaces the whole Apps Profile entry for one app. A null (or empty)
+     * entry removes the app entirely; `app_map` stays a mirror of `profile`
+     * for backward compatibility.
+     */
+    fun setAppEntry(pkg: String, entry: AppProfileEntry?) = put { json ->
+        val next = _appProfiles.value.toMutableMap()
+        if (entry == null || entry.isEmpty) next.remove(pkg) else next[pkg] = entry
+        writeAppProfiles(json, next)
+    }
+
+    /** null profileId clears the mapping but keeps the software fields. */
+    fun setAppProfile(pkg: String, profileId: String?) {
+        val current = _appProfiles.value[pkg] ?: AppProfileEntry()
+        setAppEntry(pkg, current.copy(profile = profileId))
+    }
+
+    private fun writeAppProfiles(json: JSONObject, entries: Map<String, AppProfileEntry>) {
+        val out = JSONObject()
+        for ((k, e) in entries) out.put(k, e.toJson())
+        // `app_map` stays the mirror of `profile` but must PRESERVE legacy
+        // mappings of apps that have no extended entry yet.
+        val map = json.optJSONObject("app_map") ?: JSONObject()
+        for ((k, e) in entries) {
+            if (e.profile != null) map.put(k, e.profile) else map.remove(k)
+        }
+        json.put("app_profiles", out)
         json.put("app_map", map)
     }
 
@@ -200,6 +233,25 @@ class DynamicProfileConfig private constructor(context: Context) {
             }
             if (src.has("battery_floor_pct")) {
                 next.put("battery_floor_pct", src.optInt("battery_floor_pct", 20).coerceIn(5, 50))
+            }
+            if (src.has("bypass_floor_pct")) {
+                next.put("bypass_floor_pct", src.optInt("bypass_floor_pct", 30).coerceIn(15, 50))
+            }
+            src.optJSONObject("app_profiles")?.let { obj ->
+                val out = JSONObject()
+                obj.keys().forEach { k ->
+                    val e = AppProfileEntry.fromJson(obj.optJSONObject(k) ?: return@forEach)
+                    val clean = e.copy(profile = e.profile?.takeIf { it in KNOWN_PROFILES })
+                    if (!clean.isEmpty) out.put(k, clean.toJson())
+                }
+                next.put("app_profiles", out)
+                // the extended source wins: rebuild the legacy mirror
+                val mirror = JSONObject()
+                out.keys().forEach { k ->
+                    out.optJSONObject(k)?.optString("profile")?.takeIf { it.isNotEmpty() }
+                        ?.let { mirror.put(k, it) }
+                }
+                next.put("app_map", mirror)
             }
             if (src.has("thermal_ceiling_c")) {
                 next.put(
@@ -245,11 +297,23 @@ class DynamicProfileConfig private constructor(context: Context) {
         _jankBoost.value = json.optBoolean("jank_boost", false)
         _chargeLimit.value = json.optBoolean("charge_limit", false)
         _chargeLimitPct.value = json.optInt("charge_limit_pct", 80).coerceIn(60, 95)
+        _bypassFloor.value = json.optInt("bypass_floor_pct", 30).coerceIn(15, 50)
         _baseProfile = json.optString("base_profile", DEFAULT_BASE).ifEmpty { DEFAULT_BASE }
         val map = mutableMapOf<String, String>()
         json.optJSONObject("app_map")?.let { obj ->
             obj.keys().forEach { k -> map[k] = obj.optString(k) }
         }
+        val profiles = mutableMapOf<String, AppProfileEntry>()
+        json.optJSONObject("app_profiles")?.let { obj ->
+            obj.keys().forEach { k ->
+                val e = AppProfileEntry.fromJson(obj.optJSONObject(k) ?: return@forEach)
+                val clean = e.copy(profile = e.profile?.takeIf { it in KNOWN_PROFILES })
+                if (!clean.isEmpty) profiles[k] = clean
+            }
+        }
+        // the extended source wins for the merged mapping view
+        for ((k, e) in profiles) e.profile?.let { map[k] = it }
+        _appProfiles.value = profiles
         _appMap.value = map
     }
 
@@ -285,7 +349,9 @@ class DynamicProfileConfig private constructor(context: Context) {
         def("jank_boost", false)
         def("charge_limit", false)
         def("charge_limit_pct", 80)
+        def("bypass_floor_pct", 30)
         def("app_map", JSONObject())
+        def("app_profiles", JSONObject())
     }
 
     private fun baseJson(): JSONObject = JSONObject()
@@ -304,7 +370,14 @@ class DynamicProfileConfig private constructor(context: Context) {
         .put("jank_boost", _jankBoost.value)
         .put("charge_limit", _chargeLimit.value)
         .put("charge_limit_pct", _chargeLimitPct.value)
+        .put("bypass_floor_pct", _bypassFloor.value)
         .put("app_map", JSONObject())
+        .put(
+            "app_profiles",
+            JSONObject().also { out ->
+                for ((k, e) in _appProfiles.value) out.put(k, e.toJson())
+            },
+        )
 
     private fun writeAtomic(body: String) {
         runCatching {

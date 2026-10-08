@@ -20,12 +20,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,17 +40,33 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mifinetune.dynamic.AppProfileEntry
 
 /**
- * Apps Profile: search, list, tap an app, pick a profile in a bottom sheet.
- * Nothing else.
+ * Apps Profile: search + filter, tap an app, open its detail screen (Device
+ * Profile mapping + the software layer). Nothing else.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppsProfileScreen(vm: DynamicProfileViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val appMap by vm.appMap.collectAsStateWithLifecycle()
+    val profiles by vm.appProfiles.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<AppEntry?>(null) }
+    var filter by remember { mutableStateOf(AppFilter.ALL) }
+
+    selected?.let { app ->
+        // the detail edits the extended entry; a legacy app_map mapping is
+        // shown (and carried over on the first save) instead of "Default"
+        val merged = profiles[app.pkg] ?: appMap[app.pkg]?.let { AppProfileEntry(profile = it) }
+        AppProfileDetailScreen(
+            app = app,
+            entry = merged,
+            onSave = { vm.setAppEntry(app.pkg, it) },
+            onBack = { selected = null },
+        )
+        return
+    }
 
     Scaffold(
         topBar = {
@@ -80,13 +95,33 @@ fun AppsProfileScreen(vm: DynamicProfileViewModel, onBack: () -> Unit) {
                 placeholder = { Text("Search apps…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             )
+            Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppFilter.entries.forEach { f ->
+                    FilterChip(
+                        selected = filter == f,
+                        onClick = { filter = f },
+                        label = { Text(f.label) },
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                }
+            }
             if (state.loading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
                 }
             } else {
-                val suggestions = if (state.query.isBlank()) {
-                    state.apps.filter { it.isGame && appMap[it.pkg] == null }.take(5)
+                val filtered = vm.filteredApps().filter { app ->
+                    when (filter) {
+                        AppFilter.ALL -> true
+                        AppFilter.GAMES -> app.isGame
+                        AppFilter.CONFIGURED -> profiles.containsKey(app.pkg)
+                    }
+                }
+                val suggestions = if (state.query.isBlank() && filter != AppFilter.CONFIGURED) {
+                    state.apps.filter { it.isGame && !profiles.containsKey(it.pkg) }.take(5)
                 } else {
                     emptyList()
                 }
@@ -101,26 +136,24 @@ fun AppsProfileScreen(vm: DynamicProfileViewModel, onBack: () -> Unit) {
                             }
                         }
                     }
-                    items(vm.filteredApps(), key = { it.pkg }) { app ->
-                        AppRow(app = app, mapped = appMap[app.pkg], onClick = { selected = app })
+                    items(filtered, key = { it.pkg }) { app ->
+                        AppRow(
+                            app = app,
+                            mapped = appMap[app.pkg],
+                            configured = profiles[app.pkg],
+                            onClick = { selected = app },
+                        )
                     }
                 }
             }
         }
     }
+}
 
-    selected?.let { app ->
-        ModalBottomSheet(onDismissRequest = { selected = null }) {
-            MappingSheet(
-                app = app,
-                current = appMap[app.pkg],
-                onPick = { id ->
-                    vm.setAppProfile(app.pkg, id)
-                    selected = null
-                },
-            )
-        }
-    }
+private enum class AppFilter(val label: String) {
+    ALL("All"),
+    GAMES("Games"),
+    CONFIGURED("Configured"),
 }
 
 @Composable
@@ -160,7 +193,16 @@ private fun SuggestedGames(games: List<AppEntry>, onMap: (AppEntry) -> Unit) {
 }
 
 @Composable
-private fun AppRow(app: AppEntry, mapped: String?, onClick: () -> Unit) {
+private fun AppRow(
+    app: AppEntry,
+    mapped: String?,
+    configured: AppProfileEntry?,
+    onClick: () -> Unit,
+) {
+    val extras = buildList {
+        if (configured?.bypassCharge == true) add("Bypass")
+        if (configured?.dnd != null) add("DND")
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -204,6 +246,13 @@ private fun AppRow(app: AppEntry, mapped: String?, onClick: () -> Unit) {
                     }
                 }
             }
+            if (extras.isNotEmpty()) {
+                Text(
+                    extras.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         Spacer(Modifier.width(8.dp))
         Surface(
@@ -219,55 +268,5 @@ private fun AppRow(app: AppEntry, mapped: String?, onClick: () -> Unit) {
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-@Composable
-private fun MappingSheet(app: AppEntry, current: String?, onPick: (String?) -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (app.icon != null) {
-                Image(
-                    bitmap = app.icon,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                )
-                Spacer(Modifier.width(12.dp))
-            }
-            Column {
-                Text(app.label, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    app.pkg,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Spacer(Modifier.size(12.dp))
-        SheetOption("Default (follow base)", current == null) { onPick(null) }
-        listOf("powersave", "balance", "game").forEach { id ->
-            SheetOption(ProfileLabels.of(id), current == id) { onPick(id) }
-        }
-    }
-}
-
-@Composable
-private fun SheetOption(text: String, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = null)
-        Spacer(Modifier.width(8.dp))
-        Text(text, style = MaterialTheme.typography.bodyLarge)
     }
 }

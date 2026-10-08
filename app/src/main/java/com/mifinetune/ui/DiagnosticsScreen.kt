@@ -147,7 +147,9 @@ private fun DaemonCard(diag: DiagInfo?) {
         KV(
             "MIUI holds",
             "perf ${if (diag.perfHeld) "held" else "—"} · saver ${if (diag.saverHeld) "held" else "—"}" +
-                " · charge ${if (diag.chargeHeld) "paused" else "—"}",
+                " · charge ${if (diag.chargeHeld) "paused" else "—"}" +
+                " · bypass ${if (diag.bypassHeld) "ON" else "—"}" +
+                (diag.dndMode?.let { " · DND $it" } ?: ""),
         )
         KV(
             "Config",
