@@ -100,11 +100,11 @@ fun HomeScreen(vm: HomeViewModel) {
 
     when (dest) {
         HomeDest.APPS -> {
-            val avm: AutomationViewModel = viewModel()
+            val avm: DynamicProfileViewModel = viewModel()
             AppsProfileScreen(vm = avm, onBack = { dest = HomeDest.HOME })
         }
         HomeDest.SETTINGS -> {
-            val avm: AutomationViewModel = viewModel()
+            val avm: DynamicProfileViewModel = viewModel()
             SettingsScreen(
                 status = state.status,
                 onBack = { dest = HomeDest.HOME },
@@ -326,13 +326,13 @@ private fun AppsRow(mappedCount: Int, onClick: () -> Unit) {
 private fun ServiceRow(state: HomeUiState, onToggle: (Boolean) -> Unit) {
     val active = state.status?.active
     val statusText = when {
-        state.automationRunning && active != null -> {
-            val reason = state.automationReason
+        state.serviceRunning && active != null -> {
+            val reason = state.serviceReason
             val suffix = if (reason.isNullOrEmpty() || reason == "base") null else reason
             "Active · ${ProfileLabels.of(active)}" + (suffix?.let { " · $it" } ?: "")
         }
-        state.automationRunning -> "On · stock"
-        state.automationEnabled -> "Starting…"
+        state.serviceRunning -> "On · stock"
+        state.serviceEnabled -> "Starting…"
         else -> "Off · stock"
     }
     ElevatedCard(Modifier.fillMaxWidth()) {
@@ -349,11 +349,11 @@ private fun ServiceRow(state: HomeUiState, onToggle: (Boolean) -> Unit) {
                 Text(
                     statusText,
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (state.automationRunning) MaterialTheme.colorScheme.primary
+                    color = if (state.serviceRunning) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(checked = state.automationEnabled, onCheckedChange = onToggle)
+            Switch(checked = state.serviceEnabled, onCheckedChange = onToggle)
         }
     }
 }

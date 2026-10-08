@@ -48,7 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppsProfileScreen(vm: AutomationViewModel, onBack: () -> Unit) {
+fun AppsProfileScreen(vm: DynamicProfileViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val appMap by vm.appMap.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<AppEntry?>(null) }

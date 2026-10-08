@@ -1,4 +1,4 @@
-package com.mifinetune.automation
+package com.mifinetune.dynamic
 
 /**
  * Pure decision logic: given the device context, which profile should be
@@ -9,7 +9,7 @@ package com.mifinetune.automation
  * applies the sleep profile.
  */
 data class ArbiterInput(
-    val automationEnabled: Boolean,
+    val serviceEnabled: Boolean,
     val screenOn: Boolean,
     val keyguardLocked: Boolean,
     val foregroundPkg: String?,
@@ -73,7 +73,7 @@ object ModeArbiter {
         pkg == null || pkg in TRANSIENT_PACKAGES || pkg.contains("inputmethod", ignoreCase = true)
 
     fun decide(input: ArbiterInput): Decision {
-        if (!input.automationEnabled) return Decision.None
+        if (!input.serviceEnabled) return Decision.None
 
         // MIUI Ultra battery saver owns the whole device (its own CPU/GPU/
         // network regime, whitelisted apps only). Neither our baselines nor

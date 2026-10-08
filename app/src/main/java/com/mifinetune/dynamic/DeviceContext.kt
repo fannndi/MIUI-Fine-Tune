@@ -1,4 +1,4 @@
-package com.mifinetune.automation
+package com.mifinetune.dynamic
 
 import android.app.KeyguardManager
 import android.content.Context
@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
  * Screen/keyguard context readers for the arbiter.
  *
  * Responsibility: turning Android services into plain values.
- * Non-goals: decisions (ModeArbiter), lifecycle (AutomationService).
+ * Non-goals: decisions (ModeArbiter), lifecycle (DynamicProfileService).
  */
 class DeviceContextReader(private val context: Context) {
 

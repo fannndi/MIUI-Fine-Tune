@@ -1,4 +1,4 @@
-package com.mifinetune.automation
+package com.mifinetune.dynamic
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -33,7 +33,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Foreground service running the automation loop:
+ * Foreground service running the dynamic profile loop:
  * screen events -> sleep profile, foreground app -> mapped/base profile.
  *
  * Foreground detection is event-driven: a root `logcat -b events` stream of
@@ -41,9 +41,9 @@ import kotlinx.coroutines.launch
  * the stream is down.
  *
  * Responsibility: lifecycle + timers + applying the arbiter's decision.
- * Non-goals: deciding (ModeArbiter), engine IO (Tuner), persistence (AutomationConfig).
+ * Non-goals: deciding (ModeArbiter), engine IO (Tuner), persistence (DynamicProfileConfig).
  */
-class AutomationService : Service() {
+class DynamicProfileService : Service() {
 
     companion object {
         private const val TAG = "MiFineTune"
@@ -60,18 +60,18 @@ class AutomationService : Service() {
         const val ACTION_STOP = "com.mifinetune.action.STOP"
 
         fun start(context: Context) {
-            val i = Intent(context, AutomationService::class.java).setAction(ACTION_START)
+            val i = Intent(context, DynamicProfileService::class.java).setAction(ACTION_START)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i)
             else context.startService(i)
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, AutomationService::class.java))
+            context.stopService(Intent(context, DynamicProfileService::class.java))
         }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private lateinit var config: AutomationConfig
+    private lateinit var config: DynamicProfileConfig
     private lateinit var watcher: ForegroundWatcher
     private lateinit var reader: DeviceContextReader
     private lateinit var miState: MiStateBridge
@@ -95,7 +95,7 @@ class AutomationService : Service() {
     /** Bridge timeline entry (also visible in Settings → MIUI bridge). */
     private fun logEvent(msg: String) {
         Log.d(TAG, "bridge: $msg")
-        AutomationState.pushBridgeEvent(msg)
+        DynamicProfileState.pushBridgeEvent(msg)
     }
 
     private val receiver = object : BroadcastReceiver() {
@@ -114,14 +114,14 @@ class AutomationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        config = AutomationConfig.get(this)
+        config = DynamicProfileConfig.get(this)
         reader = DeviceContextReader(this)
         watcher = ForegroundWatcher(Tuner.bridge)
         miState = MiStateBridge(this, Tuner.bridge)
 
         createChannel()
         startForeground(NOTIF_ID, buildNotification("starting…"))
-        AutomationState.running.value = true
+        DynamicProfileState.running.value = true
 
         screenOn = reader.screenOn
         locked = reader.keyguardLocked
@@ -140,7 +140,7 @@ class AutomationService : Service() {
         mwWatcher.start(scope) { st ->
             if (st.active != multiWindow) {
                 multiWindow = st.active
-                AutomationState.secondWindow.value = st.otherPkg
+                DynamicProfileState.secondWindow.value = st.otherPkg
                 logEvent(if (st.active) "multi-window ON (${st.otherPkg})" else "multi-window off")
                 evaluate("multiwindow")
             }
@@ -172,8 +172,8 @@ class AutomationService : Service() {
             runCatching { miState.stop() }
         }.start()
         scope.cancel()
-        AutomationState.running.value = false
-        AutomationState.reason.value = null
+        DynamicProfileState.running.value = false
+        DynamicProfileState.reason.value = null
         super.onDestroy()
     }
 
@@ -216,7 +216,7 @@ class AutomationService : Service() {
             }
             Log.d(TAG, "seed: peeked=$peeked best=$best")
             if (best != null) {
-                AutomationState.lastForeground.value = best
+                DynamicProfileState.lastForeground.value = best
                 lastSeenPkg = best
             }
             // Always re-evaluate after wake/unlock: a later resume event will
@@ -231,7 +231,7 @@ class AutomationService : Service() {
         if (!ModeArbiter.isTransient(pkg)) lastRealPkg = pkg
         if (pkg == lastSeenPkg) return
         lastSeenPkg = pkg
-        AutomationState.lastForeground.value = pkg
+        DynamicProfileState.lastForeground.value = pkg
         if (screenOn && !locked) evaluate("event")
     }
 
@@ -245,7 +245,7 @@ class AutomationService : Service() {
      * Every 15 s it re-evaluates the arbiter periodicaliy (service-driven
      * drift guard): the decision is recomputed fresh (saver state, mapping,
      * base) and the coalescing apply skips unchanged keys — a broadcast or
-     * apply hiccup self-heals within one period. The automation service is
+     * apply hiccup self-heals within one period. The dynamic profile service is
      * the only writer here; the legacy Tuner guard stays for manual-only use.
      */
     private fun startSupervisor() {
@@ -278,7 +278,7 @@ class AutomationService : Service() {
                     val fg = runCatching { watcher.peekEvents() }.getOrNull()
                     if (fg != null && fg != lastSeenPkg) {
                         lastSeenPkg = fg
-                        AutomationState.lastForeground.value = fg
+                        DynamicProfileState.lastForeground.value = fg
                         evaluate("peek")
                     }
                 }
@@ -301,10 +301,10 @@ class AutomationService : Service() {
         }
         val liveSaver = miState.readSaver()
         val input = ArbiterInput(
-            automationEnabled = true,
+            serviceEnabled = true,
             screenOn = screenOn,
             keyguardLocked = locked,
-            foregroundPkg = AutomationState.lastForeground.value,
+            foregroundPkg = DynamicProfileState.lastForeground.value,
             appMap = config.appMap(),
             baseProfile = config.baseProfile,
             sleepProfile = ModeArbiter.SLEEP_PROFILE,
@@ -323,7 +323,7 @@ class AutomationService : Service() {
             }
             is Decision.Retire -> retire(trigger)
         }
-        // MIUI bridge extras — serialized: the dialog automation takes ~2.5 s
+        // MIUI bridge extras — serialized: the MIUI bridge writes take time
         // and the state machine must never race itself (two overlapping
         // evaluations produced an ON/restore yo-yo: the dialog's own resume
         // event re-entered the sync and cancelled the write in flight).
@@ -351,7 +351,7 @@ class AutomationService : Service() {
             releaseBridgeHolds()
             runCatching { Tuner.restore() }
             config.enabled = false
-            runCatching { AutomationService.stop(this@AutomationService) }
+            runCatching { DynamicProfileService.stop(this@DynamicProfileService) }
             Tuner.stopGuard()
         }
     }
@@ -546,8 +546,8 @@ class AutomationService : Service() {
         val current = runCatching { Tuner.status().active }.getOrNull()
         if (current == d.profileId) {
             // already in place — only refresh visible state
-            AutomationState.appliedProfile.value = d.profileId
-            AutomationState.reason.value = reasonText
+            DynamicProfileState.appliedProfile.value = d.profileId
+            DynamicProfileState.reason.value = reasonText
             updateNotification(d.profileId, reasonText)
             return
         }
@@ -566,21 +566,21 @@ class AutomationService : Service() {
                     runCatching { Tuner.apply(d.profileId) }.getOrNull() ?: rep
                 }
                 if (finalRep.ok) {
-                    AutomationState.appliedProfile.value = d.profileId
-                    AutomationState.reason.value = reasonText
+                    DynamicProfileState.appliedProfile.value = d.profileId
+                    DynamicProfileState.reason.value = reasonText
                     updateNotification(d.profileId, reasonText)
                     // drift handling is the supervisor's periodic evaluate —
                     // no separate guard loop here (it could stomp with a
                     // stale profile after a transient failure)
                 } else {
                     Log.w(TAG, "apply ${d.profileId} failed after retry (${finalRep.failed})")
-                    AutomationState.reason.value = "apply failed (${finalRep.failed})"
+                    DynamicProfileState.reason.value = "apply failed (${finalRep.failed})"
                     updateNotification(d.profileId, "apply failed — open the app")
                 }
             }
             .onFailure { e ->
                 Log.w(TAG, "apply ${d.profileId} error: $e")
-                AutomationState.reason.value = "error: ${e.message}"
+                DynamicProfileState.reason.value = "error: ${e.message}"
                 updateNotification(d.profileId, "error — open the app")
             }
     }
@@ -588,7 +588,7 @@ class AutomationService : Service() {
     private fun describe(d: Decision.Apply): String = when (d.reason) {
         "base" -> "base"
         "screen off" -> "screen off"
-        else -> AutomationState.lastForeground.value?.let { labelFor(it) } ?: d.profileId
+        else -> DynamicProfileState.lastForeground.value?.let { labelFor(it) } ?: d.profileId
     }
 
     private fun labelFor(pkg: String): String = labelCache.getOrPut(pkg) {
@@ -607,7 +607,7 @@ class AutomationService : Service() {
             "Service",
             NotificationManager.IMPORTANCE_MIN,
         ).apply {
-            description = "Automation status (silent)"
+            description = "Dynamic profile status (silent)"
             setShowBadge(false)
             enableVibration(false)
             setSound(null, null)
@@ -629,7 +629,7 @@ class AutomationService : Service() {
         )
         val stopPi = PendingIntent.getService(
             this, 1,
-            Intent(this, AutomationService::class.java).setAction(ACTION_STOP),
+            Intent(this, DynamicProfileService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)

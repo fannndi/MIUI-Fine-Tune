@@ -46,7 +46,7 @@ import com.mifinetune.core.Status
 fun SettingsScreen(
     status: Status?,
     onBack: () -> Unit,
-    vm: AutomationViewModel? = null,
+    vm: DynamicProfileViewModel? = null,
 ) {
     val context = LocalContext.current
     val version = runCatching {

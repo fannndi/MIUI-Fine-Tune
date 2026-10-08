@@ -1,10 +1,10 @@
-package com.mifinetune.automation
+package com.mifinetune.dynamic
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Pure-logic tests for the automation decision table. */
+/** Pure-logic tests for the dynamic profile decision table. */
 class ModeArbiterTest {
 
     private fun input(
@@ -19,7 +19,7 @@ class ModeArbiterTest {
         ultraSaver: Boolean = false,
         mw: Boolean = false,
     ) = ArbiterInput(
-        automationEnabled = enabled,
+        serviceEnabled = enabled,
         screenOn = screenOn,
         keyguardLocked = locked,
         foregroundPkg = fg,
@@ -32,7 +32,7 @@ class ModeArbiterTest {
     )
 
     @Test
-    fun automationOff_isNone() {
+    fun serviceOff_isNone() {
         assertEquals(Decision.None, ModeArbiter.decide(input(enabled = false)))
     }
 

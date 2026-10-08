@@ -1,4 +1,4 @@
-package com.mifinetune.automation
+package com.mifinetune.dynamic
 
 import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -6,13 +6,13 @@ import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
 
 /**
- * Persistent automation settings (SharedPreferences) exposed as StateFlows
+ * Persistent dynamic profile settings (SharedPreferences) exposed as StateFlows
  * where the UI needs to react.
  *
  * Responsibility: typed config storage.
  * Non-goals: service lifecycle, arbiter logic.
  */
-class AutomationConfig private constructor(context: Context) {
+class DynamicProfileConfig private constructor(context: Context) {
 
     companion object {
         private const val PREFS = "automation"
@@ -31,11 +31,11 @@ class AutomationConfig private constructor(context: Context) {
         const val DEFAULT_BASE = "balance"
 
         @Volatile
-        private var instance: AutomationConfig? = null
+        private var instance: DynamicProfileConfig? = null
 
-        fun get(context: Context): AutomationConfig =
+        fun get(context: Context): DynamicProfileConfig =
             instance ?: synchronized(this) {
-                instance ?: AutomationConfig(context.applicationContext).also { instance = it }
+                instance ?: DynamicProfileConfig(context.applicationContext).also { instance = it }
             }
     }
 

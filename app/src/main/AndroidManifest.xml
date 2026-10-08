@@ -30,12 +30,12 @@
         </activity>
 
         <service
-            android:name=".automation.AutomationService"
+            android:name=".dynamic.DynamicProfileService"
             android:exported="false"
             android:foregroundServiceType="specialUse" />
 
         <receiver
-            android:name=".automation.AutomationBootReceiver"
+            android:name=".dynamic.DynamicProfileBootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

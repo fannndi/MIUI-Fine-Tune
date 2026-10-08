@@ -1,16 +1,16 @@
-package com.mifinetune.automation
+package com.mifinetune.dynamic
 
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * Process-wide automation runtime state (service writes, UI observes).
+ * Process-wide dynamic profile runtime state (service writes, UI observes).
  *
  * Responsibility: live status for the UI.
- * Non-goals: persistence (AutomationConfig) and decisions (ModeArbiter).
+ * Non-goals: persistence (DynamicProfileConfig) and decisions (ModeArbiter).
  */
-object AutomationState {
+object DynamicProfileState {
 
-    /** True while [AutomationService] is alive. */
+    /** True while [DynamicProfileService] is alive. */
     val running = MutableStateFlow(false)
 
     /**
@@ -19,7 +19,7 @@ object AutomationState {
      */
     val reason = MutableStateFlow<String?>(null)
 
-    /** Profile the automation last applied (null until first decision). */
+    /** Profile the service last applied (null until first decision). */
     val appliedProfile = MutableStateFlow<String?>(null)
 
     /** Last foreground package seen by the watcher. */

@@ -14,7 +14,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * Single owner of every `miui-ft` engine call, shared by the UI and the
- * automation service.
+ * dynamic profile service.
  *
  * Responsibility: serializing engine access (one apply at a time), hosting the
  * shared drift guard, exposing guard state.

@@ -3,9 +3,9 @@ package com.mifinetune.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.mifinetune.automation.AutomationConfig
-import com.mifinetune.automation.AutomationService
-import com.mifinetune.automation.AutomationState
+import com.mifinetune.dynamic.DynamicProfileConfig
+import com.mifinetune.dynamic.DynamicProfileService
+import com.mifinetune.dynamic.DynamicProfileState
 import com.mifinetune.core.ApplyReport
 import com.mifinetune.core.LockedKey
 import com.mifinetune.core.Plan
@@ -28,10 +28,10 @@ import org.json.JSONObject
 
 /**
  * UI state machine: boot-time deploy + probe, profile rows with live plans,
- * apply/service-off with report dialogs, automation status mirror.
+ * apply/service-off with report dialogs, service status mirror.
  *
  * Responsibility: orchestrating [Tuner] calls and exposing [HomeUiState].
- * Non-goals: tuning logic (Rust core), automation decisions (ModeArbiter).
+ * Non-goals: tuning logic (Rust core), service decisions (ModeArbiter).
  */
 data class ProfileCard(
     val profile: Profile,
@@ -55,10 +55,10 @@ data class HomeUiState(
     val guardActive: Boolean = false,
     /** Number of drifted keys corrected by the guard since app start. */
     val driftFixed: Int = 0,
-    // --- automation mirror ---
-    val automationEnabled: Boolean = false,
-    val automationRunning: Boolean = false,
-    val automationReason: String? = null,
+    // --- service mirror ---
+    val serviceEnabled: Boolean = false,
+    val serviceRunning: Boolean = false,
+    val serviceReason: String? = null,
     val mappedCount: Int = 0,
 ) {
     val canAct: Boolean get() = !loading && busy == null
@@ -68,31 +68,31 @@ data class LockedDetail(val title: String, val items: List<LockedKey>)
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val config = AutomationConfig.get(app)
+    private val config = DynamicProfileConfig.get(app)
 
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
     init {
-        observeAutomation()
+        observeService()
         refresh()
     }
 
-    private fun observeAutomation() {
+    private fun observeService() {
         viewModelScope.launch {
-            config.enabledFlow.collect { v -> _state.update { it.copy(automationEnabled = v) } }
+            config.enabledFlow.collect { v -> _state.update { it.copy(serviceEnabled = v) } }
         }
         viewModelScope.launch {
             config.appMapFlow.collect { v -> _state.update { it.copy(mappedCount = v.size) } }
         }
         viewModelScope.launch {
-            AutomationState.running.collect { v -> _state.update { it.copy(automationRunning = v) } }
+            DynamicProfileState.running.collect { v -> _state.update { it.copy(serviceRunning = v) } }
         }
         viewModelScope.launch {
-            AutomationState.reason.collect { v -> _state.update { it.copy(automationReason = v) } }
+            DynamicProfileState.reason.collect { v -> _state.update { it.copy(serviceReason = v) } }
         }
         viewModelScope.launch {
-            AutomationState.appliedProfile.collect { id ->
+            DynamicProfileState.appliedProfile.collect { id ->
                 // the service switched profile in the background while this
                 // screen is open -> keep status + plans fresh
                 val cur = _state.value.status?.active
@@ -135,7 +135,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(loading = false, error = deployError) }
                 return@launch
             }
-            // start the automation service while the app is still foreground
+            // start the service while the app is still foreground
             // (background FGS start would be rejected by the OS)
             maybeStartService()
             loadAll()
@@ -163,7 +163,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             // manual-only drift protection (same rule as apply(); the
-            // automation service owns its own periodic re-assert)
+            // service owns its own periodic re-assert)
             if (status.active != null && !config.enabled) {
                 Tuner.ensureGuard(viewModelScope)
             }
@@ -209,21 +209,21 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 report to Tuner.status()
             }.onSuccess { (report, status) ->
                 if (report.ok) config.baseProfile = profileId
-                // mirror into the shared automation state so the Service row
+                // mirror into the shared dynamic profile state so the Service row
                 // shows the manual decision with a fresh reason (the service
                 // will overwrite both on its next own decision)
                 if (report.ok) {
-                    AutomationState.appliedProfile.value = profileId
-                    AutomationState.reason.value = null
+                    DynamicProfileState.appliedProfile.value = profileId
+                    DynamicProfileState.reason.value = null
                 }
                 val cards = refreshPlans()
                 _state.update {
                     it.copy(busy = null, report = report, status = status, cards = cards)
                 }
-                // manual-only drift protection: when automation is off, the
+                // manual-only drift protection: when the service is off, the
                 // periodic guard keeps the hand-chosen profile intact (same
                 // profile as state.active — no arbitration conflicts). With
-                // automation on, the service loop owns drift handling.
+                // service on, the service loop owns drift handling.
                 if (status.active != null && !config.enabled) {
                     Tuner.ensureGuard(viewModelScope)
                 }
@@ -259,7 +259,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         if (v) {
             runCatching {
                 config.enabled = true
-                AutomationService.start(getApplication())
+                DynamicProfileService.start(getApplication())
             }.onFailure { e ->
                 config.enabled = false
                 _state.update { it.copy(error = "Failed to start service: ${e.message}") }
@@ -276,7 +276,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 kotlinx.coroutines.delay(1_500)
                 report = runCatching { Tuner.restore() }.getOrNull() ?: report
             }
-            runCatching { AutomationService.stop(getApplication()) }
+            runCatching { DynamicProfileService.stop(getApplication()) }
             Tuner.stopGuard()
             val status = runCatching { Tuner.status() }.getOrNull()
             val cards = refreshPlans()
@@ -288,8 +288,8 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Bring the service back if it is enabled but gone (update, MIUI kill). */
     private fun maybeStartService() {
-        if (config.enabled && !AutomationState.running.value) {
-            runCatching { AutomationService.start(getApplication()) }
+        if (config.enabled && !DynamicProfileState.running.value) {
+            runCatching { DynamicProfileService.start(getApplication()) }
                 .onFailure { e ->
                     android.util.Log.w("MiFineTune", "service start failed: $e")
                 }

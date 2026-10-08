@@ -8,8 +8,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.mifinetune.automation.AutomationConfig
-import com.mifinetune.automation.AutomationState
+import com.mifinetune.dynamic.DynamicProfileConfig
+import com.mifinetune.dynamic.DynamicProfileState
 import com.mifinetune.core.Tuner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +27,7 @@ data class AppEntry(
     val icon: ImageBitmap?,
 )
 
-data class AutomationUiState(
+data class DynamicProfileUiState(
     val apps: List<AppEntry> = emptyList(),
     val loading: Boolean = true,
     val query: String = "",
@@ -39,9 +39,9 @@ data class AutomationUiState(
  * per-app mapping, root status. Kept separate from [HomeViewModel] so the
  * (heavy) icon loading happens only when the user opens the apps screen.
  */
-class AutomationViewModel(app: Application) : AndroidViewModel(app) {
+class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val config = AutomationConfig.get(app)
+    private val config = DynamicProfileConfig.get(app)
 
     val appMap: StateFlow<Map<String, String>> = config.appMapFlow
 
@@ -49,10 +49,10 @@ class AutomationViewModel(app: Application) : AndroidViewModel(app) {
     val syncMiuiPerf: StateFlow<Boolean> = config.syncMiuiPerfFlow
     val syncSaver: StateFlow<Boolean> = config.syncSaverFlow
     val gameModeChecker: StateFlow<Boolean> = config.gameModeCheckerFlow
-    val bridgeLog: StateFlow<List<String>> = AutomationState.bridgeLog
+    val bridgeLog: StateFlow<List<String>> = DynamicProfileState.bridgeLog
 
-    private val _state = MutableStateFlow(AutomationUiState())
-    val state: StateFlow<AutomationUiState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(DynamicProfileUiState())
+    val state: StateFlow<DynamicProfileUiState> = _state.asStateFlow()
 
     init {
         loadApps()
