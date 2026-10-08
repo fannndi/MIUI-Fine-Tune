@@ -339,6 +339,8 @@ class DynamicProfileService : Service() {
             DaemonNotifications.NOTIF_ID,
             DaemonNotifications.buildServiceNotification(this, "active · $profileId · $reason"),
         )
+        // keep the Quick Settings tile subtitle in step with the profile
+        ServiceTile.refresh(this)
     }
 
     /** One-shot conflict notice: MIUI Game Booster holds the tuned game. */

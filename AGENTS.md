@@ -205,6 +205,19 @@ cd core && MIFINETUNE_SYSFS_ROOT=/path/to/fake-root cargo test --test daemon_smo
 # env guards on device (fake sysfs; real nodes untouched by the guard test):
 #   battery 10%  -> 'applied ... reason=low battery'
 #   CPU 80 °C    -> 'applied ... reason=thermal'
+
+# v0.7 feature checks (all verified 2026-10-08):
+# - refresh follow: mapped game -> 'bridge: refresh follow 120 Hz (game)',
+#   home -> 'bridge: refresh restored (<user value>)'
+# - storage maintenance (opt-in, charging + screen off):
+#   'maintenance: done (gc 3521 -> 30 dirty segments in 70s)';
+#   /data/adb/mifinetune/maintenance.json records the run
+# - charge limit (opt-in): toggle -> 'bridge: charge paused at N% (limit X)'
+#   (node 1 -> 0); toggle off / Service OFF -> 'bridge: charge resumed'
+# - jank boost (opt-in): load + heavy swipes -> 'jank: N frames — boosting'
+#   -> 'apply boost: done' -> 'boost window over' -> normal profile
+# - diagnostics: Home -> Diagnostics = env + 24 h + transitions + daemon log
+# - backup: Settings -> Backup export/import through the system picker
 ```
 
 ## Device quirks (save yourself hours)

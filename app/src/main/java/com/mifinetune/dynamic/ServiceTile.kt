@@ -14,7 +14,22 @@ import com.mifinetune.ui.ProfileLabels
  */
 class ServiceTile : TileService() {
 
-    override fun onStartListening() = refresh()
+    companion object {
+        /**
+         * Ask the system to re-bind the tile so its subtitle updates
+         * immediately after a profile switch (no-op when the tile is absent).
+         */
+        fun refresh(context: android.content.Context) {
+            runCatching {
+                requestListeningState(
+                    context,
+                    android.content.ComponentName(context, ServiceTile::class.java),
+                )
+            }
+        }
+    }
+
+    override fun onStartListening() = refreshTile()
 
     override fun onClick() {
         if (DynamicProfileState.running.value) {
@@ -27,10 +42,10 @@ class ServiceTile : TileService() {
             DynamicProfileConfig.get(this).enabled = true
             DynamicProfileService.start(this)
         }
-        refresh()
+        refreshTile()
     }
 
-    private fun refresh() {
+    private fun refreshTile() {
         val t = qsTile ?: return
         val running = DynamicProfileState.running.value
         t.state = if (running) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE

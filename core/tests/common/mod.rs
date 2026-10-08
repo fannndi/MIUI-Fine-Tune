@@ -21,8 +21,11 @@ impl Daemon {
     }
 
     /// Spawn with extra environment (fake logcat/settings/sysfs overrides).
+    /// Daemon stderr is captured in `<state_dir>/daemon-stderr.log`.
     pub fn spawn_env(state_dir: &Path, config: &Path, envs: &[(&str, &str)]) -> Self {
         let bin = env!("CARGO_BIN_EXE_miui-ft");
+        let _ = std::fs::create_dir_all(state_dir);
+        let log = std::fs::File::create(state_dir.join("daemon-stderr.log")).ok();
         let mut cmd = Command::new(bin);
         cmd.args([
             "serve",
@@ -33,7 +36,7 @@ impl Daemon {
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(log.map(Stdio::from).unwrap_or_else(Stdio::null));
         for (k, v) in envs {
             cmd.env(k, v);
         }

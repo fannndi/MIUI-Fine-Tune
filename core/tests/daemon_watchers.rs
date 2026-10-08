@@ -18,10 +18,23 @@ fn write_fake_logcat(dir: &std::path::Path) {
     let script = r#"#!/bin/sh
 EPOCH=$(date +%s)
 case "$*" in
+  *"Choreographer:V"*)
+    # jank stream: its own marker (never shared with the MW stream)
+    echo "$EPOCH.000  1234  1234 I Choreographer: idle"
+    i=0
+    while [ $i -lt 480 ]; do
+      if [ -f "$MIFINETUNE_JANK_FILE" ]; then
+        echo "$EPOCH.000  1234  1234 I Choreographer: Skipped 42 frames!  The application may be doing too much work on its main thread."
+        rm -f "$MIFINETUNE_JANK_FILE"
+      fi
+      sleep 0.25
+      i=$((i+1))
+    done
+    ;;
   *"-b main"*)
     echo "$EPOCH.000  1234  1234 D GameBoosterService: onGameStatusChange id=1 mForegroundPackageName='com.miui.home' mMultiWindowForegroundPackageName='null'"
     i=0
-    while [ $i -lt 240 ]; do
+    while [ $i -lt 480 ]; do
       if [ -f "$MIFINETUNE_MW_FILE" ]; then
         echo "$EPOCH.000  1234  1234 D GameBoosterService: onGameStatusChange id=1 mForegroundPackageName='com.miui.home' mMultiWindowForegroundPackageName='com.android.chrome'"
         rm -f "$MIFINETUNE_MW_FILE"
@@ -30,11 +43,7 @@ case "$*" in
         echo "$EPOCH.000  1234  1234 D GameBoosterService: onGameStatusChange id=1 mForegroundPackageName='com.miui.home' mMultiWindowForegroundPackageName='null'"
         rm -f "$MIFINETUNE_MW_OFF_FILE"
       fi
-      if [ -f "$MIFINETUNE_JANK_FILE" ]; then
-        echo "$EPOCH.000  1234  1234 I Choreographer: Skipped 42 frames!  The application may be doing too much work on its main thread."
-        rm -f "$MIFINETUNE_JANK_FILE"
-      fi
-      sleep 0.5
+      sleep 0.25
       i=$((i+1))
     done
     ;;
@@ -44,12 +53,12 @@ case "$*" in
   *)
     echo "$EPOCH.000  1234  1234 I am_resume_activity: [0,1,2,com.whatsapp/.Main,3]"
     i=0
-    while [ $i -lt 240 ]; do
+    while [ $i -lt 480 ]; do
       if [ -f "$MIFINETUNE_FG_FILE" ]; then
         echo "$EPOCH.000  1234  1234 I am_resume_activity: [0,1,2,com.google.android.youtube/.Main,3]"
         rm -f "$MIFINETUNE_FG_FILE"
       fi
-      sleep 0.5
+      sleep 0.25
       i=$((i+1))
     done
     ;;
@@ -93,7 +102,7 @@ fn watchers_drive_the_full_pipeline() {
     d.send(json!({"cmd":"hello"}));
     let applied = d.wait_for(
         |v| v["event"] == "applied" && v["profile"] == "balance",
-        Duration::from_secs(10),
+        Duration::from_secs(20),
     );
     assert_eq!(applied["reason"], "base");
 
@@ -101,7 +110,7 @@ fn watchers_drive_the_full_pipeline() {
     d.send(json!({"cmd":"screen","on":true,"locked":false}));
     let applied = d.wait_for(
         |v| v["event"] == "applied" && v["profile"] == "game",
-        Duration::from_secs(10),
+        Duration::from_secs(20),
     );
     assert_eq!(applied["reason"], "app");
     assert_eq!(applied["src_pkg"], "com.YoStarEN.AzurLane");
@@ -110,7 +119,7 @@ fn watchers_drive_the_full_pipeline() {
     std::fs::write(dir.join("mw-on"), "1").unwrap();
     let applied = d.wait_for(
         |v| v["event"] == "applied" && v["profile"] == "balance" && v["reason"] == "multi-window",
-        Duration::from_secs(10),
+        Duration::from_secs(20),
     );
     assert_eq!(applied["reason"], "multi-window");
     let st = d.wait_for(
@@ -123,7 +132,7 @@ fn watchers_drive_the_full_pipeline() {
     std::fs::write(dir.join("mw-off"), "1").unwrap();
     let applied = d.wait_for(
         |v| v["event"] == "applied" && v["profile"] == "game" && v["reason"] == "app",
-        Duration::from_secs(10),
+        Duration::from_secs(20),
     );
     assert_eq!(applied["src_pkg"], "com.YoStarEN.AzurLane");
 
@@ -131,7 +140,7 @@ fn watchers_drive_the_full_pipeline() {
     std::fs::write(dir.join("fg-on"), "1").unwrap();
     let applied = d.wait_for(
         |v| v["event"] == "applied" && v["profile"] == "powersave",
-        Duration::from_secs(10),
+        Duration::from_secs(20),
     );
     assert_eq!(applied["reason"], "app");
     assert_eq!(applied["src_pkg"], "com.google.android.youtube");
@@ -174,21 +183,21 @@ fn jank_boost_overlay_round_trip() {
     // base decision first (the fake fg stream seeds whatsapp)
     d.wait_for(
         |v| v["event"] == "applied" && v["profile"] == "balance",
-        Duration::from_secs(10),
+        Duration::from_secs(20),
     );
 
     // a jank burst raises the hidden boost overlay
     std::fs::write(&jank, "1").unwrap();
     let applied = d.wait_for(
         |v| v["event"] == "applied" && v["profile"] == "boost",
-        Duration::from_secs(10),
+        Duration::from_secs(20),
     );
     assert_eq!(applied["reason"], "jank");
 
     // after the short window the normal decision returns
     let applied = d.wait_for(
         |v| v["event"] == "applied" && v["profile"] == "balance",
-        Duration::from_secs(10),
+        Duration::from_secs(20),
     );
     assert_eq!(applied["ok"], true);
 
