@@ -206,7 +206,9 @@ impl Runtime {
                 return false;
             }
             Command::ConfigChanged => {
-                if self.config.reload_if_changed() {
+                // explicit hint: force the reload (mtime granularity must
+                // never swallow a write)
+                if self.config.reload() {
                     self.log("config reloaded");
                 }
                 let fg = self.last_real.clone().or_else(|| self.last_fg.clone());
@@ -248,8 +250,8 @@ impl Runtime {
                 }
             }
             Command::SetBase { profile } => {
-                // the app writes config.json first; sync, then apply as base
-                self.config.reload_if_changed();
+                // the app writes config.json first; force-sync, then apply
+                self.config.reload();
                 self.log(&format!("set_base: {profile}"));
                 let job = worker::Job {
                     profile,

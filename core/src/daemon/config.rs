@@ -114,22 +114,24 @@ impl ConfigFile {
         if stamp == self.stamp && len == self.len {
             return false;
         }
+        self.reload()
+    }
+
+    /// Unconditional reload — used by the explicit `config_changed` hint so
+    /// a write can never be missed by mtime granularity. A parse failure
+    /// keeps the previous good config (reported, never fatal).
+    pub fn reload(&mut self) -> bool {
         let Ok(raw) = fs::read_to_string(&self.path) else {
             return false; // transient (mid-rename) — retry next tick
         };
         match serde_json::from_str::<DaemonConfig>(&raw) {
             Ok(cfg) => {
                 self.cached = cfg;
-                self.stamp = stamp;
+                self.stamp = mtime(&self.path);
                 self.len = raw.len() as u64;
                 true
             }
-            Err(e) => {
-                // keep the previous good config; report via return false +
-                // caller may log. Stamp is NOT updated so we retry next tick.
-                let _ = e;
-                false
-            }
+            Err(_) => false,
         }
     }
 }
