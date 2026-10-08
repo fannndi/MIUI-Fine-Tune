@@ -363,6 +363,43 @@ pub fn catalog() -> &'static [Entry] {
             0,
             1
         ),
+        // --- v0.7 additions (evidence: pulled ROM V12.0.9 + kernel source) ---
+        // read_ahead_kb: init.qcom.rc writes only dm-*/mmcblk* (dm-* at boot,
+        // reset to 512 after boot); sda (userdata, f2fs) is never written by
+        // any script/XML, and the patched kernel default is VM_MAX_READAHEAD
+        // = 512 (include/linux/mm.h:2378, Xiaomi patch) — Free.
+        // queue_ra_store sets bdi->ra_pages (block/blk-sysfs.c:101).
+        er!(
+            "io.read_ahead_kb",
+            "/sys/block/sda/queue/read_ahead_kb",
+            Free,
+            Int,
+            "",
+            0,
+            8192
+        ),
+        // L3-latency devfreq floors: post_boot writes cpu0/cpu6 l3-lat
+        // min/max per SKU (the SA6150 block sets min 940800000); the perf
+        // HAL does not touch them at runtime -> Baseline. Values must be in
+        // the node's available_frequencies (device-verified list).
+        er!(
+            "devfreq.cpu0_l3_lat.min_freq",
+            "/sys/class/devfreq/soc:qcom,cpu0-cpu-l3-lat/min_freq",
+            Baseline,
+            Int,
+            "",
+            0,
+            2000000000
+        ),
+        er!(
+            "devfreq.cpu6_l3_lat.min_freq",
+            "/sys/class/devfreq/soc:qcom,cpu6-cpu-l3-lat/min_freq",
+            Baseline,
+            Int,
+            "",
+            0,
+            2000000000
+        ),
         // --- scheduler sysctls (NOT written by the moorea post_boot block) ---
         e!(
             "kernel.sched_latency_ns",

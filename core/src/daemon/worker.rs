@@ -29,6 +29,10 @@ pub struct Job {
     pub used_saver: bool,
     /// When the producer queued this job (monotonic) — settles the latency.
     pub queued: Instant,
+    /// Re-plan even when the profile is already active: a config/profile-pack
+    /// change or an explicit user tap must reach the engine (new keys,
+    /// drift), while periodic confirmations keep the fast path.
+    pub force: bool,
 }
 
 /// Work items the worker accepts.
@@ -195,7 +199,7 @@ struct Restore {
 }
 
 fn run_once(engine: &mut dyn EngineDriver, job: &Job) -> Outcome {
-    if engine.active().as_deref() == Some(job.profile.as_str()) {
+    if !job.force && engine.active().as_deref() == Some(job.profile.as_str()) {
         return Outcome {
             ok: true,
             wrote: 0,

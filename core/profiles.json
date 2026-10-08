@@ -42,7 +42,10 @@
         "cpuset.system-background.cpus": "0-3",
         "cpuset.foreground.cpus": "0-5",
         "cpuset.top-app.cpus": "0-5",
-        "policy0.core_ctl.max_cpus": "4"
+        "policy0.core_ctl.max_cpus": "4",
+        "io.read_ahead_kb": "128",
+        "devfreq.cpu0_l3_lat.min_freq": "300000000",
+        "devfreq.cpu6_l3_lat.min_freq": "300000000"
       }
     },
     {
@@ -92,7 +95,10 @@
         "cpuset.background.cpus": "0-5",
         "cpuset.system-background.cpus": "0-5",
         "cpuset.foreground.cpus": "0-7",
-        "cpuset.top-app.cpus": "0-7"
+        "cpuset.top-app.cpus": "0-7",
+        "io.read_ahead_kb": "512",
+        "devfreq.cpu0_l3_lat.min_freq": "300000000",
+        "devfreq.cpu6_l3_lat.min_freq": "300000000"
       }
     },
     {
@@ -140,7 +146,10 @@
         "cpuset.background.cpus": "0-5",
         "cpuset.system-background.cpus": "0-5",
         "cpuset.foreground.cpus": "0-7",
-        "cpuset.top-app.cpus": "0-7"
+        "cpuset.top-app.cpus": "0-7",
+        "io.read_ahead_kb": "1024",
+        "devfreq.cpu0_l3_lat.min_freq": "940800000",
+        "devfreq.cpu6_l3_lat.min_freq": "940800000"
       }
     },
     {
@@ -186,7 +195,10 @@
         "cpuset.background.cpus": "0-3",
         "cpuset.system-background.cpus": "0-3",
         "cpuset.foreground.cpus": "0-5",
-        "cpuset.top-app.cpus": "0-5"
+        "cpuset.top-app.cpus": "0-5",
+        "io.read_ahead_kb": "128",
+        "devfreq.cpu0_l3_lat.min_freq": "300000000",
+        "devfreq.cpu6_l3_lat.min_freq": "300000000"
       }
     }
   ]

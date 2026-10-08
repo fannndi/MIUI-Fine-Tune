@@ -77,6 +77,8 @@ impl Runtime {
                     src_pkg: None,
                     used_saver: false,
                     queued: Instant::now(),
+                    // explicit user tap: re-plan even when already active
+                    force: true,
                 };
                 let _ = self.work_tx.send(Work::Apply(job));
             }

@@ -80,7 +80,19 @@ fn job(profile: &str) -> Work {
         src_pkg: Some("com.x".into()),
         used_saver: false,
         queued: Instant::now(),
+        force: false,
     })
+}
+
+/// Same as [`job`] but with the force flag (config/pack/user-tap path).
+fn forced_job(profile: &str) -> Work {
+    match job(profile) {
+        Work::Apply(mut j) => {
+            j.force = true;
+            Work::Apply(j)
+        }
+        w => w,
+    }
 }
 
 #[test]
@@ -178,6 +190,36 @@ fn already_active_skips_engine_apply() {
     assert!(eng.applies.is_empty(), "no engine call when already active");
     assert!(applied[0].ok);
     assert_eq!(applied[0].wrote, 0);
+}
+
+#[test]
+fn forced_job_replans_even_when_already_active() {
+    // the pack-update path: same profile id, but the engine must run so new
+    // catalog keys / drift are reconciled
+    let (tx, rx) = mpsc::channel();
+    tx.send(forced_job("balance")).unwrap();
+    drop(tx);
+
+    let mut eng = FakeEngine {
+        active: Some("balance".into()),
+        ..Default::default()
+    };
+    let mut applied = Vec::new();
+    run(
+        rx,
+        &mut eng,
+        Duration::from_millis(10),
+        Duration::from_millis(5),
+        &mut |e| applied.push(e),
+        &mut |_| {},
+    );
+
+    assert_eq!(
+        eng.applies,
+        vec!["balance"],
+        "forced job must reach the engine"
+    );
+    assert!(applied[0].ok);
 }
 
 #[test]

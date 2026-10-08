@@ -111,6 +111,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(loading = false, error = deployError) }
                 return@launch
             }
+            // A profile pack update must reach an ALREADY-RUNNING daemon:
+            // the hint re-evaluates and the engine re-reads profiles.json
+            // (without it, a new catalog key would wait for the next switch).
+            DaemonLink.configChanged()
             // start the service while the app is still foreground
             // (background FGS start would be rejected by the OS)
             maybeStartService()

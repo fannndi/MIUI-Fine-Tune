@@ -22,6 +22,21 @@ the first env-aware guards — the foundation for everything after.
   powersave-mapped app → 60 Hz via `Settings.System user_refresh_rate`; the
   user's captured value returns on release and the vendor DFPS prop is never
   touched (device-verified that the framework honors the setting live).
+- **Catalog expansion (v0.7, 84 → 87)**: `io.read_ahead_kb` (Free:
+  boot scripts write only dm-*/mmcblk*; the sda/userdata 512 is the Xiaomi
+  kernel patch `VM_MAX_READAHEAD=512`; profiles 128/512/1024) and the
+  `cpu0/cpu6 l3-lat` devfreq `min_freq` floors (Baseline: written by the
+  SKU blocks in post_boot; game floor 940800000 = the SA6150 post_boot
+  value, others stock 300000000). Audited against the pulled
+  V12.0.9 ROM + kernel source; kgsl micro knobs stay out (the perf HAL
+  runtime-writes the safe ones — force_clk_on/no_nap/idle_timer — and the
+  rest are hang-recovery/firmware semantics).
+- **Pack-update reconciliation**: profiles.json is mtime-watched; the first
+  apply of every daemon run and every config/pack hint forces a re-plan, so
+  new catalog keys reach the device without waiting for an app switch (the
+  old `active == profile` skip could leave them stale). `snapshot.json`
+  gains new keys automatically on the first apply (first-write-wins), so
+  restore stays byte-exact.
 - **Transition history** (`daemon/stats.rs`): one entry per real profile
   switch (from/to/reason/battery/temp) persisted atomically to
   `stats.json` (500-entry cap, survives daemon restarts), served via `stats`.
@@ -36,8 +51,9 @@ the first env-aware guards — the foundation for everything after.
   the system file picker (validated + clamped, unknown keys ignored).
 - **Doctor v2**: env telemetry checks, future-knob surface probe (f2fs /
   devfreq / kgsl / read-head), refresh-rate key, logcat `-v epoch` format.
-- **Tests**: 102 unit + 8 host E2E across three binaries (protocol/decision,
-  watcher streams, bridge hold/restore; plus fake-sysfs env/guard E2E).
+- **Tests**: 106 unit + 10 host E2E across three binaries (protocol/decision,
+  watcher streams, bridge hold/restore; fake-sysfs env/guard E2E; profile
+  pack update E2E).
 - **CI** (`.github/workflows/ci.yml`): Rust job (fmt check, clippy with
   `-D warnings`, all tests) and an Android job (NDK arm64 core build +
   `assembleDebug`); the identical coverage runs locally with `cargo test`.
@@ -55,7 +71,10 @@ the first env-aware guards — the foundation for everything after.
   60 Hz, final value restored); backup export/import round-trip through the
   system picker (import reloaded the daemon and applied the new base);
   QS tile declared with the system permission; 24 h dashboard shows
-  `Power Save 41m · Sleep 2m · Game 1m`.
+  `Power Save 41m · Sleep 2m · Game 1m`; catalog additions verified live
+  (game read_ahead=1024 / l3 min=940800000, sleep+powersave 128/300000000);
+  the pack-update path verified end to end (stale pack + stale values →
+  daemon start → `forced re-plan` → values reconciled, no switch needed).
 
 ## v0.6.0 — full-Rust daemon (2026-10-08)
 

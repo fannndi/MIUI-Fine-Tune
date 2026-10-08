@@ -10,7 +10,9 @@ sources:
 
 ## Who writes what
 
-Catalog (v0.4+): **84 nodes** (49 Baseline, 35 Free).
+Catalog (v0.7+): **87 nodes** (51 Baseline, 36 Free). v0.7 added three
+evidence-backed entries: `io.read_ahead_kb` (Free — see the row below) and
+the two L3-latency devfreq floors (Baseline).
 
 | Node / parameter | Boot (`init.qcom.post_boot.sh`) | Runtime | Owner | MiFineTune |
 |---|---|---|---|---|
@@ -36,6 +38,8 @@ Catalog (v0.4+): **84 nodes** (49 Baseline, 35 Free).
 | other `net.*` (cc/fin_timeout/fastopen/mtu_probing/slow_start) | ✗ | ✗ | – | **Free** |
 | `net.core/*` (rmem_max, netdev_max_backlog, …) | ✗ | (stack-adjacent; not audited per node) | framework-ish | **Not cataloged** (safe = untouched) |
 | `io.scheduler` / `nr_requests` / `nomerges` / `iostats` / `rq_affinity` | ✗ (only `read_ahead_kb` written) | ✗ | – | **Free** |
+| `io.read_ahead_kb` (sda/userdata, queue view) | ✗ for **sda** — `init.qcom.rc` writes `dm-0/1/2` only (2048 during boot, reset to 512 after boot); the 512 sda value is the kernel default (Xiaomi patches `VM_MAX_READAHEAD` to 512, `include/linux/mm.h`) | ✗ | – | **Free** (`queue_ra_store` → `bdi->ra_pages`, `block/blk-sysfs.c`; v0.7 profiles: 128/512/1024) |
+| `devfreq cpu0/cpu6 l3-lat min_freq` | ✓ SKU blocks write min/max (SA6150: min 940800000) | ✗ (mem_latency governor votes internally; no sysfs writer) | ROM | **Baseline** (v0.7 game floor 940800000, else stock 300000000; values must be in `available_frequencies`) |
 | `stune/*/schedtune.*` | ✓ `top-app/prefer_idle` | ✓ perf HAL `top-app` | ROM + perf HAL | **Baseline** |
 | `stune/{rt,audio-app}` | ✗ | ✓ audio HAL / RT task framework | framework | **Forbidden** (framework cgroups) |
 | `stune.root/…/schedtune.colocate` | ✓ `init.target.rc` (root/bg/sys-bg/fg=0, top-app=1) | ✗ | ROM | **Baseline** (not referenced by profiles; coexist) |
@@ -194,7 +198,7 @@ freshness is epoch arithmetic (no timezone/year parsing).
 # audit the owner map against any unpacked ROM (run on every ROM/kernel change)
 tools/owner-map-audit.sh <unpacked-rom-dir>
 
-# empirical display-off behavior (reads the 84 catalog + framework nodes,
+# empirical display-off behavior (reads the 87 catalog + framework nodes,
 # toggles the screen with the power key, diffs automatically)
 tools/display-off-diff.sh 60
 

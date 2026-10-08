@@ -256,6 +256,47 @@ fn daemon_guards_react_to_env_changes() {
 }
 
 #[test]
+fn profile_pack_change_triggers_reevaluation() {
+    let dir = tmp("profiles");
+    let cfg_path = dir.join("config.json");
+    std::fs::write(
+        &cfg_path,
+        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance"}"#,
+    )
+    .unwrap();
+
+    let mut d = Daemon::spawn(&dir, &cfg_path);
+    d.wait_for(|v| v["event"] == "hello", Duration::from_secs(5));
+    d.send(json!({"cmd":"screen","on":true,"locked":false}));
+    d.send(json!({"cmd":"fg","pkg":"com.whatsapp"}));
+    d.wait_for(
+        |v| v["event"] == "applied" && v["profile"] == "balance",
+        Duration::from_secs(10),
+    );
+
+    // the app deploys a new profile pack while the daemon runs
+    std::fs::write(
+        dir.join("profiles.json"),
+        r#"{"schema":1,"name":"test","device":"surya","rom":"test","profiles":[
+            {"id":"balance","label":"B","desc":"","params":{"kernel.sched_nr_migrate":"24"}},
+            {"id":"sleep","label":"S","desc":"","params":{"kernel.sched_nr_migrate":"8"}}]}"#,
+    )
+    .unwrap();
+
+    // the mtime poll must re-evaluate with the new pack (no switch needed)
+    let dec = d.wait_for(
+        |v| v["event"] == "decision" && v["trigger"] == "profiles",
+        Duration::from_secs(10),
+    );
+    assert_eq!(dec["action"], "apply");
+    assert_eq!(dec["profile"], "balance");
+
+    d.send(json!({"cmd":"shutdown"}));
+    d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn daemon_exits_on_stdin_eof() {
     let dir = tmp("eof");
     let cfg_path = dir.join("config.json");

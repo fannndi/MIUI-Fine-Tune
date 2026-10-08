@@ -46,7 +46,11 @@ A long-lived root process started once by the app. It owns:
 - **The apply worker** — a dedicated thread; a 400 ms settle window collapses
   one app transition's event burst into one apply; newer decisions supersede
   pending ones; a failed apply is retried once; `restore` cancels pending
-  applies (never tune after a restore).
+  applies (never tune after a restore). The worker skips an apply only when
+  the target profile is already active AND the job is not forced: config
+  reloads, profile-pack changes, explicit user taps and the **first apply of
+  every daemon run** re-plan, so a pack update or drift that happened while
+  the daemon was down is reconciled (new catalog keys land without a switch).
 - **Watchers** — two `logcat -v epoch` streams (events buffer for foreground
   resume, main buffer for the GameBooster multi-window line) plus a one-shot
   peek used to seed wake/unlock decisions.

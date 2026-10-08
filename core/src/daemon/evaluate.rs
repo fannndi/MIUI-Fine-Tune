@@ -102,13 +102,22 @@ impl Runtime {
                     Some(profile.clone()),
                     Some(reason.clone()),
                 );
+                // config/pack changes, explicit taps and the first apply of
+                // this daemon run must re-plan even when the profile id is
+                // unchanged (new keys, drift while we were down)
+                let force = matches!(trigger, "config" | "profiles") || !self.reconciled;
+                if force {
+                    self.log("evaluate: forced re-plan");
+                }
                 let job = worker::Job {
                     profile,
                     reason,
                     src_pkg: fg,
                     used_saver: input.saver_on,
                     queued: Instant::now(),
+                    force,
                 };
+                self.reconciled = true;
                 let _ = self.work_tx.send(Work::Apply(job));
             }
             Decision::Retire => {

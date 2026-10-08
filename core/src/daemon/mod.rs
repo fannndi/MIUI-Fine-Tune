@@ -100,6 +100,8 @@ struct Runtime {
     state_dir: PathBuf,
     config_path: PathBuf,
     started: Instant,
+    /// Last seen mtime of `state_dir/profiles.json` (app deploy detection).
+    profiles_mtime: Option<std::time::SystemTime>,
     // environment + history
     env: EnvSnapshot,
     stats: Stats,
@@ -107,6 +109,10 @@ struct Runtime {
     thermal_stepped: bool,
     /// Last battery-guard verdict (evaluate on flip only).
     last_battery_low: bool,
+    /// False until the first apply of this daemon run: the startup decision
+    /// is forced so a pack update or drift that happened while we were down
+    /// is reconciled.
+    reconciled: bool,
     // device context
     screen_on: bool,
     locked: bool,
@@ -132,6 +138,11 @@ struct Runtime {
     last_state: Snapshot,
 }
 
+/// File mtime (None when missing) — deploy/update detection.
+fn mtime(path: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).ok().and_then(|m| m.modified().ok())
+}
+
 /// Entry point for `miui-ft serve`.
 pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
     let publisher = Publisher::new();
@@ -139,6 +150,7 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         version: VERSION,
         pid: std::process::id(),
     });
+    publisher.log(&format!("daemon {} starting", env!("CARGO_PKG_VERSION")));
 
     // state dir first: holds/stats/state files must be writable from the start
     if let Err(e) = std::fs::create_dir_all(state_dir) {
@@ -245,10 +257,12 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         state_dir: state_dir.to_path_buf(),
         config_path: config_path.to_path_buf(),
         started: Instant::now(),
+        profiles_mtime: mtime(&state_dir.join("profiles.json")),
         env: EnvSnapshot::default(),
         stats: Stats::load(state_dir),
         thermal_stepped: false,
         last_battery_low: false,
+        reconciled: false,
         screen_on: true,
         locked: false,
         multi_window: false,
@@ -326,6 +340,17 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
                 rt.log("config reloaded (mtime)");
                 let fg = rt.last_real.clone().or_else(|| rt.last_fg.clone());
                 rt.evaluate("config", fg);
+            }
+            // profile-pack deploy (app upgrade): a changed profiles.json must
+            // re-evaluate, or new catalog keys would wait for the next switch
+            let pm = mtime(&rt.state_dir.join("profiles.json"));
+            if pm != rt.profiles_mtime {
+                rt.profiles_mtime = pm;
+                if pm.is_some() {
+                    rt.log("profiles reloaded (mtime)");
+                    let fg = rt.last_real.clone().or_else(|| rt.last_fg.clone());
+                    rt.evaluate("profiles", fg);
+                }
             }
         }
         if let Some(s) = rt.sleep_deadline {
