@@ -4,11 +4,15 @@
 //! state machine lives in `holds.rs`. Every sync runs under the bridge
 //! Mutex held by the caller.
 
-use super::holds::{PerfAction, PowerMode, SaverAction};
+use super::holds::{PerfAction, PowerMode, RefreshAction, SaverAction};
 use super::{Bridge, State};
 use crate::daemon::proto::Event;
 use crate::daemon::settings;
 use std::fs;
+
+/// Refresh-rate targets for the follow feature.
+pub const REFRESH_GAME_HZ: u32 = 120;
+pub const REFRESH_SAVER_HZ: u32 = 60;
 
 /// Everything the sync needs about the current world.
 #[derive(Debug, Clone)]
@@ -20,6 +24,7 @@ pub struct SyncCtx {
     pub sync_perf: bool,
     pub sync_saver: bool,
     pub game_checker: bool,
+    pub sync_refresh: bool,
     pub app_map: std::collections::BTreeMap<String, String>,
 }
 
@@ -99,6 +104,38 @@ impl Bridge {
                 .emit(&Event::GameModeConflict { pkg: pkg.clone() });
         }
     }
+
+    /// Refresh-rate follow: game -> 120 Hz, powersave-mapped app -> 60 Hz,
+    /// anything else -> restore the user's own value. The hold captures the
+    /// user's value on the first write and survives daemon restarts.
+    pub(super) fn sync_refresh(&self, st: &mut State, ctx: &SyncCtx) -> bool {
+        let want = refresh_want(ctx);
+        let live = settings::read("system", settings::REFRESH_KEY);
+        let (next, action) = st.holds.request_refresh(live, want);
+        let changed = next != st.holds;
+        match action {
+            RefreshAction::Write(v) => {
+                let _ = settings::put("system", settings::REFRESH_KEY, &v);
+                self.log_event(format!(
+                    "refresh follow {v} Hz ({})",
+                    mapped_profile(ctx).unwrap_or("?")
+                ));
+            }
+            RefreshAction::Restore(saved) => match &saved {
+                Some(v) => {
+                    let _ = settings::put("system", settings::REFRESH_KEY, v);
+                    self.log_event(format!("refresh restored ({v})"));
+                }
+                None => {
+                    let _ = settings::delete("system", settings::REFRESH_KEY);
+                    self.log_event("refresh restored (user setting was unset)".into());
+                }
+            },
+            _ => {}
+        }
+        st.holds = next;
+        changed
+    }
 }
 
 /// Root-free mirror read (Settings.System power_mode).
@@ -152,6 +189,19 @@ fn game_want(ctx: &SyncCtx) -> bool {
     ctx.dynamic && ctx.game_checker && mapped_profile(ctx) == Some("game")
 }
 
+/// Refresh follow: Dynamic ON + sync ON + visible & unlocked. Game -> 120,
+/// powersave-mapped -> 60; every other app releases (restores the user value).
+fn refresh_want(ctx: &SyncCtx) -> Option<u32> {
+    if !(ctx.dynamic && ctx.sync_refresh && ctx.screen_on && !ctx.locked) {
+        return None;
+    }
+    match mapped_profile(ctx) {
+        Some("game") => Some(REFRESH_GAME_HZ),
+        Some("powersave") => Some(REFRESH_SAVER_HZ),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +215,7 @@ mod tests {
             sync_perf: true,
             sync_saver: true,
             game_checker: true,
+            sync_refresh: true,
             app_map: crate::daemon::test_util::map(map),
         }
     }
@@ -214,5 +265,40 @@ mod tests {
         let mut c2 = ctx(&[("com.g", "game")], Some("com.g"));
         c2.dynamic = false;
         assert!(!game_want(&c2));
+    }
+
+    #[test]
+    fn refresh_follow_maps_game_and_powersave() {
+        assert_eq!(
+            refresh_want(&ctx(&[("com.g", "game")], Some("com.g"))),
+            Some(REFRESH_GAME_HZ)
+        );
+        assert_eq!(
+            refresh_want(&ctx(&[("com.p", "powersave")], Some("com.p"))),
+            Some(REFRESH_SAVER_HZ)
+        );
+        assert_eq!(
+            refresh_want(&ctx(&[("com.b", "balance")], Some("com.b"))),
+            None,
+            "other profiles release the hold (user value returns)"
+        );
+        assert_eq!(
+            refresh_want(&ctx(&[("com.g", "game")], Some("com.other"))),
+            None
+        );
+
+        // gates mirror the perf mirror: dynamic, toggle, visibility
+        let mut c = ctx(&[("com.g", "game")], Some("com.g"));
+        c.sync_refresh = false;
+        assert_eq!(refresh_want(&c), None);
+        let mut c2 = ctx(&[("com.g", "game")], Some("com.g"));
+        c2.dynamic = false;
+        assert_eq!(refresh_want(&c2), None);
+        let mut c3 = ctx(&[("com.p", "powersave")], Some("com.p"));
+        c3.screen_on = false;
+        assert_eq!(refresh_want(&c3), None);
+        let mut c4 = ctx(&[("com.p", "powersave")], Some("com.p"));
+        c4.locked = true;
+        assert_eq!(refresh_want(&c4), None);
     }
 }

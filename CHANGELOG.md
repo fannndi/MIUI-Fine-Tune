@@ -18,6 +18,10 @@ the first env-aware guards — the foundation for everything after.
     `thermal_ceiling_c` (default 75 °C), releases 5 °C lower (hysteresis);
     a missing sensor keeps the last state;
   - guard-verdict flips trigger `evaluate("env")` immediately.
+- **Refresh-rate follow** (bridge target #3, v0.7): mapped game → 120 Hz,
+  powersave-mapped app → 60 Hz via `Settings.System user_refresh_rate`; the
+  user's captured value returns on release and the vendor DFPS prop is never
+  touched (device-verified that the framework honors the setting live).
 - **Transition history** (`daemon/stats.rs`): one entry per real profile
   switch (from/to/reason/battery/temp) persisted atomically to
   `stats.json` (500-entry cap, survives daemon restarts), served via `stats`.

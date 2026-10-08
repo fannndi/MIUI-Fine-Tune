@@ -17,6 +17,9 @@ use std::time::Duration;
 pub const SAVER_KEY: &str = "low_power";
 /// MIUI performance switch mirror (the property itself is unreachable).
 pub const POWER_MODE_KEY: &str = "power_mode";
+/// MIUI refresh-rate cap (framework-honored; the vendor DFPS prop is never
+/// touched — a settings value is the only surface MiFineTune writes).
+pub const REFRESH_KEY: &str = "user_refresh_rate";
 
 const SETTINGS_BIN: &str = "/system/bin/settings";
 /// Env override for the settings binary (host tests / simulation).
@@ -95,6 +98,23 @@ pub fn put_with(bin: &str, scope: &str, key: &str, value: &str) -> Result<(), St
     }
 }
 
+/// `settings delete <scope> <key>` (used when a captured value was absent).
+pub fn delete(scope: &str, key: &str) -> Result<(), String> {
+    delete_with(&bin_path(), scope, key)
+}
+
+pub fn delete_with(bin: &str, scope: &str, key: &str) -> Result<(), String> {
+    let out = Command::new(bin)
+        .args(["delete", scope, key])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,7 +130,7 @@ mod tests {
         fs::write(
             &script,
             format!(
-                "#!/bin/sh\ns={}\ncase \"$1\" in\nget) cat \"$s/$2.$3\" 2>/dev/null ;;\nput) printf '%s' \"$4\" > \"$s/$2.$3\" ;;\nesac\n",
+                "#!/bin/sh\ns={}\ncase \"$1\" in\nget) cat \"$s/$2.$3\" 2>/dev/null ;;\nput) printf '%s' \"$4\" > \"$s/$2.$3\" ;;\ndelete) rm -f \"$s/$2.$3\" ;;\nesac\n",
                 state.display()
             ),
         )

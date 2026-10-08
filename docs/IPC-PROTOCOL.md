@@ -178,7 +178,7 @@ dmn  ← {"event":"bye"}
 
 | File | Writer | Reader | Content |
 |---|---|---|---|
-| `filesDir/config.json` | app (atomic) | daemon (start, hint, mtime) | user intent: enabled, dynamic, base_profile, app_map, sync flags, guards (`guard_battery`/`battery_floor_pct`, `guard_thermal`/`thermal_ceiling_c`) |
+| `filesDir/config.json` | app (atomic) | daemon (start, hint, mtime) | user intent: enabled, dynamic, base_profile, app_map, sync flags (`sync_refresh`), guards (`guard_battery`/`battery_floor_pct`, `guard_thermal`/`thermal_ceiling_c`) |
 | `/data/adb/mifinetune/holds.json` | daemon (atomic) | daemon (recovery) | bridge restore points (crash-safe) |
 | `/data/adb/mifinetune/state.json` | daemon (via engine) | both (CLI status) | active profile, last mode |
 | `/data/adb/mifinetune/snapshot.json` | daemon (via engine) | daemon | stock values for restore |

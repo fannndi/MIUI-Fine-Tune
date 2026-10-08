@@ -47,6 +47,17 @@ pub enum SaverAction {
     Restore,
 }
 
+/// Refresh-rate follow action (`Settings.System user_refresh_rate`).
+#[derive(Debug)]
+pub enum RefreshAction {
+    None,
+    Keep,
+    /// Write this hz value.
+    Write(String),
+    /// Release: write the captured value back (None = the key was absent).
+    Restore(Option<String>),
+}
+
 /// Hold/restore state machine (pure, unit tested).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Holds {
@@ -54,6 +65,9 @@ pub struct Holds {
     pub perf_saved: PowerMode,
     pub saver_held: bool,
     pub saver_saved: bool,
+    pub refresh_held: bool,
+    /// The user's `user_refresh_rate` before our first write (None = absent).
+    pub refresh_saved: Option<String>,
 }
 
 impl Default for Holds {
@@ -63,6 +77,8 @@ impl Default for Holds {
             perf_saved: PowerMode::Balanced,
             saver_held: false,
             saver_saved: false,
+            refresh_held: false,
+            refresh_saved: None,
         }
     }
 }
@@ -131,6 +147,48 @@ impl Holds {
             live
         }
     }
+
+    /// `live` = current `user_refresh_rate`; `want` = desired hz (None =
+    /// release). Unlike perf/saver the wanted VALUE can change while held
+    /// (game 120 -> powersave-mapped app 60), so `live` is re-read each sync.
+    pub fn request_refresh(
+        &self,
+        live: Option<String>,
+        want: Option<u32>,
+    ) -> (Holds, RefreshAction) {
+        let desired = want.map(|v| v.to_string());
+        match (desired, self.refresh_held) {
+            (None, false) => (self.clone(), RefreshAction::None),
+            (None, true) => (
+                Holds {
+                    refresh_held: false,
+                    refresh_saved: None,
+                    ..self.clone()
+                },
+                RefreshAction::Restore(self.refresh_saved.clone()),
+            ),
+            (Some(v), false) => (
+                Holds {
+                    refresh_held: true,
+                    refresh_saved: live.clone(),
+                    ..self.clone()
+                },
+                if live.as_deref() == Some(v.as_str()) {
+                    RefreshAction::Keep
+                } else {
+                    RefreshAction::Write(v)
+                },
+            ),
+            (Some(v), true) => (
+                self.clone(),
+                if live.as_deref() == Some(v.as_str()) {
+                    RefreshAction::Keep
+                } else {
+                    RefreshAction::Write(v)
+                },
+            ),
+        }
+    }
 }
 
 /// Persisted holds (crash-safe restore points), `holds.json` in the state dir.
@@ -140,6 +198,10 @@ pub struct HoldsFile {
     pub perf_saved: String,
     pub saver_held: bool,
     pub saver_saved: bool,
+    #[serde(default)]
+    pub refresh_held: bool,
+    #[serde(default)]
+    pub refresh_saved: Option<String>,
 }
 
 /// Read-only hold view for diagnostics (`diag` command); never mutates.
@@ -149,6 +211,9 @@ pub struct HoldsInfo {
     pub perf_saved: String,
     pub saver_held: bool,
     pub saver_saved: bool,
+    pub refresh_held: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_saved: Option<String>,
 }
 
 #[cfg(test)]
@@ -229,6 +294,46 @@ mod tests {
         let (n, a) = s.request_saver(true, false);
         assert!(matches!(a, SaverAction::Restore));
         assert!(!n.saver_saved);
+    }
+
+    #[test]
+    fn refresh_hold_captures_and_restores_the_value() {
+        let s = Holds::default();
+        // user had 60; game wants 120 -> Write, capture 60
+        let (n, a) = s.request_refresh(Some("60".into()), Some(120));
+        assert!(matches!(a, RefreshAction::Write(ref v) if v == "120"));
+        assert!(n.refresh_held);
+        assert_eq!(n.refresh_saved.as_deref(), Some("60"));
+
+        // while held the wanted value may change (powersave app -> 60):
+        // write it, but never move the capture
+        let (n2, a2) = n.request_refresh(Some("120".into()), Some(60));
+        assert!(matches!(a2, RefreshAction::Write(ref v) if v == "60"));
+        assert_eq!(n2.refresh_saved.as_deref(), Some("60"));
+
+        // already at the wanted value -> Keep (no settings write)
+        let (n3, a3) = n2.request_refresh(Some("60".into()), Some(60));
+        assert!(matches!(a3, RefreshAction::Keep));
+        assert_eq!(n3, n2);
+
+        // release -> Restore the captured 60
+        let (n4, a4) = n3.request_refresh(Some("60".into()), None);
+        assert!(matches!(a4, RefreshAction::Restore(Some(ref v)) if v == "60"));
+        assert!(!n4.refresh_held);
+        assert!(n4.refresh_saved.is_none());
+    }
+
+    #[test]
+    fn refresh_absent_key_restores_as_delete() {
+        let s = Holds::default();
+        let (n, a) = s.request_refresh(None, Some(120));
+        assert!(matches!(a, RefreshAction::Write(ref v) if v == "120"));
+        assert!(
+            n.refresh_saved.is_none(),
+            "nothing to capture when the key is absent"
+        );
+        let (_, a2) = n.request_refresh(Some("120".into()), None);
+        assert!(matches!(a2, RefreshAction::Restore(None)));
     }
 
     #[test]

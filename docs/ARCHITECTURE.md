@@ -170,10 +170,12 @@ MiFineTune tunes only parameters MIUI itself leaves alone:
 - **Forbidden** — runtime-owned (thermal, perf locks, charge, LMK/zram, game
   cpusets, SELinux); rejected on every write path.
 
-The bridge is the only non-catalog writer, with exactly two targets:
-`Settings.Global low_power` (live saver) and the `Settings.System power_mode`
-mirror. The real property (`persist.sys.aries.power_profile`) is SELinux-locked
-and is never attempted. Details: [ROM-HARMONY.md](ROM-HARMONY.md).
+The bridge is the only non-catalog writer, with exactly three targets, all
+user-facing `settings` keys (never sysfs, never props, never SELinux):
+`Settings.Global low_power` (live saver), the `Settings.System power_mode`
+mirror, and `Settings.System user_refresh_rate` (refresh follow). The real
+power property (`persist.sys.aries.power_profile`) is SELinux-locked and is
+never attempted. Details: [ROM-HARMONY.md](ROM-HARMONY.md).
 
 ## Precision policy
 

@@ -45,6 +45,9 @@ pub struct DaemonConfig {
     pub sync_miui_saver: bool,
     #[serde(default = "default_true")]
     pub game_mode_checker: bool,
+    /// Refresh-rate follow: mapped game -> 120 Hz, powersave app -> 60 Hz.
+    #[serde(default = "default_true")]
+    pub sync_refresh: bool,
     /// Battery guard: force Power Save below the floor (unless charging).
     #[serde(default = "default_true")]
     pub guard_battery: bool,
@@ -80,6 +83,7 @@ impl Default for DaemonConfig {
             sync_miui_perf: true,
             sync_miui_saver: true,
             game_mode_checker: true,
+            sync_refresh: true,
             guard_battery: true,
             battery_floor_pct: default_battery_floor(),
             guard_thermal: true,
@@ -194,6 +198,7 @@ mod tests {
         assert!(c.guard_battery && c.guard_thermal);
         assert_eq!(c.battery_floor_pct, 20);
         assert_eq!(c.thermal_ceiling_c, 75.0);
+        assert!(c.sync_refresh);
     }
 
     #[test]

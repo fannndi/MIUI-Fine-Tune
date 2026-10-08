@@ -62,9 +62,11 @@ impl Bridge {
                 perf_saved: PowerMode::of(&f.perf_saved),
                 saver_held: f.saver_held,
                 saver_saved: f.saver_saved,
+                refresh_held: f.refresh_held,
+                refresh_saved: f.refresh_saved,
             })
             .unwrap_or_default();
-        if holds.perf_held || holds.saver_held {
+        if holds.perf_held || holds.saver_held || holds.refresh_held {
             publisher.log("bridge: recovered holds from previous run");
         }
         let bridge = Arc::new(Bridge {
@@ -98,6 +100,8 @@ impl Bridge {
             perf_saved: st.holds.perf_saved.key().to_string(),
             saver_held: st.holds.saver_held,
             saver_saved: st.holds.saver_saved,
+            refresh_held: st.holds.refresh_held,
+            refresh_saved: st.holds.refresh_saved.clone(),
         }
     }
 
@@ -130,14 +134,15 @@ impl Bridge {
     pub fn sync(&self, ctx: &SyncCtx) {
         // The lock is held across the settings execs so two syncs can never
         // interleave their read/write pairs (the old yo-yo bug class).
-        let (perf_changed, saver_changed) = {
+        let (perf_changed, saver_changed, refresh_changed) = {
             let mut st = self.lock();
             let perf_changed = self.sync_perf(&mut st, ctx);
             let saver_changed = self.sync_saver(&mut st, ctx);
+            let refresh_changed = self.sync_refresh(&mut st, ctx);
             self.game_check(&mut st, ctx);
-            (perf_changed, saver_changed)
+            (perf_changed, saver_changed, refresh_changed)
         };
-        if perf_changed || saver_changed {
+        if perf_changed || saver_changed || refresh_changed {
             self.refresh_attribution();
             let st = self.lock();
             self.persist(&st);
@@ -171,6 +176,21 @@ impl Bridge {
                 st.holds.saver_held = false;
                 changed = true;
             }
+            if st.holds.refresh_held {
+                match st.holds.refresh_saved.clone() {
+                    Some(v) => {
+                        let _ = settings::put("system", settings::REFRESH_KEY, &v);
+                        self.log_event(format!("refresh restored ({v})"));
+                    }
+                    None => {
+                        let _ = settings::delete("system", settings::REFRESH_KEY);
+                        self.log_event("refresh restored (user setting was unset)".into());
+                    }
+                }
+                st.holds.refresh_held = false;
+                st.holds.refresh_saved = None;
+                changed = true;
+            }
             changed
         };
         if changed {
@@ -188,6 +208,8 @@ impl Bridge {
             perf_saved: st.holds.perf_saved.key().to_string(),
             saver_held: st.holds.saver_held,
             saver_saved: st.holds.saver_saved,
+            refresh_held: st.holds.refresh_held,
+            refresh_saved: st.holds.refresh_saved.clone(),
         };
         let Ok(s) = serde_json::to_string_pretty(&file) else {
             return;
@@ -212,6 +234,8 @@ mod tests {
             perf_saved: "high".into(),
             saver_held: true,
             saver_saved: true,
+            refresh_held: true,
+            refresh_saved: Some("60".into()),
         };
         std::fs::write(dir.join("holds.json"), serde_json::to_string(&f).unwrap()).unwrap();
         let publisher = Publisher::new();
@@ -221,6 +245,8 @@ mod tests {
         assert_eq!(st.holds.perf_saved, PowerMode::Performance);
         assert!(st.holds.saver_held);
         assert!(st.holds.saver_saved);
+        assert!(st.holds.refresh_held);
+        assert_eq!(st.holds.refresh_saved.as_deref(), Some("60"));
         drop(st);
         let _ = std::fs::remove_dir_all(&dir);
     }

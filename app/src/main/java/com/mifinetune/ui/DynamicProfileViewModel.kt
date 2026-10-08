@@ -48,6 +48,7 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
     /** MIUI bridge switches (Settings page). */
     val syncMiuiPerf: StateFlow<Boolean> = config.syncMiuiPerfFlow
     val syncSaver: StateFlow<Boolean> = config.syncSaverFlow
+    val syncRefresh: StateFlow<Boolean> = config.syncRefreshFlow
     val gameModeChecker: StateFlow<Boolean> = config.gameModeCheckerFlow
     val bridgeLog: StateFlow<List<String>> = DynamicProfileState.bridgeLog
 
@@ -77,6 +78,10 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setSyncSaver(v: Boolean) {
         config.syncSaver = v
+    }
+
+    fun setSyncRefresh(v: Boolean) {
+        config.syncRefresh = v
     }
 
     fun setGameModeChecker(v: Boolean) {
