@@ -90,6 +90,13 @@ class ModeArbiterTest {
         assertTrue(ModeArbiter.isTransient("com.iflytek.inputmethod.miui"))
     }
 
+    @Test
+    fun transientPredicate_coversSettingsBridgeSurface() {
+        // MIUI's hidden PowerModeSettings sheet — opened by the bridge itself
+        // for the performance follow — must not read as a real foreground
+        assertTrue(ModeArbiter.isTransient("com.android.settings"))
+    }
+
     // --- MIUI bridge rules ------------------------------------------------
 
     @Test

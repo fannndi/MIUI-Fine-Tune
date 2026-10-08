@@ -9,6 +9,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mifinetune.automation.AutomationConfig
+import com.mifinetune.automation.AutomationState
 import com.mifinetune.core.Tuner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,7 +47,9 @@ class AutomationViewModel(app: Application) : AndroidViewModel(app) {
 
     /** MIUI bridge switches (Settings page). */
     val syncMiuiPerf: StateFlow<Boolean> = config.syncMiuiPerfFlow
+    val syncSaver: StateFlow<Boolean> = config.syncSaverFlow
     val gameModeChecker: StateFlow<Boolean> = config.gameModeCheckerFlow
+    val bridgeLog: StateFlow<List<String>> = AutomationState.bridgeLog
 
     private val _state = MutableStateFlow(AutomationUiState())
     val state: StateFlow<AutomationUiState> = _state.asStateFlow()
@@ -64,6 +67,10 @@ class AutomationViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setSyncMiuiPerf(v: Boolean) {
         config.syncMiuiPerf = v
+    }
+
+    fun setSyncSaver(v: Boolean) {
+        config.syncSaver = v
     }
 
     fun setGameModeChecker(v: Boolean) {

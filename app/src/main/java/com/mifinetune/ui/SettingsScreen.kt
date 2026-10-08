@@ -53,7 +53,9 @@ fun SettingsScreen(
         context.packageManager.getPackageInfo(context.packageName, 0).versionName
     }.getOrNull() ?: "?"
     val syncPerf = vm?.syncMiuiPerf?.collectAsStateWithLifecycle()?.value
+    val syncSaver = vm?.syncSaver?.collectAsStateWithLifecycle()?.value
     val gmodeChecker = vm?.gameModeChecker?.collectAsStateWithLifecycle()?.value
+    val bridgeLog = vm?.bridgeLog?.collectAsStateWithLifecycle()?.value ?: emptyList()
 
     Scaffold(
         topBar = {
@@ -112,12 +114,30 @@ fun SettingsScreen(
                                 Column(Modifier.weight(1f)) {
                                     Text("Sync MIUI Performance mode", style = MaterialTheme.typography.bodyMedium)
                                     Text(
-                                        "Mapped game in front → MIUI's own switch follows",
+                                        "Mapped game in front → mirror key written; MIUI's " +
+                                            "hidden sheet reads a restricted property and may not flip",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                                 Switch(checked = syncPerf, onCheckedChange = vm::setSyncMiuiPerf)
+                            }
+                        }
+                        if (syncSaver != null) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Sync MIUI Battery saver", style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        "Frugal-mapped app in front → MIUI Battery saver follows " +
+                                            "(restores your own state on exit)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(checked = syncSaver, onCheckedChange = vm::setSyncSaver)
                             }
                         }
                         if (gmodeChecker != null) {
@@ -142,6 +162,14 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (bridgeLog.isNotEmpty()) {
+                            Text("Timeline", style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                bridgeLog.takeLast(8).joinToString("\n"),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }

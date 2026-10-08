@@ -17,14 +17,19 @@ import androidx.core.content.ContextCompat
 import com.mifinetune.MainActivity
 import com.mifinetune.R
 import com.mifinetune.core.Tuner
+import com.mifinetune.miui.MiBridgeState
 import com.mifinetune.miui.MiStateBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -85,6 +90,12 @@ class AutomationService : Service() {
     private var pendingSaver = false
     private val labelCache = mutableMapOf<String, String>()
 
+    /** Bridge timeline entry (also visible in Settings → MIUI bridge). */
+    private fun logEvent(msg: String) {
+        Log.d(TAG, "bridge: $msg")
+        AutomationState.pushBridgeEvent(msg)
+    }
+
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             Log.d(TAG, "receiver: ${intent.action}")
@@ -123,6 +134,7 @@ class AutomationService : Service() {
 
         watcher.start(scope) { pkg -> onForegroundEvent(pkg) }
         miState.start()
+        recoverBridge()
 
         scope.launch(Dispatchers.IO) {
             if (screenOn && !locked) seedForeground() else evaluate("start")
@@ -141,11 +153,13 @@ class AutomationService : Service() {
     override fun onDestroy() {
         runCatching { unregisterReceiver(receiver) }
         watcher.stop()
-        if (perfWritten) {
-            miState.restorePowerMode()
-            perfWritten = false
-        }
-        miState.stop()
+        // release bridge holds on a detached thread: scope is about to be
+        // cancelled and the su writes take ~0.5 s. Prefs carry the restore
+        // points regardless, so an abrupt death still self-heals next start.
+        Thread {
+            runCatching { releaseBridgeHolds() }
+            runCatching { miState.stop() }
+        }.start()
         scope.cancel()
         AutomationState.running.value = false
         AutomationState.reason.value = null
@@ -274,6 +288,7 @@ class AutomationService : Service() {
             stopSelf()
             return
         }
+        val liveSaver = miState.readSaver()
         val input = ArbiterInput(
             automationEnabled = true,
             screenOn = screenOn,
@@ -282,7 +297,9 @@ class AutomationService : Service() {
             appMap = config.appMap(),
             baseProfile = config.baseProfile,
             sleepProfile = ModeArbiter.SLEEP_PROFILE,
-            saverOn = miState.readSaver(),
+            // attribution: a saver flag WE hold for a mapped app is invisible
+            // to the decision — only the user's own saver forces the base
+            saverOn = bridge.value.userSaver(liveSaver),
             ultraSaver = miState.ultra(),
         )
         pendingSaver = input.saverOn
@@ -294,23 +311,32 @@ class AutomationService : Service() {
             }
             is Decision.Retire -> retire(trigger)
         }
-        // MIUI bridge extras (post-decision concerns):
-        //  - Game profile active AND a mapped game is in front AND the MIUI
-        //    Performance sync is enabled -> MIUI's own switch follows us.
-        //  - Game-mode checker signature for focus + mapped game -> warn.
-        syncPerfMode()
-        checkGameMode()
+        // MIUI bridge extras — serialized: the dialog automation takes ~2.5 s
+        // and the state machine must never race itself (two overlapping
+        // evaluations produced an ON/restore yo-yo: the dialog's own resume
+        // event re-entered the sync and cancelled the write in flight).
+        scope.launch(Dispatchers.IO) {
+            bridgeMutex.withLock {
+                runCatching {
+                    syncPerfLocked()
+                    syncSaverLocked()
+                    checkGameModeLocked()
+                }.onFailure { Log.w(TAG, "bridge sync: $it") }
+            }
+        }
     }
 
     /**
      * Ultra battery saver: MIUI owns the device from here on. Restore our
-     * snapshot (so no MiFineTune values linger) and hand over completely.
+     * snapshot (so no MiFineTune values linger), release bridge holds, and
+     * hand over completely.
      */
     private fun retire(trigger: String) {
         if (retired) return
         retired = true
         Log.d(TAG, "evaluate($trigger): MIUI ultra saver — retiring service")
         scope.launch(Dispatchers.IO) {
+            releaseBridgeHolds()
             runCatching { Tuner.restore() }
             config.enabled = false
             runCatching { AutomationService.stop(this@AutomationService) }
@@ -318,35 +344,121 @@ class AutomationService : Service() {
         }
     }
 
-    /**
-     * MIUI Performance-mode follow: ON while a mapped game is in front
-     * (and the user enabled the sync), otherwise restored to the user's own
-     * pre-bridge choice. State-tracked so the settings write happens only
-     * on real transitions (every evaluate() would spam su).
-     */
-    private var perfWritten = false
+    // --- MIUI bridge sync ---------------------------------------------------
 
-    private fun syncPerfMode() {
-        if (retired) return
-        if (!config.syncMiuiPerf) {
-            if (perfWritten) {
-                miState.restorePowerMode()
-                perfWritten = false
+    private val bridge = MutableStateFlow(MiBridgeState())
+    private val bridgeMutex = Mutex()
+
+    private fun persistBridge() {
+        val b = bridge.value
+        config.bridgeHoldPerf = b.perfHeld
+        config.bridgeSavedPerf = b.perfSaved.key
+        config.bridgeHoldSaver = b.saverHeld
+        config.bridgeSavedSaver = b.saverSaved
+    }
+
+    /**
+     * Service death while a hold is active: restore points survive in prefs
+     * and are re-armed here. The following evaluate() decides whether the
+     * hold still applies (RESTORE otherwise) — no stuck MIUI state.
+     */
+    private fun recoverBridge() {
+        bridge.update { b ->
+            var n = b
+            if (config.bridgeHoldPerf) {
+                n = n.copy(perfHeld = true, perfSaved = MiStateBridge.PowerMode.of(config.bridgeSavedPerf))
             }
-            return
+            if (config.bridgeHoldSaver) {
+                n = n.copy(saverHeld = true, saverSaved = config.bridgeSavedSaver)
+            }
+            n
         }
-        val gameInFront = AutomationState.lastForeground.value
-            ?.let { config.appMap()[it] } == "game"
-        val want = gameInFront && screenOn && !locked
-        when {
-            want && !perfWritten -> {
+    }
+
+    /** Write the user's captured values back (teardown/retire path). */
+    private fun releaseBridgeHolds() {
+        val b = bridge.value
+        if (b.perfHeld) {
+            runCatching { miState.writePowerMode(b.perfSaved) }
+            logEvent("MIUI perf mirror restored (${b.perfSaved.key})")
+        }
+        if (b.saverHeld) {
+            runCatching { miState.writeSaver(b.saverSaved) }
+            logEvent("MIUI saver restored")
+        }
+        bridge.value = MiBridgeState()
+        persistBridge()
+    }
+
+    /**
+     * MIUI Performance-mode follow: ON while a mapped game is in front and
+     * the user enabled the sync. The write goes through MIUI's own hidden
+     * dialog (the only channel SELinux allows), so it is idempotent-checked
+     * against the live property first — no flash when already correct.
+     *
+     * Runs inside the bridge mutex. Uses [lastRealPkg], never the raw
+     * foreground: the dialog's own resume event (com.android.settings,
+     * transient) must not flip "game in front" off and cancel the write.
+     */
+    private fun syncPerfLocked() {
+        if (retired) return
+        val fg = lastRealPkg
+        val gameInFront = fg?.let { config.appMap()[it] } == "game"
+        val want = config.syncMiuiPerf && gameInFront && screenOn && !locked
+        val live = miState.readPowerMode()
+        lateinit var next: MiBridgeState
+        var action = MiBridgeState.PerfAction.NONE
+        bridge.update { b ->
+            val (n, a) = b.requestPerf(live, want)
+            next = n; action = a
+            n
+        }
+        persistBridge()
+        when (action) {
+            MiBridgeState.PerfAction.WRITE -> {
                 miState.writePowerMode(MiStateBridge.PowerMode.Performance)
-                perfWritten = true
+                logEvent("MIUI perf mirror ON (game)")
             }
-            !want && perfWritten -> {
-                miState.restorePowerMode()
-                perfWritten = false
+            MiBridgeState.PerfAction.RESTORE -> {
+                miState.writePowerMode(next.perfSaved)
+                logEvent("MIUI perf mirror restored (${next.perfSaved.key})")
             }
+            else -> {}
+        }
+    }
+
+    /**
+     * MIUI battery-saver follow: ON while a frugal-mapped app is in front
+     * (mapping semantics: apps mapped to powersave pull MIUI's saver along).
+     * A mapped game wins instead — no saver sync during a game session.
+     * Root-free read, live root write (verified). Runs inside the mutex.
+     */
+    private fun syncSaverLocked() {
+        if (retired) return
+        val fg = lastRealPkg
+        val mappedProfile = fg?.let { config.appMap()[it] }
+        val want = config.syncSaver &&
+            mappedProfile == "powersave" &&
+            screenOn && !locked
+        val live = miState.readSaver()
+        lateinit var next: MiBridgeState
+        var action = MiBridgeState.SaverAction.NONE
+        bridge.update { b ->
+            val (n, a) = b.requestSaver(live, want)
+            next = n; action = a
+            n
+        }
+        persistBridge()
+        when (action) {
+            MiBridgeState.SaverAction.TURN_ON -> {
+                runCatching { miState.writeSaver(true) }
+                logEvent("MIUI saver ON (${labelFor(fg!!)})")
+            }
+            MiBridgeState.SaverAction.RESTORE -> {
+                runCatching { miState.writeSaver(next.saverSaved) }
+                logEvent("MIUI saver restored")
+            }
+            else -> {}
         }
     }
 
@@ -356,9 +468,9 @@ class AutomationService : Service() {
      * A mapped game in front + a held thermal scenario = Game Booster is
      * still fighting us → warn once per session (notification).
      */
-    private fun checkGameMode() {
+    private fun checkGameModeLocked() {
         if (retired) return
-        val fg = AutomationState.lastForeground.value
+        val fg = lastRealPkg
         val mapped = fg?.let { config.appMap()[it] } == "game"
         if (!mapped || !config.gameModeChecker) {
             gameModeWarnedFor = null

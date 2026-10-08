@@ -24,4 +24,16 @@ object AutomationState {
 
     /** Last foreground package seen by the watcher. */
     val lastForeground = MutableStateFlow<String?>(null)
+
+    /**
+     * Bridge timeline (newest first, capped): MIUI mode writes the bridge
+     * performed, so the user can verify behaviour without a cable.
+     */
+    val bridgeLog = MutableStateFlow<List<String>>(emptyList())
+
+    fun pushBridgeEvent(msg: String) {
+        val time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+            .format(java.util.Date())
+        bridgeLog.value = (bridgeLog.value + "$time  $msg").takeLast(20)
+    }
 }

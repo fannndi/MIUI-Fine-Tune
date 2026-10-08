@@ -21,6 +21,11 @@ class AutomationConfig private constructor(context: Context) {
         private const val K_APP_MAP = "app_map"
         private const val K_SYNC_PERF = "sync_miui_perf"
         private const val K_GMODE_CHECKER = "game_mode_checker"
+        private const val K_SYNC_SAVER = "sync_miui_saver"
+        private const val K_HOLD_PERF = "bridge_hold_perf"
+        private const val K_SAVED_PERF = "bridge_saved_perf"
+        private const val K_HOLD_SAVER = "bridge_hold_saver"
+        private const val K_SAVED_SAVER = "bridge_saved_saver"
 
         /** Fresh installs start with Balance as the universal base. */
         const val DEFAULT_BASE = "balance"
@@ -66,6 +71,36 @@ class AutomationConfig private constructor(context: Context) {
             sp.edit().putBoolean(K_GMODE_CHECKER, v).apply()
             _gameModeChecker.value = v
         }
+
+    private val _syncSaver = MutableStateFlow(sp.getBoolean(K_SYNC_SAVER, true))
+    /** Frugal-mapped app in front → MIUI battery saver follows our profile. */
+    val syncSaverFlow: StateFlow<Boolean> = _syncSaver
+    var syncSaver: Boolean
+        get() = _syncSaver.value
+        set(v) {
+            sp.edit().putBoolean(K_SYNC_SAVER, v).apply()
+            _syncSaver.value = v
+        }
+
+    // --- bridge hold persistence (crash-safe restore points) --------------
+
+    /** A bridge hold survives service death: on restart the restore point is
+     *  still valid, so release writes the user's own value back. */
+    var bridgeHoldPerf: Boolean
+        get() = sp.getBoolean(K_HOLD_PERF, false)
+        set(v) = sp.edit().putBoolean(K_HOLD_PERF, v).apply()
+
+    var bridgeSavedPerf: String
+        get() = sp.getString(K_SAVED_PERF, null) ?: "middle"
+        set(v) = sp.edit().putString(K_SAVED_PERF, v).apply()
+
+    var bridgeHoldSaver: Boolean
+        get() = sp.getBoolean(K_HOLD_SAVER, false)
+        set(v) = sp.edit().putBoolean(K_HOLD_SAVER, v).apply()
+
+    var bridgeSavedSaver: Boolean
+        get() = sp.getBoolean(K_SAVED_SAVER, false)
+        set(v) = sp.edit().putBoolean(K_SAVED_SAVER, v).apply()
 
     /** The universal base: the last manually selected profile. */
     var baseProfile: String

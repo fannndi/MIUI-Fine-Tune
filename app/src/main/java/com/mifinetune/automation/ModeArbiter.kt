@@ -55,6 +55,9 @@ object ModeArbiter {
         "android",
         // MIUI-common IMEs without "inputmethod" in the package name
         "com.baidu.input_mi",
+        // the bridge's own performance-follow surface (hidden sheet) — its
+        // resume event must not read as "user is in Settings"
+        "com.android.settings",
     )
 
     fun isTransient(pkg: String?): Boolean =

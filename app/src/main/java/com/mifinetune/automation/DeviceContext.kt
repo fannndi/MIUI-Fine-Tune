@@ -41,8 +41,20 @@ class ForegroundWatcher(private val bridge: RootBridge) {
 
     companion object {
         private const val TAG = "MiFineTune"
-        private val RESUME_RE =
-            Regex("am_resume_activity: \\[\\d+,\\d+,\\d+,([^\\s/]+)/")
+        private const val MAX_PEEK_AGE_MS = 60_000L
+
+        /**
+         * Two tags carry the focused component on this ROM:
+         *  - `am_resume_activity: [user, token, task, pkg/class, pid]`
+         *    (task-level resume, the common launcher path)
+         *  - `am_set_resumed_activity: [user, pkg/class, reason]`
+         *    (some transitions — e.g. monkey/new-task launches — log ONLY
+         *    this one; verified 2026-10-08: Azur Lane start emitted
+         *    am_set_resumed_activity with no am_resume_activity at all)
+         */
+        private val RESUME_RE = Regex("am_resume_activity: \\[\\d+,\\d+,\\d+,([^\\s/]+)/")
+        private val SET_RESUMED_RE = Regex("am_set_resumed_activity: \\[\\d+,([^\\s/]+)/")
+        private val ANY_RE = Regex("(am_resume_activity|am_set_resumed_activity): ")
     }
 
     private var process: Process? = null
@@ -59,7 +71,7 @@ class ForegroundWatcher(private val bridge: RootBridge) {
     fun start(scope: CoroutineScope, onPackage: (String) -> Unit) {
         stop()
         val p = runCatching {
-            bridge.stream("logcat -b events -s am_resume_activity:V")
+            bridge.stream("logcat -b events -s am_resume_activity:V am_set_resumed_activity:V")
         }.getOrNull() ?: run {
             Log.w(TAG, "foreground watcher: failed to spawn logcat")
             return
@@ -71,7 +83,10 @@ class ForegroundWatcher(private val bridge: RootBridge) {
                 p.inputStream.bufferedReader().useLines { lines ->
                     for (line in lines) {
                         if (!isActive) break
-                        val pkg = RESUME_RE.find(line)?.groupValues?.get(1) ?: continue
+                        if (ANY_RE.find(line) == null) continue
+                        val pkg = RESUME_RE.find(line)?.groupValues?.get(1)
+                            ?: SET_RESUMED_RE.find(line)?.groupValues?.get(1)
+                            ?: continue
                         onPackage(pkg)
                     }
                 }
@@ -95,13 +110,25 @@ class ForegroundWatcher(private val bridge: RootBridge) {
      * One-shot peek of the most recent resume event via the event-log buffer.
      * Uses `logcat` (kernel buffer) on purpose: `dumpsys` (binder) is not
      * usable from this app's su context on APatch, while logcat works.
+     * Only events younger than [MAX_PEEK_AGE_MS] are trusted — the buffer
+     * keeps hours of history, and a stale resume (e.g. last night's game)
+     * must not seed the first decision.
      */
     fun peekEvents(): String? {
         val out = runCatching {
-            bridge.sh("logcat -b events -d -s am_resume_activity:V").out
+            bridge.sh("logcat -b events -d -s am_resume_activity:V am_set_resumed_activity:V").out
         }.getOrDefault("")
-        val pkg = RESUME_RE.findAll(out).lastOrNull()?.groupValues?.get(1)
+        val pkg = out.lineSequence()
+            .lastOrNull { ANY_RE.find(it) != null && isFresh(it) }
+            ?.let { RESUME_RE.find(it)?.groupValues?.get(1) ?: SET_RESUMED_RE.find(it)?.groupValues?.get(1) }
         Log.d(TAG, "peek: pkg=$pkg (len=${out.length})")
         return pkg
     }
+
+    private fun isFresh(line: String): Boolean = runCatching {
+        val m = Regex("(\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})").find(line) ?: return false
+        val t = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US).parse(m.groupValues[1])
+        val age = System.currentTimeMillis() - (t?.time ?: return false)
+        age in 0..MAX_PEEK_AGE_MS
+    }.getOrDefault(false)
 }
