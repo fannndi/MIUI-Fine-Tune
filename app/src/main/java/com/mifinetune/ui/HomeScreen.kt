@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AutoMode
 import androidx.compose.material.icons.filled.Balance
 import androidx.compose.material.icons.filled.BatterySaver
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sports
 import androidx.compose.material.icons.filled.Warning
@@ -161,6 +162,12 @@ fun HomeScreen(vm: HomeViewModel) {
                             ServiceRow(
                                 state = state,
                                 onToggle = vm::onServiceToggle,
+                            )
+                        }
+                        item(key = "dynamic") {
+                            DynamicProfileRow(
+                                state = state,
+                                onToggle = vm::onDynamicToggle,
                             )
                         }
                     }
@@ -342,7 +349,7 @@ private fun ServiceRow(state: HomeUiState, onToggle: (Boolean) -> Unit) {
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconCircle(Icons.Default.AutoMode)
+            IconCircle(Icons.Default.PowerSettingsNew)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text("Service", style = MaterialTheme.typography.titleMedium)
@@ -354,6 +361,46 @@ private fun ServiceRow(state: HomeUiState, onToggle: (Boolean) -> Unit) {
                 )
             }
             Switch(checked = state.serviceEnabled, onCheckedChange = onToggle)
+        }
+    }
+}
+
+/**
+ * Dynamic Profile: the auto-switch switch. OFF keeps the universal profile
+ * no matter which mapped app is opened; sleep / multi-window / MIUI-saver
+ * rules still apply. Requires the Service to be on.
+ */
+@Composable
+private fun DynamicProfileRow(state: HomeUiState, onToggle: (Boolean) -> Unit) {
+    val serviceOn = state.serviceEnabled
+    val statusText = when {
+        !serviceOn -> "Turn on Service first"
+        state.dynamicEnabled -> "App profiles switch automatically"
+        else -> "Universal profile only"
+    }
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconCircle(Icons.Default.AutoMode)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Dynamic Profile", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (serviceOn && state.dynamicEnabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = state.dynamicEnabled,
+                onCheckedChange = onToggle,
+                enabled = serviceOn,
+            )
         }
     }
 }

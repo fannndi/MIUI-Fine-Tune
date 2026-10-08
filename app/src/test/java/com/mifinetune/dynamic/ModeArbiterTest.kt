@@ -18,6 +18,7 @@ class ModeArbiterTest {
         saverOn: Boolean = false,
         ultraSaver: Boolean = false,
         mw: Boolean = false,
+        dynamic: Boolean = true,
     ) = ArbiterInput(
         serviceEnabled = enabled,
         screenOn = screenOn,
@@ -29,6 +30,7 @@ class ModeArbiterTest {
         saverOn = saverOn,
         ultraSaver = ultraSaver,
         multiWindow = mw,
+        dynamicProfile = dynamic,
     )
 
     @Test
@@ -142,5 +144,55 @@ class ModeArbiterTest {
     fun multi_window_does_not_beat_screen_off() {
         val d = ModeArbiter.decide(input(screenOn = false, mw = true))
         assertEquals(Decision.Apply("sleep", "screen off"), d)
+    }
+
+    // --- dynamic profile rule -----------------------------------------------
+
+    @Test
+    fun dynamic_off_mapped_app_falls_back_to_base() {
+        val d = ModeArbiter.decide(
+            input(
+                fg = "com.YoStarEN.AzurLane",
+                map = mapOf("com.YoStarEN.AzurLane" to "game"),
+                base = "balance",
+                dynamic = false,
+            ),
+        )
+        assertEquals(Decision.Apply("balance", "base"), d)
+    }
+
+    @Test
+    fun dynamic_off_still_forces_powersave_under_saver() {
+        val d = ModeArbiter.decide(input(saverOn = true, dynamic = false))
+        assertEquals(Decision.Apply("powersave", "base"), d)
+    }
+
+    @Test
+    fun dynamic_off_still_applies_sleep() {
+        val d = ModeArbiter.decide(input(screenOn = false, dynamic = false))
+        assertEquals(Decision.Apply("sleep", "screen off"), d)
+    }
+
+    @Test
+    fun dynamic_off_still_forces_balance_on_multi_window() {
+        val d = ModeArbiter.decide(input(mw = true, dynamic = false))
+        assertEquals(Decision.Apply("balance", "multi-window"), d)
+    }
+
+    @Test
+    fun dynamic_off_keeps_transient_noop() {
+        assertEquals(Decision.None, ModeArbiter.decide(input(fg = "com.android.systemui", dynamic = false)))
+    }
+
+    @Test
+    fun dynamic_on_mapped_app_applies_mapped_profile() {
+        val d = ModeArbiter.decide(
+            input(
+                fg = "com.YoStarEN.AzurLane",
+                map = mapOf("com.YoStarEN.AzurLane" to "game"),
+                dynamic = true,
+            ),
+        )
+        assertEquals(Decision.Apply("game", "app"), d)
     }
 }

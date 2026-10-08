@@ -22,6 +22,11 @@ data class ArbiterInput(
     val ultraSaver: Boolean = false,
     /** Split screen / floating window active — dual-app concurrency. */
     val multiWindow: Boolean = false,
+    /**
+     * Dynamic Profile: ON = mapped app overrides the universal base;
+     * OFF = the base always wins (app mappings are ignored).
+     */
+    val dynamicProfile: Boolean = true,
 )
 
 sealed interface Decision {
@@ -95,7 +100,9 @@ object ModeArbiter {
         val pkg = input.foregroundPkg
         if (isTransient(pkg)) return Decision.None
 
-        val mapped = input.appMap[pkg]
+        // Dynamic Profile OFF: the universal base wins no matter what the
+        // app map says — mapping is only a hint for the dynamic mode.
+        val mapped = if (input.dynamicProfile) input.appMap[pkg] else null
         // MIUI battery saver: the unmapped universe is forced to the frugal
         // base — mapped apps still win (the user may game under saver).
         val effectiveBase = if (input.saverOn) SAVER_PROFILE else input.baseProfile

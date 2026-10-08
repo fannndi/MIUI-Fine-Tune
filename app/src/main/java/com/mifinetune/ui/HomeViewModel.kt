@@ -59,6 +59,8 @@ data class HomeUiState(
     val serviceEnabled: Boolean = false,
     val serviceRunning: Boolean = false,
     val serviceReason: String? = null,
+    /** Dynamic Profile switch (mapped apps auto-override the base). */
+    val dynamicEnabled: Boolean = true,
     val mappedCount: Int = 0,
 ) {
     val canAct: Boolean get() = !loading && busy == null
@@ -81,6 +83,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private fun observeService() {
         viewModelScope.launch {
             config.enabledFlow.collect { v -> _state.update { it.copy(serviceEnabled = v) } }
+        }
+        viewModelScope.launch {
+            config.dynamicEnabledFlow.collect { v -> _state.update { it.copy(dynamicEnabled = v) } }
         }
         viewModelScope.launch {
             config.appMapFlow.collect { v -> _state.update { it.copy(mappedCount = v.size) } }
@@ -244,6 +249,15 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             setServiceEnabled(false)
         }
+    }
+
+    /**
+     * Dynamic Profile toggle: pure config write. The running service
+     * observes the flow and re-evaluates instantly; while the service is
+     * off nothing happens (the value is picked up at next start).
+     */
+    fun onDynamicToggle(v: Boolean) {
+        config.dynamicEnabled = v
     }
 
     fun confirmServiceOff() {

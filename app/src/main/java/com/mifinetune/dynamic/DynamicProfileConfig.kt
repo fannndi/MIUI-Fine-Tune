@@ -15,8 +15,19 @@ import org.json.JSONObject
 class DynamicProfileConfig private constructor(context: Context) {
 
     companion object {
-        private const val PREFS = "automation"
+        private const val PREFS = "dynamic_profile"
+
+        /**
+         * v0.5 rebrand migration: settings used to live in `automation.xml`.
+         * The legacy file is copied once (bridge hold restore points
+         * included) and then left in place — never deleted, so a downgrade
+         * still finds its data.
+         */
+        private const val LEGACY_PREFS = "automation"
+        private const val K_MIGRATED = "prefs_migrated_from_automation"
+
         private const val K_ENABLED = "enabled"
+        private const val K_DYNAMIC = "dynamic_enabled"
         private const val K_BASE = "base_profile"
         private const val K_APP_MAP = "app_map"
         private const val K_SYNC_PERF = "sync_miui_perf"
@@ -41,6 +52,26 @@ class DynamicProfileConfig private constructor(context: Context) {
 
     private val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    init {
+        // one-time copy from the pre-rebrand prefs file (see LEGACY_PREFS)
+        if (!sp.getBoolean(K_MIGRATED, false)) {
+            val legacy = context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+            val all = legacy.all
+            val editor = sp.edit()
+            for ((k, v) in all) {
+                when (v) {
+                    is Boolean -> editor.putBoolean(k, v)
+                    is String -> editor.putString(k, v)
+                    is Int -> editor.putInt(k, v)
+                    is Long -> editor.putLong(k, v)
+                    is Float -> editor.putFloat(k, v)
+                    is Set<*> -> @Suppress("UNCHECKED_CAST") editor.putStringSet(k, v as Set<String>)
+                }
+            }
+            editor.putBoolean(K_MIGRATED, true).apply()
+        }
+    }
+
     private val _enabled = MutableStateFlow(sp.getBoolean(K_ENABLED, true))
     val enabledFlow: StateFlow<Boolean> = _enabled
     var enabled: Boolean
@@ -48,6 +79,20 @@ class DynamicProfileConfig private constructor(context: Context) {
         set(v) {
             sp.edit().putBoolean(K_ENABLED, v).apply()
             _enabled.value = v
+        }
+
+    /**
+     * Dynamic Profile: ON = a mapped app in front overrides the universal
+     * base (and the MIUI bridge follows it); OFF = the universal base always
+     * wins, app mappings are ignored while the service keeps running.
+     */
+    private val _dynamicEnabled = MutableStateFlow(sp.getBoolean(K_DYNAMIC, true))
+    val dynamicEnabledFlow: StateFlow<Boolean> = _dynamicEnabled
+    var dynamicEnabled: Boolean
+        get() = _dynamicEnabled.value
+        set(v) {
+            sp.edit().putBoolean(K_DYNAMIC, v).apply()
+            _dynamicEnabled.value = v
         }
 
     // --- MIUI bridge switches (v0.5) -------------------------------------

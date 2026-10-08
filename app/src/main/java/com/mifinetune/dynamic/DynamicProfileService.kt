@@ -29,6 +29,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -137,6 +138,15 @@ class DynamicProfileService : Service() {
         watcher.start(scope) { pkg -> onForegroundEvent(pkg) }
         miState.start()
         recoverBridge()
+
+        // Dynamic Profile toggle: react instantly. The foreground at toggle
+        // time is our own app (transient) — use the last real package so the
+        // decision flips the profile in front of the user right away.
+        scope.launch {
+            config.dynamicEnabledFlow.drop(1).collect {
+                evaluate("dynamic", fgOverride = lastRealPkg ?: DynamicProfileState.lastForeground.value)
+            }
+        }
         mwWatcher.start(scope) { st ->
             if (st.active != multiWindow) {
                 multiWindow = st.active
@@ -294,7 +304,7 @@ class DynamicProfileService : Service() {
 
     // --- decision + apply -------------------------------------------------
 
-    private fun evaluate(trigger: String) {
+    private fun evaluate(trigger: String, fgOverride: String? = null) {
         if (!config.enabled) {
             stopSelf()
             return
@@ -304,7 +314,7 @@ class DynamicProfileService : Service() {
             serviceEnabled = true,
             screenOn = screenOn,
             keyguardLocked = locked,
-            foregroundPkg = DynamicProfileState.lastForeground.value,
+            foregroundPkg = fgOverride ?: DynamicProfileState.lastForeground.value,
             appMap = config.appMap(),
             baseProfile = config.baseProfile,
             sleepProfile = ModeArbiter.SLEEP_PROFILE,
@@ -313,6 +323,7 @@ class DynamicProfileService : Service() {
             saverOn = bridge.value.userSaver(liveSaver),
             ultraSaver = miState.ultra(),
             multiWindow = multiWindow,
+            dynamicProfile = config.dynamicEnabled,
         )
         pendingSaver = input.saverOn
         when (val d = ModeArbiter.decide(input)) {
@@ -416,7 +427,7 @@ class DynamicProfileService : Service() {
         if (retired) return
         val fg = lastRealPkg
         val gameInFront = fg?.let { config.appMap()[it] } == "game"
-        val want = config.syncMiuiPerf && gameInFront && screenOn && !locked
+        val want = config.syncMiuiPerf && config.dynamicEnabled && gameInFront && screenOn && !locked
         val live = miState.readPowerMode()
         lateinit var next: MiBridgeState
         var action = MiBridgeState.PerfAction.NONE
@@ -450,6 +461,7 @@ class DynamicProfileService : Service() {
         val fg = lastRealPkg
         val mappedProfile = fg?.let { config.appMap()[it] }
         val want = config.syncSaver &&
+            config.dynamicEnabled &&
             mappedProfile == "powersave" &&
             screenOn && !locked
         val live = miState.readSaver()
@@ -484,7 +496,7 @@ class DynamicProfileService : Service() {
         if (retired) return
         val fg = lastRealPkg
         val mapped = fg?.let { config.appMap()[it] } == "game"
-        if (!mapped || !config.gameModeChecker) {
+        if (!mapped || !config.gameModeChecker || !config.dynamicEnabled) {
             gameModeWarnedFor = null
             return
         }
