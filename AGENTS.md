@@ -23,7 +23,7 @@ parameters, always through the catalog guard.
 | Path | Responsibility |
 |---|---|
 | `src/lib.rs` | module index (`daemon`, `engine`, `DEFAULT_PROFILES_JSON`) |
-| `src/main.rs` | CLI entry: probe/profiles/plan/apply/restore/verify/status/serve/catalog |
+| `src/main.rs` | CLI entry: probe/profiles/plan/apply/restore/verify/status/serve/doctor/catalog |
 | `profiles.json` | profile pack (embedded via `include_str!`, mirrored to assets) |
 | `src/engine/mod.rs` | engine module index + test fixtures hookup |
 | `src/engine/catalog/mod.rs` | tier/kind/entry types, `find`, `guard_path` (forbidden-path guard) |
@@ -39,6 +39,7 @@ parameters, always through the catalog guard.
 | `src/engine/apply/write.rs` | guarded writes, kernel-safe ordering, pass-2 re-plan |
 | `src/engine/apply/restore.rs` | stock restore (consumes the snapshot on success) |
 | `src/engine/apply/verify.rs` | drift detection + verified read-back helper |
+| `src/engine/doctor.rs` | `doctor` environment self-check (JSON) |
 | `src/engine/testutil.rs` | shared engine test fixtures (`cfg(test)`) |
 | `src/daemon/mod.rs` | daemon main loop: state, timers, command dispatch, supervisor |
 | `src/daemon/proto.rs` | IPC wire format (Command/Event) + stdout Publisher |

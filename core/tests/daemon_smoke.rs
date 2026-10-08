@@ -214,3 +214,19 @@ fn daemon_exits_on_stdin_eof() {
     assert!(status.is_some(), "daemon must exit when stdin closes");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn doctor_reports_valid_json() {
+    let dir = tmp("doctor");
+    let bin = env!("CARGO_BIN_EXE_miui-ft");
+    let out = Command::new(bin)
+        .args(["doctor", "--state-dir", dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let v: Value = serde_json::from_slice(&out.stdout).expect("doctor output is JSON");
+    assert!(v["ok"].is_boolean());
+    let checks = v["checks"].as_array().expect("checks array");
+    assert!(checks.iter().any(|c| c["name"] == "catalog"));
+    assert!(checks.iter().any(|c| c["name"] == "profiles"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

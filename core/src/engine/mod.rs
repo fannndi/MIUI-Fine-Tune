@@ -15,6 +15,7 @@
 
 pub mod apply;
 pub mod catalog;
+pub mod doctor;
 pub mod plan;
 pub mod profile;
 pub mod probe;

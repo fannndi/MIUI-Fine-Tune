@@ -26,6 +26,9 @@ mod worker;
 
 pub use proto::{Command, Event, Publisher, Snapshot, VERSION};
 
+/// Config shape shared with `doctor` (and future tools).
+pub use config::DaemonConfig;
+
 use crate::daemon::arbiter::{ArbiterInput, Decision, SLEEP_PROFILE};
 use crate::daemon::bridge::{Bridge, SyncCtx};
 use crate::daemon::config::ConfigFile;

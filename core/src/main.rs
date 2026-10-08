@@ -1,6 +1,6 @@
 //! `miui-ft` — CLI entry point.
 //!
-//! Commands: probe | profiles | plan | apply | restore | verify | status | serve
+//! Commands: probe | profiles | plan | apply | restore | verify | status | serve | doctor
 //! Machine consumers (the Kotlin app) pass `--json`.
 //!
 //! `serve` is special: it does not return a JSON payload on exit — it runs
@@ -8,8 +8,9 @@
 
 use mifinetune_core::engine::apply::{self, Store};
 use mifinetune_core::engine::catalog;
-use mifinetune_core::engine::probe;
+use mifinetune_core::engine::doctor;
 use mifinetune_core::engine::plan::build_plan;
+use mifinetune_core::engine::probe;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -83,6 +84,7 @@ commands:
   verify <id>           check live values vs profile, detect drift
   status                active profile, snapshot, framework evidence
   serve                 stdio daemon (JSON-lines on stdin/stdout)
+  doctor                environment self-check (root/binaries/config/state)
   catalog               dump the full parameter catalog as JSON
   apply runs one automatic re-plan pass when a governor switch reveals
                       previously hidden governor-specific nodes";
@@ -185,6 +187,16 @@ fn run(a: &Args) -> Result<(i32, String), String> {
                 .collect();
             let payload = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
             Ok((0, payload))
+        }
+        "doctor" => {
+            // environment self-check (device debugging without the app)
+            let config = a
+                .config
+                .clone()
+                .unwrap_or_else(|| a.state_dir.join("config.json"));
+            let (ok, payload) = doctor::run(&a.state_dir, Some(&config));
+            let json = serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?;
+            Ok((if ok { 0 } else { 1 }, json))
         }
         "status" => {
             let state = store.load_state();

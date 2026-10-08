@@ -97,6 +97,7 @@ service-off UI paths):
 | `verify <id>` | compare live vs profile (drift detection, read-only) |
 | `restore` | write the stock snapshot back (consumes it on success) |
 | `status` | active profile, snapshot, catalog, device info |
+| `doctor` | environment self-check (root, binaries, config, state) |
 | `probe` | read every catalog node (JSON) |
 | `profiles` / `catalog` | bundled profile pack / full parameter catalog |
 

@@ -152,6 +152,10 @@ class DynamicProfileService : Service() {
             DaemonLink.client = c
             lastClientStart = System.currentTimeMillis()
             c.send(JSONObject().put("cmd", "hello"))
+            // force the full context on every (re)start: the dedupe state
+            // belongs to the previous daemon instance
+            lastScreen = null
+            lastLocked = null
             sendScreen()
         } else {
             Log.w(TAG, "daemon start failed (root?)")
