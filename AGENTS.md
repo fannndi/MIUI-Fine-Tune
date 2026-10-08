@@ -16,6 +16,33 @@ stdio; `config.json` (app-owned, in `filesDir`) is the only shared file for
 user intent. The engine (`core/src/engine/`) is the only code that writes
 parameters, always through the catalog guard.
 
+## Profile model — Device vs Apps (hard rule)
+
+Two layers, two scopes. Keep them separate; never overwrite what MIUI controls.
+
+| | Device Profile (hardware) | Apps Profile (software) |
+|---|---|---|
+| Scope | device-wide, always on | per-app, only while that app is foreground |
+| Content | the 91-node catalog (CPU gov/freq, core_ctl, sched/cpuset/stune, GPU, IO, VM, net) + the MIUI power mirror | Device-Profile mapping + the audited software surfaces |
+| Writes | engine plan from `profiles.json` | bridge holds: capture -> apply -> restore |
+| UI | Home "Device Profile" cards | Apps Profile list -> detail screen |
+
+Rules:
+1. A parameter belongs to exactly one layer; the catalog is hardware-only.
+2. MIUI-owned parameters are never written: refresh rate
+   (`user_refresh_rate`/dfps), MIUI power modes (`persist.sys.aries.*`),
+   GameTurbo (`gb_boosting`/`vtb_boosting`/`screen_game_mode`), thermal, perf
+   locks, LMK/zram, JEITA/step-charging, direct `zen_mode` writes.
+3. Per-app features use only audited user-facing surfaces: `input_suspend`
+   (bypass charging) and the official DND API (`dnd` event -> the app calls
+   `NotificationManager.setInterruptionFilter`). Every effect is restored on
+   app exit, Service OFF and daemon recovery (`holds.json`).
+4. Per-app gates: `dynamic && service enabled`; an absent field leaves MIUI
+   untouched.
+5. Refresh rate is MIUI's; MiFineTune does not manage it (F9 removed). The
+   HWUI renderer prop was dropped: the app-spawned daemon runs in
+   `untrusted_app`, where SELinux denies `debug_prop` writes.
+
 ## File map (one line per file — keep this current)
 
 ### Rust (`core/`)
@@ -27,7 +54,7 @@ parameters, always through the catalog guard.
 | `profiles.json` | profile pack (embedded via `include_str!`, mirrored to assets) |
 | `src/engine/mod.rs` | engine module index + test fixtures hookup |
 | `src/engine/catalog/mod.rs` | tier/kind/entry types, `find`, `guard_path` (forbidden-path guard) |
-| `src/engine/catalog/entries.rs` | the 90-node registry table (data only) |
+| `src/engine/catalog/entries.rs` | the 91-node registry table (data only) |
 | `src/engine/catalog/forbidden.rs` | framework-owned path prefixes + exact keys (never written) |
 | `src/engine/env.rs` | read-only telemetry sampler (battery / thermal / GPU busy) |
 | `src/engine/probe.rs` | read-only device capture: node values, options, framework evidence |
@@ -58,6 +85,9 @@ parameters, always through the catalog guard.
 | `src/daemon/bridge/mod.rs` | Bridge: shared state + one Mutex, recover/release/persist |
 | `src/daemon/bridge/holds.rs` | PowerMode + hold/restore state machine + holds.json |
 | `src/daemon/bridge/sync.rs` | SyncCtx + pure gates + settings-CLI sync IO |
+| `src/daemon/bridge/charge.rs` | charge guard (`battery_charging_enabled`, opt-in limit) |
+| `src/daemon/bridge/bypass.rs` | per-app bypass charging (`input_suspend`, floor + hysteresis) |
+| `src/daemon/bridge/dnd.rs` | per-app DND decision (the app executes the official API) |
 | `src/daemon/settings.rs` | `settings` CLI read/write helpers (saver, power_mode) |
 | `tests/daemon_smoke.rs` | end-to-end protocol tests: full decision path, EOF exit |
 | `tests/daemon_watchers.rs` | watcher E2E over a fake logcat script |
@@ -79,6 +109,8 @@ parameters, always through the catalog guard.
 | `dynamic/DiagnosticsModels.kt` | diagnostics shapes (env / diag / stats) + JSON parsing |
 | `dynamic/ServiceTile.kt` | Quick Settings tile: service toggle + active profile subtitle |
 | `dynamic/DynamicProfileConfig.kt` | `config.json` writer (atomic), prefs migration, daemon hints |
+| `dynamic/AppProfileEntry.kt` | Apps Profile entry model (mapping + bypass + DND) |
+| `dynamic/DndController.kt` | the only platform-API executor: DND access + interruption filter |
 | `dynamic/DynamicProfileState.kt` | process-wide StateFlows mirrored from daemon events (incl. env/diag/stats/logs) |
 | `dynamic/DeviceContext.kt` | PowerManager/KeyguardManager reader only |
 | `dynamic/DynamicProfileBootReceiver.kt` | best-effort service start on boot |
@@ -90,6 +122,8 @@ parameters, always through the catalog guard.
 | `ui/StatsSummary.kt` | 24 h time-in-profile summary from the transition history |
 | `ui/SettingsBackup.kt` | config export/import through the system file picker |
 | `ui/SettingsGuards.kt` | adaptive guards card (battery floor / thermal ceiling) |
+| `ui/SettingsCharging.kt` | charging card (charge limit + per-app bypass floor) |
+| `ui/AppProfileDetailScreen.kt` | Apps Profile detail (draft + explicit Save) |
 | `ui/DynamicProfileViewModel.kt` | apps list + settings toggles controller |
 | `ui/AppsProfileScreen.kt` / `SettingsScreen.kt` / `UiBits.kt` / `ProfileLabels.kt` / `theme/` | Compose UI |
 
@@ -128,6 +162,9 @@ streams, bridge hold/restore, env guards and the doctor — no device needed.
    add a write path that bypasses the engine guard. Never touch SELinux
    (`/sys/fs/selinux`, `setenforce`, `restorecon`), never attempt `setprop`
    for `persist.sys.aries.power_profile` (SELinux rejects it on this device).
+   The app-spawned daemon runs in `untrusted_app`, where every `debug_prop`
+   write is denied too — the HWUI renderer feature was dropped for this
+   reason; do not reintroduce prop writes.
 2. **Single writer** — all parameter writes go through the daemon (or the CLI
    when the service is off). The app never writes sysfs/proc directly.
 3. **Ownership evidence** — adding a catalog entry requires tier evidence
@@ -159,7 +196,7 @@ streams, bridge hold/restore, env guards and the doctor — no device needed.
 ## Build & test
 
 ```bash
-# Rust (host): 84 unit tests + 4 host E2E tests
+# Rust (host): 119 unit tests + 13 host E2E tests
 cd core && cargo test
 
 # cross-build arm64 + assets (syncCore also runs automatically in Gradle)
@@ -207,8 +244,10 @@ cd core && MIFINETUNE_SYSFS_ROOT=/path/to/fake-root cargo test --test daemon_smo
 #   CPU 80 °C    -> 'applied ... reason=thermal'
 
 # v0.7 feature checks (all verified 2026-10-08):
-# - refresh follow: mapped game -> 'bridge: refresh follow 120 Hz (game)',
-#   home -> 'bridge: refresh restored (<user value>)'
+# - Apps Profile (v0.8): a configured app in front ->
+#   'bridge: bypass charging ON (pkg, N%)' + node input_suspend=1;
+#   'bridge: DND total (pkg)' + app log 'dnd applied: total' (needs the
+#   one-time DND access grant); leave -> 'bypass charging OFF' + 'DND released'
 # - storage maintenance (opt-in, charging + screen off):
 #   'maintenance: done (gc 3521 -> 30 dirty segments in 70s)';
 #   /data/adb/mifinetune/maintenance.json records the run

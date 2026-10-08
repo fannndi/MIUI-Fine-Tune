@@ -36,8 +36,10 @@ the framework, never touches SELinux, and always keeps a stock restore path.
 | MIUI Ultra battery saver | Full retire: restore + stop |
 | Battery ≤ floor (default 20%, not charging) | Power Save (beats mapping; sleep/lock still win) |
 | CPU near the ceiling (default 75 °C) | Game steps down to Balance, releases 5 °C lower |
-| Mapped game in front | + MIUI perf mirror + 120 Hz refresh |
-| Power Save-mapped app in front | + MIUI battery saver + 60 Hz refresh |
+| Mapped game in front | + MIUI perf mirror (refresh stays MIUI's) |
+| Power Save-mapped app in front | + MIUI battery saver |
+| Apps Profile: bypass charging ON (opt-in) | Charger input suspended while that app is in front; releases at the bypass floor |
+| Apps Profile: DND (opt-in) | DND set through Android's official API while in front; restored on exit |
 | Charging + idle (weekly, opt-in) | Bounded f2fs GC window (`dirty_segments` → ≤100) |
 | Charge limit (opt-in, default 80 %) | Charging pauses at the limit, resumes 5 % lower; stock switch returns on exit |
 | Jank burst ≥ 10 frames (experimental, opt-in) | ~5 s responsive overlay, then back to the normal profile |
@@ -45,8 +47,30 @@ the framework, never touches SELinux, and always keeps a stock restore path.
 
 Non-app rules (sleep, multi-window, saver, env guards) keep working with
 Dynamic OFF — they are not driven by the app map. The MIUI bridge
-(performance mirror, saver follow, refresh follow, game-mode checker) is
-app-driven and stops with Dynamic OFF.
+(performance mirror, saver follow, game-mode checker) and the Apps Profile
+software layer are app-driven and stop with Dynamic OFF.
+
+## Two profile layers
+
+**Device Profile (hardware)** — how the phone itself runs: CPU governors and
+frequency floors/caps, core scheduling, GPU levels, I/O and memory tuning.
+Pick one from the Home cards (Power Save / Balance / Game); Sleep and Boost
+are automatic. It applies device-wide and only writes parameters the ROM
+leaves free or baseline (see [docs/ROM-HARMONY.md](docs/ROM-HARMONY.md)).
+
+**Apps Profile (software)** — per-app extras, active only while the app is in
+front:
+- **Device-Profile mapping** — which hardware profile the app should use.
+- **Bypass charging** — suspends charger input while the app runs (the phone
+  runs on battery: less heat, slower wear); releases at the configured floor
+  and always restores on exit.
+- **Do Not Disturb** — through Android's official DND access API, restored on
+  exit (no direct `zen_mode` writes).
+
+MiFineTune never overwrites what MIUI controls: refresh rate, MIUI power
+modes, GameTurbo, thermal and charging internals stay MIUI's. Every per-app
+effect is captured first and restored on app exit, Service OFF or daemon
+recovery.
 
 Extras: a Diagnostics screen (daemon health, live battery/thermal, 24 h
 time-in-profile, relayed daemon log), a Quick Settings tile (service toggle

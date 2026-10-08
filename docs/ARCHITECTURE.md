@@ -64,6 +64,12 @@ A long-lived root process started once by the app. It owns:
   — 10+ skipped frames raise the hidden `boost` profile for a few seconds
   (rate-limited), then the supervisor returns to the normal decision. FAS
   without frame tracing: the signal is the framework's own jank log.
+- **Per-app bypass** (`bridge/bypass.rs`, opt-in) — suspends charger input
+  while the configured app is in front (device runs on battery); engages only
+  above the floor + 5 %, releases at the floor, on app exit, Service OFF and
+  recovery. Device-verified: status Charging -> Discharging -> Charging.
+- **Per-app DND** (`bridge/dnd.rs`) — the daemon emits a `dnd` event; the app
+  service applies/restores through the official interruption-filter API.
 - **Charge guard** (`bridge/charge.rs`, opt-in) — pauses charging at the
   configured limit (release 5 % lower; the captured stock value returns on
   release/service-off). Fed by every env sample so it works with the screen
@@ -188,14 +194,17 @@ MiFineTune tunes only parameters MIUI itself leaves alone:
 - **Forbidden** — runtime-owned (thermal, perf locks, charge, LMK/zram, game
   cpusets, SELinux); rejected on every write path.
 
-The bridge is the only non-catalog writer, with exactly three `settings`
-targets — `Settings.Global low_power` (live saver), the `Settings.System
-power_mode` mirror and `Settings.System user_refresh_rate` (refresh follow) —
-plus the charge guard's single cataloged node
-`battery_charging_enabled` (Baseline, the ROM's own user-facing switch).
-Never sysfs beyond that node, never props, never SELinux. The real power
-property (`persist.sys.aries.power_profile`) is SELinux-locked and is never
-attempted. Details: [ROM-HARMONY.md](ROM-HARMONY.md).
+The bridge is the only non-catalog writer. Settings targets: `Settings.Global
+low_power` (live saver) and the `Settings.System power_mode` mirror. Node
+targets: the two audited `ALLOWED_EXACT` charge nodes
+(`battery_charging_enabled` for the charge guard, `input_suspend` for per-app
+bypass). DND is decided by the daemon but executed by the app through the
+official `NotificationManager` API (`zen_mode` is etag-tracked and never
+written directly). Never props, never SELinux — the HWUI renderer feature was
+dropped because the app-spawned daemon (`untrusted_app`) cannot write
+`debug_prop`. The real power property (`persist.sys.aries.power_profile`) is
+SELinux-locked and is never attempted. Details:
+[ROM-HARMONY.md](ROM-HARMONY.md).
 
 ## Precision policy
 

@@ -32,6 +32,7 @@ Transport notes:
 | `seed` | `pkg: string\|null` | wake/unlock seed (peeked package) |
 | `mw` | `active: bool, other: string\|null` | multi-window state (normally daemon-side) |
 | `ultra` | `on: bool` | MIUI Ultra battery saver broadcast |
+| `dnd_access` | `granted: bool` | the app reports whether Do Not Disturb access is granted (gates the per-app DND bridge) |
 | `set_base` | `profile: string` | manual card tap: apply now + treat as universal base |
 | `restore` | — | service-off: drop pending applies, restore stock, release holds |
 | `diag` | — | diagnostics snapshot -> `diag` event (health, env, holds) |
@@ -66,6 +67,7 @@ compatibility, tests, and future app-side watchers.
 | `stats` | `entries: [...]` | transition history reply (oldest first) |
 | `bridge` | `msg: string` | MIUI bridge timeline entry (also relayed to logcat) |
 | `game_mode_conflict` | `pkg: string` | MIUI Game Booster is still boosting a mapped game |
+| `dnd` | `mode: "priority"\|"total"` (absent = release) | the app must apply/restore DND through the official interruption-filter API |
 | `restored` | `ok, wrote, verified, failed` | service-off restore finished |
 | `retired` | `ok, wrote, verified, failed` | Ultra saver: restore finished, app must disable + stop |
 | `error` | `msg: string` | non-fatal error (daemon keeps running) |
@@ -178,7 +180,7 @@ dmn  ← {"event":"bye"}
 
 | File | Writer | Reader | Content |
 |---|---|---|---|
-| `filesDir/config.json` | app (atomic) | daemon (start, hint, mtime) | user intent: enabled, dynamic, base_profile, app_map, sync flags (`sync_refresh`), guards (`guard_battery`/`battery_floor_pct`, `guard_thermal`/`thermal_ceiling_c`), `sync_refresh`, `maintenance`, `charge_limit`/`charge_limit_pct` |
+| `filesDir/config.json` | app (atomic) | daemon (start, hint, mtime) | user intent: enabled, dynamic, base_profile, `app_map` (legacy mirror), `app_profiles` (per-app mapping + bypass_charge + dnd), `bypass_floor_pct`, sync flags, guards (`guard_battery`/`battery_floor_pct`, `guard_thermal`/`thermal_ceiling_c`), `maintenance`, `charge_limit`/`charge_limit_pct`, `jank_boost` |
 | `/data/adb/mifinetune/holds.json` | daemon (atomic) | daemon (recovery) | bridge restore points (crash-safe) |
 | `/data/adb/mifinetune/state.json` | daemon (via engine) | both (CLI status) | active profile, last mode |
 | `/data/adb/mifinetune/snapshot.json` | daemon (via engine) | daemon | stock values for restore |

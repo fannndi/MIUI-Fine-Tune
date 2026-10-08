@@ -10,10 +10,10 @@ sources:
 
 ## Who writes what
 
-Catalog (v0.7+): **90 nodes** (54 Baseline, 36 Free). v0.7 added six
+Catalog (v0.8+): **91 nodes** (55 Baseline, 36 Free). v0.7/v0.8 added seven
 evidence-backed entries: `io.read_ahead_kb` (Free — see the row below), the
 two L3-latency devfreq floors (Baseline), the two f2fs GC maintenance
-nodes (Baseline) and the charge-guard node (Baseline — see the row below).
+nodes (Baseline) and the two charge nodes (Baseline — see the rows below).
 
 | Node / parameter | Boot (`init.qcom.post_boot.sh`) | Runtime | Owner | MiFineTune |
 |---|---|---|---|---|
@@ -172,15 +172,22 @@ reordered per the rules above. Restore uses the same order.
 |---|---|---|---|
 | Battery saver | `Settings.Global low_power` | root put — **live** ✓ | the MIUI page follows the flag; restore via the bridge hold state machine |
 | Performance (hidden sheet) | `persist.sys.aries.power_profile` | **not possible** — SELinux rejects setprop from every su context (shell/run-as/untrusted_app); the hidden dialog cannot open over a locked game | what is written is only the `Settings.System power_mode` mirror (silent); the switch label mentions the limitation |
-| Refresh rate (v0.7) | framework `DisplayManager` honors `Settings.System user_refresh_rate` per window | root put — **live** ✓ (verified 2026-10-08: CLI-only 60 caps the panel at 60 Hz during animations while the vendor `persist.vendor.dfps.level` prop stays untouched) | game → 120 Hz, powersave-mapped app → 60 Hz; the user's own value returns on exit (hold/restore). The vendor DFPS prop is NEVER written — settings only |
+| Refresh rate | `Settings.System user_refresh_rate` / vendor dfps — **MIUI owns it** | — | MiFineTune never touches refresh anymore (F9 removed 2026-10-08): the user controls it via MIUI's own toggle |
+| Bypass charging (v0.8) | `battery/input_suspend` — `init.target.rc` + `init.miui.rc` open it 0777/chown system; MIUI's `mishow.sh` writes it (retail demo); `hvdcp_opti` only reads it | root write — **live** ✓ (device-verified 2026-10-08: `input_suspend=1` → status `Discharging`, current +142 mA; `0` → `Charging`, -60 mA) | per-app only: engaged while the configured app is in front and the charger is online, released at the floor (default 30 %, +5 hysteresis), on app exit / Service OFF / recovery. Kernel: USER_VOTER votes 0 mA on `usb_icl` + DC suspend |
 | Ultra battery saver | `EXTREME_POWER_SAVE_MODE_CHANGED` broadcast (not persistent) | retire: restore + stop + config off | MIUI freezes our service — zero intervention is the goal |
 | Split screen / floating window | `GameBoosterService` log `mMultiWindowForegroundPackageName` != 'null' | detected via the daemon's `logcat -b main` stream | the arbiter forces `Balance` over mapping & saver (user verdict); screen-off still wins |
 | Game Booster (checker) | `thermal_message/sconfig != 0` | root cat | one conflict notification per game session |
 
-**v0.5 gate**: all app-driven syncs (perf mirror, saver follow, refresh
-follow, checker) are active only while **Dynamic Profile is ON** — OFF means
-the universal base always wins and no MIUI mode is chased (sleep &
-multi-window keep working because they are not app-driven).
+**v0.5 gate**: all app-driven syncs (perf mirror, saver follow, checker and
+the Apps Profile software layer) are active only while **Dynamic Profile is
+ON** — OFF means the universal base always wins and no MIUI mode is chased
+(sleep & multi-window keep working because they are not app-driven).
+
+**Rejected (v0.8)**: the per-app HWUI renderer (`debug.hwui.renderer`). The
+app-spawned daemon runs in `u:r:untrusted_app:s0`, where SELinux denies
+`property_service { set }` on `debug_prop` (audit-denied 2026-10-08). No
+workaround is acceptable under the harmony rules, so the feature was dropped
+entirely instead of weakening SELinux.
 
 The hold/restore cycle is a pure state machine (`core/src/daemon/bridge.rs`,
 ported from the Kotlin `MiBridgeState`): first hold captures the user's live

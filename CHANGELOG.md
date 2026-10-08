@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.8.0 — Apps Profile (software layer) + F9 removal (2026-10-08)
+
+The two profile layers are now explicit: **Device Profile** is the hardware
+catalog (unchanged), **Apps Profile** is a per-app software layer with an
+explicit Save button. Nothing MIUI controls is overwritten.
+
+- **F9 removed**: MiFineTune no longer manages the refresh rate at all
+  (MIUI's own toggle owns it). The refresh-follow bridge, config flag,
+  Settings toggle and tests are gone; a one-time migration gives a held
+  refresh value back if an old `holds.json` still carries it.
+- **Apps Profile v2** (`app_profiles`): per-app Device-Profile mapping +
+  bypass charging + DND. `app_map` stays as a backward-compatible mirror and
+  legacy mappings survive every write.
+- **Bypass charging** (opt-in): `input_suspend` (Baseline, ALLOWED_EXACT #2)
+  suspends charger input while the app is in front — device runs on battery,
+  charging heat disappears. Engages above `bypass_floor_pct` (Settings
+  slider 15..50, default 30) + 5 % hysteresis, releases at the floor, on app
+  exit, Service OFF and crash recovery. Device E2E: `bypass charging ON
+  (com.YoStarEN.AzurLane, 100%)` → status `Discharging` → leave → `bypass
+  charging OFF (node 0)` → `Charging`.
+- **DND per-app** (opt-in): the daemon decides, the app executes through the
+  official `NotificationManager.setInterruptionFilter` (one-time "Do Not
+  Disturb access" grant; `zen_mode` is never written directly). Device E2E:
+  `dnd applied: total` (zen 1→2) → leave → `DND released` (zen 2→1, the
+  user's own state).
+- **Apps Profile UI**: list with All/Games/Configured filters and summary
+  chips (`Game · Bypass · DND`), a detail screen with draft state, an
+  explicit **Save app profile** button, discard confirmation and reset.
+- **Settings**: new "Charging" card (charge limit + bypass floor slider).
+  Diagnostics holds row shows bypass/DND.
+- **Dropped: per-app HWUI renderer** — the app-spawned daemon runs in
+  `untrusted_app`, where SELinux denies `debug_prop` writes; no workaround
+  is acceptable under the harmony rules.
+- Tests: 119 unit + 13 host E2E (bypass/DND E2E over fake sysfs/settings),
+  clippy 0, fmt clean; owner-map audit passes (91 entries).
+
 ## v0.7.0 — telemetry, guards, maintenance & FAS-lite (2026-10-08)
 
 Read-only telemetry, transition history, an in-app Diagnostics screen and
