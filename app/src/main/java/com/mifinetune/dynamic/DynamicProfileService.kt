@@ -53,7 +53,14 @@ class DynamicProfileService : Service() {
         private const val GM_CHANNEL_ID = "gmode"
         private const val GM_NOTIF_ID = 42
         private const val SLEEP_DELAY_MS = 10_000L
-        private const val SETTLE_MS = 700L
+
+        /**
+         * Coalescing window: one app transition emits its event pair within
+         * ~50 ms, so this only needs to absorb bursts — not deliberate
+         * user hops. 400 ms measured on device 2026-10-08: same final state,
+         * ~300 ms faster than the old 700 ms, no extra applies.
+         */
+        private const val SETTLE_MS = 400L
         private const val SUPERVISE_MS = 3_000L
         private const val WATCHER_RESTART_MS = 10_000L
 
@@ -83,6 +90,7 @@ class DynamicProfileService : Service() {
     private var supervisorJob: Job? = null
     private var applyWorker: Job? = null
     private var pendingDecision: Decision.Apply? = null
+    private var pendingSince = 0L
     private var screenOn = true
     private var locked = false
     private var lastSeenPkg: String? = null
@@ -539,6 +547,7 @@ class DynamicProfileService : Service() {
      */
     private fun enqueue(d: Decision.Apply) {
         pendingDecision = d
+        if (pendingSince == 0L) pendingSince = System.currentTimeMillis()
         if (applyWorker?.isActive == true) return
         applyWorker = scope.launch {
             while (true) {
@@ -553,6 +562,11 @@ class DynamicProfileService : Service() {
     }
 
     private suspend fun performApply(d: Decision.Apply, usedSaver: Boolean) {
+        // latency instrumentation: settle = enqueue -> worker start,
+        // total = worker start -> apply verified (log-only, no behaviour)
+        val startedAt = System.currentTimeMillis()
+        val settle = if (pendingSince > 0) startedAt - pendingSince else 0
+        pendingSince = 0
         // base forced by the battery saver carries its own label
         val reasonText = if (usedSaver && d.reason == "base") "MIUI saver" else describe(d)
         val current = runCatching { Tuner.status().active }.getOrNull()
@@ -581,6 +595,10 @@ class DynamicProfileService : Service() {
                     DynamicProfileState.appliedProfile.value = d.profileId
                     DynamicProfileState.reason.value = reasonText
                     updateNotification(d.profileId, reasonText)
+                    Log.d(
+                        TAG,
+                        "apply ${d.profileId}: done in ${System.currentTimeMillis() - startedAt}ms (settle ${settle}ms)",
+                    )
                     // drift handling is the supervisor's periodic evaluate —
                     // no separate guard loop here (it could stomp with a
                     // stale profile after a transient failure)
