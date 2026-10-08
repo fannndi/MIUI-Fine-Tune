@@ -144,12 +144,16 @@ class DynamicProfileService : Service() {
                 // restart is the supervisor's job (single restart path)
                 Log.w(TAG, "daemon exited")
             },
+            onLog = { line -> DynamicProfileState.pushLog(line) },
         )
         if (c.start()) {
             client = c
             DaemonLink.client = c
             lastClientStart = System.currentTimeMillis()
             c.send(JSONObject().put("cmd", "hello"))
+            // seed the diagnostics screen (on-demand, cheap)
+            c.send(JSONObject().put("cmd", "diag"))
+            c.send(JSONObject().put("cmd", "stats"))
             // force the full context on every (re)start: the dedupe state
             // belongs to the previous daemon instance
             lastScreen = null
@@ -267,6 +271,12 @@ class DynamicProfileService : Service() {
             }
 
             "bridge" -> DynamicProfileState.pushBridgeEvent(ev.optString("msg"))
+
+            "env" -> DynamicProfileState.env.value = DiagnosticsParse.env(ev)
+
+            "diag" -> DiagnosticsParse.diag(ev)?.let { DynamicProfileState.diag.value = it }
+
+            "stats" -> DynamicProfileState.stats.value = DiagnosticsParse.stats(ev)
 
             "game_mode_conflict" ->
                 DaemonNotifications.notifyGameModeConflict(this, labelFor(ev.optString("pkg")))

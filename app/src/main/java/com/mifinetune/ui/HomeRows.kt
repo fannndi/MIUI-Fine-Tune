@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AutoMode
 import androidx.compose.material.icons.filled.Balance
 import androidx.compose.material.icons.filled.BatterySaver
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sports
@@ -70,6 +71,7 @@ import com.mifinetune.core.ApplyReport
 import com.mifinetune.core.LockedKey
 import com.mifinetune.core.Op
 import com.mifinetune.core.Status
+import com.mifinetune.dynamic.EnvSnapshot
 
 
 // --- profile row -------------------------------------------------------------
@@ -264,6 +266,46 @@ internal fun DynamicProfileRow(state: HomeUiState, onToggle: (Boolean) -> Unit) 
                 checked = state.dynamicEnabled,
                 onCheckedChange = onToggle,
                 enabled = serviceOn,
+            )
+        }
+    }
+}
+
+// --- diagnostics entry ---------------------------------------------------------
+
+@Composable
+internal fun DiagnosticsRow(env: EnvSnapshot?, onClick: () -> Unit) {
+    val subtitle = if (env != null) {
+        listOfNotNull(
+            env.batteryPct?.let { "$it%" },
+            env.cpuTempC?.let { String.format(java.util.Locale.US, "%.1f °C", it) },
+            env.gpuBusyPct?.let { "GPU $it%" },
+        ).joinToString(" · ").ifEmpty { "Daemon · battery · thermal · log" }
+    } else {
+        "Daemon · battery · thermal · log"
+    }
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconCircle(Icons.Default.MonitorHeart)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

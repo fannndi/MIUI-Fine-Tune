@@ -24,6 +24,7 @@ class DaemonClient(
     private val configPath: String,
     private val onEvent: (JSONObject) -> Unit,
     private val onExit: () -> Unit,
+    private val onLog: (String) -> Unit = {},
 ) {
 
     companion object {
@@ -75,7 +76,10 @@ class DaemonClient(
         thread(name = "daemon-stderr") {
             runCatching {
                 p.errorStream.bufferedReader().forEachLine { line ->
-                    if (line.isNotBlank()) Log.d(TAG, line)
+                    if (line.isNotBlank()) {
+                        Log.d(TAG, line)
+                        onLog(line)
+                    }
                 }
             }
         }

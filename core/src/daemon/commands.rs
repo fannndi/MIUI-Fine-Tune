@@ -4,9 +4,10 @@
 //! the decision point in `evaluate.rs`.
 
 use super::arbiter;
+use super::proto::{DiagInfo, Watchers};
 use super::watcher;
 use super::worker::{self, Work};
-use super::{Command, Event, Msg, Runtime, SLEEP_DELAY_MS};
+use super::{Command, Event, Msg, Runtime, SLEEP_DELAY_MS, VERSION};
 use std::time::{Duration, Instant};
 
 impl Runtime {
@@ -81,6 +82,33 @@ impl Runtime {
             Command::Restore => {
                 self.log("ipc: restore");
                 let _ = self.work_tx.send(Work::Restore { retire: false });
+            }
+            Command::Diag => {
+                let diag = DiagInfo {
+                    version: VERSION,
+                    pid: std::process::id(),
+                    uptime_s: self.started.elapsed().as_secs(),
+                    state_dir: self.state_dir.display().to_string(),
+                    config_path: self.config_path.display().to_string(),
+                    config: self.config.get().clone(),
+                    env: self.env.clone(),
+                    screen_on: self.screen_on,
+                    locked: self.locked,
+                    multi_window: self.multi_window,
+                    foreground: self.last_fg.clone(),
+                    active: self.active.clone(),
+                    reason: self.reason.clone(),
+                    watchers: Watchers {
+                        fg: self.fg_watcher.as_ref().map(|w| w.is_alive()).unwrap_or(false),
+                        mw: self.mw_watcher.as_ref().map(|w| w.is_alive()).unwrap_or(false),
+                    },
+                    holds: self.bridge.holds_info(),
+                    stats_len: self.stats.entries.len(),
+                };
+                self.publisher.emit(&Event::Diag { diag });
+            }
+            Command::Stats => {
+                self.publisher.emit(&Event::Stats { entries: self.stats.entries.clone() });
             }
         }
         true

@@ -7,6 +7,10 @@
 //! Logging: human-readable lines go to stderr (the app relays them to
 //! logcat under the `MiFineTune` tag); stdout carries ONLY protocol JSON.
 
+use crate::daemon::bridge::HoldsInfo;
+use crate::daemon::config::DaemonConfig;
+use crate::daemon::stats::StatEntry;
+use crate::engine::env::EnvSnapshot;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -39,6 +43,10 @@ pub enum Command {
     SetBase { profile: String },
     /// Service going off: drop pending applies, restore stock, keep running.
     Restore,
+    /// Diagnostics snapshot: daemon health + env + holds.
+    Diag,
+    /// Transition history (dashboard).
+    Stats,
     /// Graceful shutdown (service destroyed on purpose).
     Shutdown,
     /// Liveness check -> `pong`.
@@ -78,6 +86,12 @@ pub enum Event {
     },
     /// Full runtime snapshot (emitted when anything visible changes).
     State { state: Snapshot },
+    /// Environment sample (battery / thermal / GPU busy) — emitted on change.
+    Env { env: EnvSnapshot },
+    /// Diagnostics reply for `cmd: diag`.
+    Diag { diag: DiagInfo },
+    /// Transition history reply for `cmd: stats`.
+    Stats { entries: Vec<StatEntry> },
     /// Bridge timeline entry (MIUI mode writes).
     Bridge { msg: String },
     /// MIUI Game Booster conflict for a mapped game (warn once per session).
@@ -110,6 +124,37 @@ pub struct Snapshot {
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub src_pkg: Option<String>,
+}
+
+/// Watcher liveness for diagnostics (restart happens on the next tick).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Watchers {
+    pub fg: bool,
+    pub mw: bool,
+}
+
+/// Complete diagnostics reply: what the daemon is, sees and holds.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct DiagInfo {
+    pub version: u32,
+    pub pid: u32,
+    pub uptime_s: u64,
+    pub state_dir: String,
+    pub config_path: String,
+    pub config: DaemonConfig,
+    pub env: EnvSnapshot,
+    pub screen_on: bool,
+    pub locked: bool,
+    pub multi_window: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub foreground: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub watchers: Watchers,
+    pub holds: HoldsInfo,
+    pub stats_len: usize,
 }
 
 // --- emission ---------------------------------------------------------------
@@ -158,6 +203,11 @@ mod tests {
 
         let c: Command = serde_json::from_str(r#"{"cmd":"set_base","profile":"game"}"#).unwrap();
         assert_eq!(c, Command::SetBase { profile: "game".into() });
+
+        let c: Command = serde_json::from_str(r#"{"cmd":"diag"}"#).unwrap();
+        assert_eq!(c, Command::Diag);
+        let c: Command = serde_json::from_str(r#"{"cmd":"stats"}"#).unwrap();
+        assert_eq!(c, Command::Stats);
     }
 
     #[test]

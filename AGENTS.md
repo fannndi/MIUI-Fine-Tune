@@ -29,6 +29,7 @@ parameters, always through the catalog guard.
 | `src/engine/catalog/mod.rs` | tier/kind/entry types, `find`, `guard_path` (forbidden-path guard) |
 | `src/engine/catalog/entries.rs` | the 84-node registry table (data only) |
 | `src/engine/catalog/forbidden.rs` | framework-owned path prefixes + exact keys (never written) |
+| `src/engine/env.rs` | read-only telemetry sampler (battery / thermal / GPU busy) |
 | `src/engine/probe.rs` | read-only device capture: node values, options, framework evidence |
 | `src/engine/profile.rs` | `profiles.json` model + parser |
 | `src/engine/plan.rs` | `build_plan`: statuses, kernel-invariant pair checks, write ordering |
@@ -51,6 +52,8 @@ parameters, always through the catalog guard.
 | `src/daemon/worker.rs` + `worker/tests.rs` | coalescing apply worker: settle/supersede/retry/restore-cancel |
 | `src/daemon/engine_driver.rs` | engine adapter for the worker (in-process, no `su`) |
 | `src/daemon/watcher.rs` | logcat watchers (`-v epoch`): foreground + multi-window + peek |
+| `src/daemon/env.rs` | env sampler thread (read-only telemetry into the loop) |
+| `src/daemon/stats.rs` | transition history (bounded, persisted `stats.json`) |
 | `src/daemon/bridge/mod.rs` | Bridge: shared state + one Mutex, recover/release/persist |
 | `src/daemon/bridge/holds.rs` | PowerMode + hold/restore state machine + holds.json |
 | `src/daemon/bridge/sync.rs` | SyncCtx + pure gates + settings-CLI sync IO |
@@ -69,14 +72,16 @@ parameters, always through the catalog guard.
 | `dynamic/DaemonClient.kt` | daemon spawn, JSON-lines framing, stderr→logcat relay, `DaemonLink` |
 | `dynamic/DynamicProfileService.kt` | FGS lifecycle; forwards screen/keyguard/ultra; maps events to state |
 | `dynamic/DaemonNotifications.kt` | notification channels + builders (service notification, GM warning) |
+| `dynamic/DiagnosticsModels.kt` | diagnostics shapes (env / diag / stats) + JSON parsing |
 | `dynamic/DynamicProfileConfig.kt` | `config.json` writer (atomic), prefs migration, daemon hints |
-| `dynamic/DynamicProfileState.kt` | process-wide StateFlows mirrored from daemon events |
+| `dynamic/DynamicProfileState.kt` | process-wide StateFlows mirrored from daemon events (incl. env/diag/stats/logs) |
 | `dynamic/DeviceContext.kt` | PowerManager/KeyguardManager reader only |
 | `dynamic/DynamicProfileBootReceiver.kt` | best-effort service start on boot |
 | `ui/HomeScreen.kt` | screen scaffold + navigation + service-off confirm |
 | `ui/HomeRows.kt` | profile cards, Apps entry, Service + Dynamic Profile rows |
 | `ui/HomeDialogs.kt` | report / profile detail / locked-keys dialogs |
 | `ui/HomeViewModel.kt` + `HomeUiState.kt` | Home controller + UI state shapes |
+| `ui/DiagnosticsScreen.kt` | diagnostics screen (daemon health, env, history, log) |
 | `ui/DynamicProfileViewModel.kt` | apps list + settings toggles controller |
 | `ui/AppsProfileScreen.kt` / `SettingsScreen.kt` / `UiBits.kt` / `ProfileLabels.kt` / `theme/` | Compose UI |
 
@@ -164,6 +169,14 @@ adb logcat -s MiFineTune:*   # daemon stderr is relayed here
 # - Dynamic OFF: mapped game stays base; no 'bridge: MIUI ...' lines
 # - Service OFF: 'restore: ok=true' + 'stdin closed, exiting'
 # - split screen: 'bridge: multi-window ON (...)' -> balance
+
+# diagnostics (Phase 7)
+adb shell "su -c '$B doctor --state-dir /data/adb/mifinetune'"  # env_* checks pass
+# in-app: Home -> Diagnostics shows live env, transitions and the daemon log
+adb shell "su -c 'cat /data/adb/mifinetune/stats.json'"         # one entry per switch
+
+# host-side telemetry simulation (no device needed)
+cd core && MIFINETUNE_SYSFS_ROOT=/path/to/fake-root cargo test --test daemon_smoke
 ```
 
 ## Device quirks (save yourself hours)

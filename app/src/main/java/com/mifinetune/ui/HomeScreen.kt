@@ -70,18 +70,20 @@ import com.mifinetune.core.ApplyReport
 import com.mifinetune.core.LockedKey
 import com.mifinetune.core.Op
 import com.mifinetune.core.Status
+import com.mifinetune.dynamic.DynamicProfileState
 
 /**
  * Home: compact profile rows (tap = apply + base), the Apps Profile entry and
  * the Service switch. Everything else lives in Settings.
  */
 
-private enum class HomeDest { HOME, APPS, SETTINGS }
+private enum class HomeDest { HOME, APPS, SETTINGS, DIAGNOSTICS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(vm: HomeViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val env by DynamicProfileState.env.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var dest by remember { mutableStateOf(HomeDest.HOME) }
     var detailProfileId by remember { mutableStateOf<String?>(null) }
@@ -111,6 +113,9 @@ fun HomeScreen(vm: HomeViewModel) {
                 onBack = { dest = HomeDest.HOME },
                 vm = avm,
             )
+        }
+        HomeDest.DIAGNOSTICS -> {
+            DiagnosticsScreen(onBack = { dest = HomeDest.HOME })
         }
         HomeDest.HOME -> {
             Scaffold(
@@ -168,6 +173,12 @@ fun HomeScreen(vm: HomeViewModel) {
                             DynamicProfileRow(
                                 state = state,
                                 onToggle = vm::onDynamicToggle,
+                            )
+                        }
+                        item(key = "diagnostics") {
+                            DiagnosticsRow(
+                                env = env,
+                                onClick = { dest = HomeDest.DIAGNOSTICS },
                             )
                         }
                     }

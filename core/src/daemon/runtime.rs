@@ -9,6 +9,7 @@ use super::worker;
 use super::Runtime;
 use super::worker::RestoredEvent;
 use super::{Event, Snapshot};
+use crate::engine::env::EnvSnapshot;
 
 impl Runtime {
     pub(super) fn log(&self, msg: &str) {
@@ -41,6 +42,16 @@ impl Runtime {
         });
     }
 
+    /// Fresh environment sample: keep it for guards + diag; forward to the
+    /// app only when something changed (twice-a-minute silence otherwise).
+    pub(super) fn on_env(&mut self, snap: EnvSnapshot) {
+        let changed = snap != self.env;
+        self.env = snap;
+        if changed {
+            self.publisher.emit(&Event::Env { env: self.env.clone() });
+        }
+    }
+
     pub(super) fn on_applied(&mut self, ev: worker::AppliedEvent) {
         if ev.ok {
             if ev.wrote == 0 {
@@ -50,6 +61,10 @@ impl Runtime {
                     "apply {}: done in {}ms (settle {}ms)",
                     ev.profile, ev.ms, ev.settle_ms
                 ));
+            }
+            // a real switch (not an "in place" confirmation) is history
+            if self.active.as_deref() != Some(ev.profile.as_str()) {
+                self.stats.record(self.active.as_deref(), &ev.profile, &ev.reason, &self.env);
             }
             self.active = Some(ev.profile.clone());
             self.reason = Some(ev.reason.clone());
@@ -74,6 +89,14 @@ impl Runtime {
 
     pub(super) fn on_restored(&mut self, ev: RestoredEvent) {
         if ev.ok {
+            if let Some(prev) = self.active.clone() {
+                self.stats.record(
+                    Some(&prev),
+                    "stock",
+                    if ev.retire { "retire" } else { "restore" },
+                    &self.env,
+                );
+            }
             self.active = None;
             self.reason = None;
             self.src_pkg = None;

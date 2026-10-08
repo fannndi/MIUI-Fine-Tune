@@ -18,20 +18,26 @@ struct Daemon {
 
 impl Daemon {
     fn spawn(state_dir: &std::path::Path, config: &std::path::Path) -> Self {
+        Self::spawn_env(state_dir, config, &[])
+    }
+
+    fn spawn_env(state_dir: &std::path::Path, config: &std::path::Path, envs: &[(&str, &str)]) -> Self {
         let bin = env!("CARGO_BIN_EXE_miui-ft");
-        let mut child = Command::new(bin)
-            .args([
-                "serve",
-                "--state-dir",
-                state_dir.to_str().unwrap(),
-                "--config",
-                config.to_str().unwrap(),
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn daemon");
+        let mut cmd = Command::new(bin);
+        cmd.args([
+            "serve",
+            "--state-dir",
+            state_dir.to_str().unwrap(),
+            "--config",
+            config.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+        for (k, v) in envs {
+            cmd.env(k, v);
+        }
+        let mut child = cmd.spawn().expect("spawn daemon");
         let stdin = child.stdin.take().unwrap();
         let stdout = BufReader::new(child.stdout.take().unwrap());
         Daemon { child, stdin, stdout }
@@ -185,6 +191,74 @@ fn daemon_smoke_full_decision_path() {
     let bye = d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
     assert_eq!(bye["event"], "bye");
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn daemon_diag_stats_and_env_events() {
+    let dir = tmp("diag");
+    let cfg_path = dir.join("config.json");
+    std::fs::write(
+        &cfg_path,
+        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance"}"#,
+    )
+    .unwrap();
+
+    // fake sysfs tree: battery + thermal + GPU (host has no device nodes)
+    let root = dir.join("fake-root");
+    let w = |rel: &str, body: &str| {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    };
+    w("sys/class/power_supply/battery/capacity", "95\n");
+    w("sys/class/power_supply/battery/status", "Charging\n");
+    w("sys/class/power_supply/battery/temp", "320\n");
+    w("sys/class/thermal/thermal_zone24/type", "cpuss-0-usr\n");
+    w("sys/class/thermal/thermal_zone24/temp", "38800\n");
+    w("sys/class/kgsl/kgsl-3d0/gpu_busy_percentage", "3 %\n");
+
+    let mut d = Daemon::spawn_env(&dir, &cfg_path, &[("MIFINETUNE_SYSFS_ROOT", root.to_str().unwrap())]);
+
+    // startup handshake: hello -> state -> env (the sampler emits immediately)
+    let hello = d.wait_for(|v| v["event"] == "hello", Duration::from_secs(5));
+    assert_eq!(hello["version"], 1);
+    let env_ev = d.wait_for(|v| v["event"] == "env", Duration::from_secs(5));
+    assert_eq!(env_ev["env"]["battery_pct"], 95);
+    assert_eq!(env_ev["env"]["charging"], true);
+    assert_eq!(env_ev["env"]["battery_temp_c"], 32.0);
+    assert_eq!(env_ev["env"]["cpu_temp_c"], 38.8);
+    assert_eq!(env_ev["env"]["gpu_busy_pct"], 3);
+
+    // one real switch so the history has an entry
+    d.send(json!({"cmd":"screen","on":true,"locked":false}));
+    d.send(json!({"cmd":"fg","pkg":"com.whatsapp"}));
+    d.wait_for(|v| v["event"] == "applied" && v["profile"] == "balance", Duration::from_secs(10));
+
+    d.send(json!({"cmd":"diag"}));
+    let diag = d.wait_for(|v| v["event"] == "diag", Duration::from_secs(5));
+    assert!(diag["diag"]["pid"].is_u64());
+    assert!(diag["diag"]["uptime_s"].is_u64());
+    assert_eq!(diag["diag"]["config"]["base_profile"], "balance");
+    assert_eq!(diag["diag"]["env"]["battery_pct"], 95);
+    assert!(diag["diag"]["watchers"]["fg"].is_boolean());
+    assert_eq!(diag["diag"]["holds"]["perf_held"], false);
+
+    d.send(json!({"cmd":"stats"}));
+    let stats = d.wait_for(|v| v["event"] == "stats", Duration::from_secs(5));
+    let entries = stats["entries"].as_array().expect("entries array");
+    assert!(!entries.is_empty(), "one applied switch must be recorded");
+    let last = entries.last().unwrap();
+    assert_eq!(last["to"], "balance");
+    assert_eq!(last["reason"], "base");
+    assert_eq!(last["battery"], 95);
+
+    // the history survives on disk for the next daemon
+    let on_disk = std::fs::read_to_string(dir.join("stats.json")).unwrap();
+    assert!(on_disk.contains("\"balance\""));
+
+    d.send(json!({"cmd":"shutdown"}));
+    d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

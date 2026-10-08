@@ -3,6 +3,7 @@
 //! File index:
 //! - `catalog/`    writable parameter registry + forbidden-path guard
 //! - `probe.rs`    read-only device capture (values + options + evidence)
+//! - `env.rs`      read-only telemetry (battery / thermal / GPU busy)
 //! - `profile.rs`  profiles.json model + parser
 //! - `plan.rs`     profile + probe -> ordered Plan (statuses, invariants)
 //! - `validate.rs` per-kind value validation (clamps to real device options)
@@ -16,6 +17,7 @@
 pub mod apply;
 pub mod catalog;
 pub mod doctor;
+pub mod env;
 pub mod plan;
 pub mod profile;
 pub mod probe;

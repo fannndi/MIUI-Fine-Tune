@@ -109,6 +109,15 @@ pub struct HoldsFile {
     pub saver_saved: bool,
 }
 
+/// Read-only hold view for diagnostics (`diag` command); never mutates.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HoldsInfo {
+    pub perf_held: bool,
+    pub perf_saved: String,
+    pub saver_held: bool,
+    pub saver_saved: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

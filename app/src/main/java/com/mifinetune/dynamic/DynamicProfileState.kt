@@ -59,6 +59,26 @@ object DynamicProfileState {
      */
     val bridgeLog = MutableStateFlow<List<String>>(emptyList())
 
+    // --- diagnostics (Phase 7) ---------------------------------------------
+
+    /** Latest environment sample (battery / thermal / GPU busy). */
+    val env = MutableStateFlow<EnvSnapshot?>(null)
+
+    /** Latest `diag` reply (null until requested). */
+    val diag = MutableStateFlow<DiagInfo?>(null)
+
+    /** Transition history (oldest first; the screen renders it reversed). */
+    val stats = MutableStateFlow<List<StatEntry>>(emptyList())
+
+    /** In-app relay of the daemon's stderr log (capped, timestamped). */
+    val logs = MutableStateFlow<List<String>>(emptyList())
+
+    fun pushLog(line: String) {
+        val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date())
+        logs.value = (logs.value + "$time  $line").takeLast(200)
+    }
+
     /** Latest `applied` event (each event is a new instance). */
     val appliedEvents = MutableStateFlow<AppliedEvent?>(null)
     private var appliedSeq = 0L

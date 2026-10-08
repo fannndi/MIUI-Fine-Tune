@@ -22,6 +22,7 @@ mod holds;
 mod sync;
 
 pub use holds::PowerMode;
+pub use holds::HoldsInfo;
 pub use sync::SyncCtx;
 
 use super::proto::{Event, Publisher};
@@ -83,6 +84,17 @@ impl Bridge {
             0 => false,
             1 => true,
             _ => live,
+        }
+    }
+
+    /// Read-only hold state for `diag` (brief lock; never any IO).
+    pub fn holds_info(&self) -> HoldsInfo {
+        let st = self.lock();
+        HoldsInfo {
+            perf_held: st.holds.perf_held,
+            perf_saved: st.holds.perf_saved.key().to_string(),
+            saver_held: st.holds.saver_held,
+            saver_saved: st.holds.saver_saved,
         }
     }
 

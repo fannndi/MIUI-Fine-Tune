@@ -11,6 +11,8 @@
 //! - `engine_driver.rs` engine adapter (in-process, no `su`)
 //! - `settings.rs`      live flags via the `settings` CLI
 //! - `watcher.rs`       logcat streams (foreground + multi-window)
+//! - `env.rs`           environment sampler thread (read-only telemetry)
+//! - `stats.rs`         transition history (bounded, persisted)
 //! - `bridge/`          MIUI mode hold/restore (settings IO thread)
 //! - `mod.rs`           this file: state type, constants, threads, main loop
 //!
@@ -23,10 +25,12 @@ mod bridge;
 mod commands;
 mod config;
 mod engine_driver;
+mod env;
 mod evaluate;
 mod proto;
 mod runtime;
 mod settings;
+mod stats;
 #[cfg(test)]
 mod test_util;
 mod watcher;
@@ -40,10 +44,12 @@ pub use config::DaemonConfig;
 use crate::daemon::bridge::{Bridge, SyncCtx};
 use crate::daemon::config::ConfigFile;
 use crate::daemon::settings::LiveFlags;
+use crate::daemon::stats::Stats;
 use crate::daemon::watcher::{Watcher, WatcherKind};
 use crate::daemon::worker::{RestoredEvent, Work};
 use crate::engine::apply::Store;
-use std::path::Path;
+use crate::engine::env::EnvSnapshot;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -67,6 +73,8 @@ enum Msg {
     /// `unlock` always re-evaluates; `peek` (stream-down fallback) only
     /// evaluates when the package actually changed.
     Peek { pkg: Option<String>, trigger: &'static str },
+    /// Fresh environment sample (battery / thermal / GPU busy).
+    Env(EnvSnapshot),
     /// A watcher stream died; the supervisor restarts it with backoff.
     WatcherDown(WatcherKind),
 }
@@ -82,6 +90,13 @@ struct Runtime {
     config: ConfigFile,
     flags: Arc<LiveFlags>,
     bridge: Arc<Bridge>,
+    // paths + lifecycle (diag)
+    state_dir: PathBuf,
+    config_path: PathBuf,
+    started: Instant,
+    // environment + history
+    env: EnvSnapshot,
+    stats: Stats,
     // device context
     screen_on: bool,
     locked: bool,
@@ -209,6 +224,11 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         config: cfg,
         flags,
         bridge,
+        state_dir: state_dir.to_path_buf(),
+        config_path: config_path.to_path_buf(),
+        started: Instant::now(),
+        env: EnvSnapshot::default(),
+        stats: Stats::load(state_dir),
         screen_on: true,
         locked: false,
         multi_window: false,
@@ -234,6 +254,8 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
     if rt.mw_watcher.is_none() {
         rt.log("multi-window watcher: failed to spawn logcat");
     }
+    // read-only telemetry (battery / thermal / GPU busy) for diag + guards
+    env::spawn(msg_tx.clone());
     // initial snapshot even when everything is at defaults
     rt.emit_state(true);
 
@@ -260,6 +282,7 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
             Ok(Msg::Fg(pkg)) => rt.on_fg(pkg),
             Ok(Msg::Mw { active, other }) => rt.on_mw(active, other),
             Ok(Msg::Peek { pkg, trigger }) => rt.on_seed(pkg, trigger),
+            Ok(Msg::Env(snap)) => rt.on_env(snap),
             Ok(Msg::WatcherDown(kind)) => {
                 rt.log(&format!("{} stream ended", kind.name()));
             }

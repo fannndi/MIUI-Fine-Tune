@@ -34,6 +34,8 @@ Transport notes:
 | `ultra` | `on: bool` | MIUI Ultra battery saver broadcast |
 | `set_base` | `profile: string` | manual card tap: apply now + treat as universal base |
 | `restore` | — | service-off: drop pending applies, restore stock, release holds |
+| `diag` | — | diagnostics snapshot -> `diag` event (health, env, holds) |
+| `stats` | — | transition history -> `stats` event |
 
 Examples:
 
@@ -42,6 +44,8 @@ Examples:
 {"cmd":"screen","on":true,"locked":false}
 {"cmd":"set_base","profile":"game"}
 {"cmd":"restore"}
+{"cmd":"diag"}
+{"cmd":"stats"}
 ```
 
 The app only sends `screen` / `user_present` / `ultra` / `config_changed` /
@@ -57,6 +61,9 @@ compatibility, tests, and future app-side watchers.
 | `decision` | `trigger, action, profile?, reason?` | what the arbiter decided (`action`: `none`/`apply`/`retire`) |
 | `applied` | `profile, reason, src_pkg?, ok, wrote, verified, failed, ms, settle_ms` | an apply finished (or was already in place) |
 | `state` | `state: {...}` | full runtime snapshot (emitted when anything visible changes) |
+| `env` | `env: {...}` | environment sample (battery / thermal / GPU busy), emitted on change |
+| `diag` | `diag: {...}` | diagnostics reply (health, env, holds) |
+| `stats` | `entries: [...]` | transition history reply (oldest first) |
 | `bridge` | `msg: string` | MIUI bridge timeline entry (also relayed to logcat) |
 | `game_mode_conflict` | `pkg: string` | MIUI Game Booster is still boosting a mapped game |
 | `restored` | `ok, wrote, verified, failed` | service-off restore finished |
@@ -87,6 +94,44 @@ The `state` snapshot:
 
 Optional fields are omitted when absent (`skip_serializing_if`), never `null`
 — parse with "missing = none".
+
+The `env` sample (read-only telemetry; absent fields = node unavailable):
+
+```json
+{"event":"env","env":{
+  "battery_pct": 85, "charging": true, "battery_temp_c": 32.0,
+  "cpu_temp_c": 38.8, "gpu_temp_c": 41.2, "gpu_busy_pct": 3
+}}
+```
+
+The `diag` reply (subset shown; `config` mirrors config.json):
+
+```json
+{"event":"diag","diag":{
+  "version": 1, "pid": 1234, "uptime_s": 120,
+  "state_dir": "/data/adb/mifinetune",
+  "config_path": "/data/data/com.mifinetune/files/config.json",
+  "config": {"enabled":true,"dynamic":true,"base_profile":"powersave", "...": "..."},
+  "env": {"battery_pct": 85},
+  "screen_on": true, "locked": false, "multi_window": false,
+  "foreground": "com.miui.home", "active": "powersave", "reason": "base",
+  "watchers": {"fg": true, "mw": true},
+  "holds": {"perf_held": false, "perf_saved": "middle", "saver_held": false, "saver_saved": false},
+  "stats_len": 12
+}}
+```
+
+The `stats` reply (oldest first, capped at 500; `t` is epoch seconds —
+display only, all decision timing is monotonic):
+
+```json
+{"event":"stats","entries":[
+  {"t":1791466685,"from":"sleep","to":"game","reason":"app","battery":100,"temp_c":41.1},
+  {"t":1791466692,"from":"game","to":"powersave","reason":"base","battery":100,"temp_c":41.1}
+]}
+```
+
+`to` is a profile id or `"stock"` (restore back to factory values).
 
 ## Sequence sketches
 
@@ -137,3 +182,4 @@ dmn  ← {"event":"bye"}
 | `/data/adb/mifinetune/holds.json` | daemon (atomic) | daemon (recovery) | bridge restore points (crash-safe) |
 | `/data/adb/mifinetune/state.json` | daemon (via engine) | both (CLI status) | active profile, last mode |
 | `/data/adb/mifinetune/snapshot.json` | daemon (via engine) | daemon | stock values for restore |
+| `/data/adb/mifinetune/stats.json` | daemon (atomic) | app (`stats` command) | transition history, capped at 500 entries |

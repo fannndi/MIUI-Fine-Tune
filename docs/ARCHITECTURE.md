@@ -52,8 +52,14 @@ A long-lived root process started once by the app. It owns:
   peek used to seed wake/unlock decisions.
 - **The bridge** — MIUI performance mirror + battery-saver follow + game-mode
   checker, with a hold/restore state machine persisted in `holds.json`.
+- **The environment sampler** (`env.rs`) — read-only telemetry (battery,
+  thermal zones, GPU busy) into the main loop every 30 s; the app renders it
+  live (`env` events) and `diag` reports it.
+- **The transition history** (`stats.rs`) — one bounded, persisted entry per
+  real profile switch (`stats.json`), served to the app's dashboard via the
+  `stats` command.
 - **Timers** — 10 s sleep grace after screen-off, 15 s periodic re-evaluate,
-  1 s config mtime poll, 10 s watcher restart backoff.
+  1 s config mtime poll, 10 s watcher restart backoff, 30 s env sampling.
 
 Thread model (std threads + mpsc, no async runtime):
 
@@ -61,8 +67,8 @@ Thread model (std threads + mpsc, no async runtime):
 stdin reader ─┐
 worker       ─┼─► main loop (owns all state; no locks)
 watchers     ─┤        │
-peek threads ─┘        ├─► worker channel   (Work::Apply / Work::Restore)
-                       └─► bridge channel   (SyncCtx, latest-wins)
+peek threads ─┤        ├─► worker channel   (Work::Apply / Work::Restore)
+env sampler  ─┘        └─► bridge channel   (SyncCtx, latest-wins)
 ```
 
 The main loop never blocks on IO: settings execs happen on the bridge thread,
@@ -75,9 +81,10 @@ applies on the worker, logcat on the watcher threads. The bridge's
   forwards Android-only signals (`screen`, `user_present`, `ultra`), maps
   daemon events into `DynamicProfileState` + notifications. It decides nothing.
 - `DaemonClient` — process plumbing: `su -c` spawn, one JSON per line,
-  stderr relayed to logcat (`MiFineTune` tag). Closing stdin is the shutdown
-  signal; the daemon exits by itself (EOF), the client kills only after a
-  grace period.
+  stderr relayed to logcat (`MiFineTune` tag) and ring-buffered in
+  `DynamicProfileState.logs` for the in-app Diagnostics screen. Closing stdin
+  is the shutdown signal; the daemon exits by itself (EOF), the client kills
+  only after a grace period.
 - `DynamicProfileConfig` — the app is the single writer of `config.json`
   (atomic tmp+rename). It also migrates the old SharedPreferences once.
 - `HomeViewModel` — routes user actions: while the daemon is connected,
@@ -116,6 +123,17 @@ UI switch OFF ──► config.enabled=false ──► daemon `restore` command
                └─ wait for `restored` event ──► stop service ──► stdin EOF
                                                   ──► daemon releases bridge
                                                       holds and exits
+```
+
+### Diagnostics (read-only)
+
+```
+env sampler (30 s) ──► Msg::Env ──► main loop ──► `env` event (on change)
+                                              └─► kept for diag + future guards
+app `diag`  ──► health snapshot (pid, uptime, watchers, holds, env, config)
+app `stats` ──► stats.json history (one entry per real switch)
+UI Diagnostics screen renders all three; the daemon log is relayed over
+stderr and ring-buffered in the app (no cable needed).
 ```
 
 ## Harmony invariant
