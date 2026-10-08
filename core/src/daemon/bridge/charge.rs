@@ -107,7 +107,6 @@ mod tests {
             sync_perf: true,
             sync_saver: true,
             game_checker: true,
-            sync_refresh: true,
             app_map: Default::default(),
             battery_pct: Some(pct),
             charging,

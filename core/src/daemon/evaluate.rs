@@ -161,7 +161,6 @@ impl Runtime {
             sync_perf: cfg.sync_miui_perf,
             sync_saver: cfg.sync_miui_saver,
             game_checker: cfg.game_mode_checker,
-            sync_refresh: cfg.sync_refresh,
             app_map: cfg.app_map.clone(),
             battery_pct: self.env.battery_pct,
             charging: self.env.charging,

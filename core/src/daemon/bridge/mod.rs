@@ -55,6 +55,9 @@ impl Bridge {
     /// Loads persisted holds from a previous run (crash recovery).
     pub fn recover(state_dir: &Path, publisher: Arc<Publisher>) -> Arc<Bridge> {
         let holds_path = state_dir.join("holds.json");
+        // Legacy F9 removal: a daemon killed while holding the user's
+        // refresh value must give it back once, then the field disappears.
+        migrate_legacy_refresh(&holds_path, &publisher);
         let holds = fs::read_to_string(&holds_path)
             .ok()
             .and_then(|s| serde_json::from_str::<HoldsFile>(&s).ok())
@@ -63,13 +66,11 @@ impl Bridge {
                 perf_saved: PowerMode::of(&f.perf_saved),
                 saver_held: f.saver_held,
                 saver_saved: f.saver_saved,
-                refresh_held: f.refresh_held,
-                refresh_saved: f.refresh_saved,
                 charge_held: f.charge_held,
                 charge_saved: f.charge_saved,
             })
             .unwrap_or_default();
-        if holds.perf_held || holds.saver_held || holds.refresh_held || holds.charge_held {
+        if holds.perf_held || holds.saver_held || holds.charge_held {
             publisher.log("bridge: recovered holds from previous run");
         }
         let bridge = Arc::new(Bridge {
@@ -103,8 +104,6 @@ impl Bridge {
             perf_saved: st.holds.perf_saved.key().to_string(),
             saver_held: st.holds.saver_held,
             saver_saved: st.holds.saver_saved,
-            refresh_held: st.holds.refresh_held,
-            refresh_saved: st.holds.refresh_saved.clone(),
             charge_held: st.holds.charge_held,
             charge_saved: st.holds.charge_saved.clone(),
         }
@@ -139,16 +138,15 @@ impl Bridge {
     pub fn sync(&self, ctx: &SyncCtx) {
         // The lock is held across the settings execs so two syncs can never
         // interleave their read/write pairs (the old yo-yo bug class).
-        let (perf_changed, saver_changed, refresh_changed, charge_changed) = {
+        let (perf_changed, saver_changed, charge_changed) = {
             let mut st = self.lock();
             let perf_changed = self.sync_perf(&mut st, ctx);
             let saver_changed = self.sync_saver(&mut st, ctx);
-            let refresh_changed = self.sync_refresh(&mut st, ctx);
             let charge_changed = self.sync_charge(&mut st, ctx);
             self.game_check(&mut st, ctx);
-            (perf_changed, saver_changed, refresh_changed, charge_changed)
+            (perf_changed, saver_changed, charge_changed)
         };
-        if perf_changed || saver_changed || refresh_changed || charge_changed {
+        if perf_changed || saver_changed || charge_changed {
             self.refresh_attribution();
             let st = self.lock();
             self.persist(&st);
@@ -182,21 +180,6 @@ impl Bridge {
                 st.holds.saver_held = false;
                 changed = true;
             }
-            if st.holds.refresh_held {
-                match st.holds.refresh_saved.clone() {
-                    Some(v) => {
-                        let _ = settings::put("system", settings::REFRESH_KEY, &v);
-                        self.log_event(format!("refresh restored ({v})"));
-                    }
-                    None => {
-                        let _ = settings::delete("system", settings::REFRESH_KEY);
-                        self.log_event("refresh restored (user setting was unset)".into());
-                    }
-                }
-                st.holds.refresh_held = false;
-                st.holds.refresh_saved = None;
-                changed = true;
-            }
             if st.holds.charge_held {
                 let value = st.holds.charge_saved.clone().unwrap_or_else(|| "1".into());
                 let node = crate::engine::env::default_root()
@@ -224,8 +207,6 @@ impl Bridge {
             perf_saved: st.holds.perf_saved.key().to_string(),
             saver_held: st.holds.saver_held,
             saver_saved: st.holds.saver_saved,
-            refresh_held: st.holds.refresh_held,
-            refresh_saved: st.holds.refresh_saved.clone(),
             charge_held: st.holds.charge_held,
             charge_saved: st.holds.charge_saved.clone(),
         };
@@ -235,6 +216,35 @@ impl Bridge {
         let tmp = self.holds_path.with_extension("json.tmp");
         if fs::write(&tmp, s).is_ok() {
             let _ = fs::rename(&tmp, &self.holds_path);
+        }
+    }
+}
+
+/// One-time migration for the removed F9 refresh-follow: a `holds.json`
+/// written by an older daemon may still hold the user's refresh value.
+/// Give it back once; the next persist drops the fields.
+fn migrate_legacy_refresh(holds_path: &Path, publisher: &Publisher) {
+    let Ok(raw) = fs::read_to_string(holds_path) else {
+        return;
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return;
+    };
+    let held = v
+        .get("refresh_held")
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
+    if !held {
+        return;
+    }
+    match v.get("refresh_saved").and_then(|s| s.as_str()) {
+        Some(saved) if !saved.is_empty() => {
+            let _ = settings::put("system", settings::REFRESH_KEY, saved);
+            publisher.log(&format!("bridge: legacy F9 refresh restored ({saved})"));
+        }
+        _ => {
+            let _ = settings::delete("system", settings::REFRESH_KEY);
+            publisher.log("bridge: legacy F9 refresh restored (key was unset)");
         }
     }
 }
@@ -252,8 +262,6 @@ mod tests {
             perf_saved: "high".into(),
             saver_held: true,
             saver_saved: true,
-            refresh_held: true,
-            refresh_saved: Some("60".into()),
             charge_held: true,
             charge_saved: Some("1".into()),
         };
@@ -265,8 +273,6 @@ mod tests {
         assert_eq!(st.holds.perf_saved, PowerMode::Performance);
         assert!(st.holds.saver_held);
         assert!(st.holds.saver_saved);
-        assert!(st.holds.refresh_held);
-        assert_eq!(st.holds.refresh_saved.as_deref(), Some("60"));
         assert!(st.holds.charge_held);
         assert_eq!(st.holds.charge_saved.as_deref(), Some("1"));
         drop(st);

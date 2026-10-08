@@ -55,7 +55,6 @@ fun SettingsScreen(
     }.getOrNull() ?: "?"
     val syncPerf = vm?.syncMiuiPerf?.collectAsStateWithLifecycle()?.value
     val syncSaver = vm?.syncSaver?.collectAsStateWithLifecycle()?.value
-    val syncRefresh = vm?.syncRefresh?.collectAsStateWithLifecycle()?.value
     val gmodeChecker = vm?.gameModeChecker?.collectAsStateWithLifecycle()?.value
     val bridgeLog = vm?.bridgeLog?.collectAsStateWithLifecycle()?.value ?: emptyList()
     val guardBattery = vm?.guardBattery?.collectAsStateWithLifecycle()?.value
@@ -176,23 +175,6 @@ fun SettingsScreen(
                                     )
                                 }
                                 Switch(checked = syncSaver, onCheckedChange = vm::setSyncSaver)
-                            }
-                        }
-                        if (syncRefresh != null) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("Refresh rate follow", style = MaterialTheme.typography.bodyMedium)
-                                    Text(
-                                        "Mapped game → 120 Hz, Power Save app → 60 Hz; " +
-                                            "your own value returns when neither is in front",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                Switch(checked = syncRefresh, onCheckedChange = vm::setSyncRefresh)
                             }
                         }
                         if (gmodeChecker != null) {

@@ -135,108 +135,6 @@ fn bridge_holds_and_restores_through_a_fake_settings_binary() {
         wait_file_contains(&holds_path, "\"saver_held\": false", Duration::from_secs(2)),
         "saver hold must be released in holds.json"
     );
-    assert!(
-        wait_file_contains(
-            &holds_path,
-            "\"refresh_held\": false",
-            Duration::from_secs(2)
-        ),
-        "refresh hold must be released in holds.json"
-    );
-
-    d.send(json!({"cmd":"shutdown"}));
-    d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn refresh_follow_writes_and_restores() {
-    let dir = tmp("bridge-refresh");
-    let state = write_fake_settings(&dir);
-    // the user's own value: 120 Hz
-    std::fs::write(state.join("system.user_refresh_rate"), "120").unwrap();
-    std::fs::write(
-        dir.join("config.json"),
-        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance",
-            "app_map":{"com.YoStarEN.AzurLane":"game","com.google.android.youtube":"powersave"}}"#,
-    )
-    .unwrap();
-
-    let script = dir.join("settings");
-    let mut d = Daemon::spawn_env(
-        &dir.join("state"),
-        &dir.join("config.json"),
-        &[
-            ("MIFINETUNE_SETTINGS_BIN", script.to_str().unwrap()),
-            ("MIFINETUNE_LOGCAT_BIN", "/nonexistent-logcat"),
-        ],
-    );
-
-    d.wait_for(|v| v["event"] == "hello", Duration::from_secs(5));
-    d.send(json!({"cmd":"screen","on":true,"locked":false}));
-
-    // game while the user is already at 120 -> Keep (no write)
-    d.send(json!({"cmd":"fg","pkg":"com.YoStarEN.AzurLane"}));
-    d.wait_for(
-        |v| v["event"] == "applied" && v["profile"] == "game",
-        Duration::from_secs(10),
-    );
-    assert_eq!(
-        setting(&state, "system.user_refresh_rate").as_deref(),
-        Some("120")
-    );
-
-    // powersave-mapped app -> write 60
-    d.send(json!({"cmd":"fg","pkg":"com.google.android.youtube"}));
-    d.wait_for(
-        |v| {
-            v["event"] == "bridge"
-                && v["msg"]
-                    .as_str()
-                    .unwrap_or("")
-                    .contains("refresh follow 60")
-        },
-        Duration::from_secs(10),
-    );
-    assert_eq!(
-        setting(&state, "system.user_refresh_rate").as_deref(),
-        Some("60")
-    );
-
-    // leave -> restore the captured 120
-    d.send(json!({"cmd":"fg","pkg":"com.miui.home"}));
-    d.wait_for(
-        |v| {
-            v["event"] == "bridge"
-                && v["msg"]
-                    .as_str()
-                    .unwrap_or("")
-                    .contains("refresh restored (120)")
-        },
-        Duration::from_secs(10),
-    );
-    assert_eq!(
-        setting(&state, "system.user_refresh_rate").as_deref(),
-        Some("120")
-    );
-
-    // user changes to 60 externally, then enters the game -> write 120
-    std::fs::write(state.join("system.user_refresh_rate"), "60").unwrap();
-    d.send(json!({"cmd":"fg","pkg":"com.YoStarEN.AzurLane"}));
-    d.wait_for(
-        |v| {
-            v["event"] == "bridge"
-                && v["msg"]
-                    .as_str()
-                    .unwrap_or("")
-                    .contains("refresh follow 120")
-        },
-        Duration::from_secs(10),
-    );
-    assert_eq!(
-        setting(&state, "system.user_refresh_rate").as_deref(),
-        Some("120")
-    );
 
     d.send(json!({"cmd":"shutdown"}));
     d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
@@ -357,7 +255,6 @@ fn dynamic_off_stops_the_bridge_follow() {
         "no write while dynamic is off"
     );
     assert_eq!(setting(&state, "global.low_power"), None);
-    assert_eq!(setting(&state, "system.user_refresh_rate"), None);
 
     d.send(json!({"cmd":"shutdown"}));
     d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));

@@ -17,8 +17,8 @@ use std::time::Duration;
 pub const SAVER_KEY: &str = "low_power";
 /// MIUI performance switch mirror (the property itself is unreachable).
 pub const POWER_MODE_KEY: &str = "power_mode";
-/// MIUI refresh-rate cap (framework-honored; the vendor DFPS prop is never
-/// touched — a settings value is the only surface MiFineTune writes).
+/// Legacy F9 key: only used by the one-time migration that gives a held
+/// refresh value back after the refresh-follow feature was removed.
 pub const REFRESH_KEY: &str = "user_refresh_rate";
 
 const SETTINGS_BIN: &str = "/system/bin/settings";
