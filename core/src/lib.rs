@@ -9,6 +9,7 @@ pub mod apply;
 pub mod catalog;
 pub mod probe;
 pub mod profile;
+pub mod serve;
 
 /// Default profile set, bundled in the binary and mirrored in assets.
 pub const DEFAULT_PROFILES_JSON: &str = include_str!("../profiles.json");

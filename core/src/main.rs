@@ -1,7 +1,10 @@
 //! `miui-ft` — CLI entry point.
 //!
-//! Commands: probe | profiles | plan | apply | restore | verify | status
+//! Commands: probe | profiles | plan | apply | restore | verify | status | serve
 //! Machine consumers (the Kotlin app) pass `--json`.
+//!
+//! `serve` is special: it does not return a JSON payload on exit — it runs
+//! the stdio daemon (JSON-lines protocol) until stdin closes. See `serve.rs`.
 
 use mifinetune_core::apply::{self, Store};
 use mifinetune_core::catalog;
@@ -70,6 +73,7 @@ commands:
   restore               write snapshot back (root)
   verify <id>           check live values vs profile, detect drift
   status                active profile, snapshot, framework evidence
+  serve                 stdio daemon (JSON-lines on stdin/stdout)
   catalog               dump the full parameter catalog as JSON
   apply runs one automatic re-plan pass when a governor switch reveals
                       previously hidden governor-specific nodes";
@@ -218,16 +222,29 @@ fn main() -> ExitCode {
         }
     };
 
-    match run(&args) {
-        Ok((code, payload)) => {
-            // JSON is the canonical format for every command (the app parses
-            // it; humans get the same pretty-printed payload).
-            println!("{payload}");
-            ExitCode::from(code.clamp(0, 255) as u8)
+    match args.cmd.as_str() {
+        "serve" => {
+            // stdio daemon: streams JSON-lines until stdin closes; never
+            // prints a one-shot payload (see serve.rs).
+            match mifinetune_core::serve::run() {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::from(1)
+                }
+            }
         }
-        Err(e) => {
-            eprintln!("error: {e}");
-            ExitCode::from(1)
-        }
+        _ => match run(&args) {
+            Ok((code, payload)) => {
+                // JSON is the canonical format for every command (the app parses
+                // it; humans get the same pretty-printed payload).
+                println!("{payload}");
+                ExitCode::from(code.clamp(0, 255) as u8)
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::from(1)
+            }
+        },
     }
 }
