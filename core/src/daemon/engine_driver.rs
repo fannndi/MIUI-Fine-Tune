@@ -38,6 +38,7 @@ impl EngineDriver for EngineApplier {
             Ok(rep) => Outcome {
                 ok: rep.ok,
                 wrote: rep.wrote,
+                verified: rep.verified,
                 failed: rep.failed,
                 error: None,
                 already: false,
@@ -51,12 +52,13 @@ impl EngineDriver for EngineApplier {
         // (the service-off flow must never fail on an empty snapshot).
         if self.store.load_snapshot().is_none() {
             self.bridge.release_all();
-            return Outcome { ok: true, wrote: 0, failed: 0, error: None, already: false };
+            return Outcome { ok: true, wrote: 0, verified: 0, failed: 0, error: None, already: false };
         }
         let out = match apply::restore(&self.store, &probe::probe()) {
             Ok(rep) => Outcome {
                 ok: rep.ok,
                 wrote: rep.wrote,
+                verified: rep.verified,
                 failed: rep.failed,
                 error: None,
                 already: false,

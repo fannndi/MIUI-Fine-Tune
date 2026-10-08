@@ -71,6 +71,7 @@ pub enum Event {
         src_pkg: Option<String>,
         ok: bool,
         wrote: usize,
+        verified: usize,
         failed: usize,
         ms: u64,
         settle_ms: u64,
@@ -82,9 +83,9 @@ pub enum Event {
     /// MIUI Game Booster conflict for a mapped game (warn once per session).
     GameModeConflict { pkg: String },
     /// Ultra saver retire finished: the app must set enabled=false + stop.
-    Retired { ok: bool, failed: usize },
+    Retired { ok: bool, wrote: usize, verified: usize, failed: usize },
     /// Restore finished (service-off path).
-    Restored { ok: bool, failed: usize },
+    Restored { ok: bool, wrote: usize, verified: usize, failed: usize },
     /// Ping reply.
     Pong,
     /// Non-fatal error for the log (daemon keeps running).

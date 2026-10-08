@@ -48,6 +48,7 @@ pub struct AppliedEvent {
     pub src_pkg: Option<String>,
     pub ok: bool,
     pub wrote: usize,
+    pub verified: usize,
     pub failed: usize,
     pub ms: u64,
     pub settle_ms: u64,
@@ -57,6 +58,8 @@ pub struct AppliedEvent {
 pub struct RestoredEvent {
     pub retire: bool,
     pub ok: bool,
+    pub wrote: usize,
+    pub verified: usize,
     pub failed: usize,
 }
 
@@ -65,6 +68,7 @@ pub struct RestoredEvent {
 pub struct Outcome {
     pub ok: bool,
     pub wrote: usize,
+    pub verified: usize,
     pub failed: usize,
     pub error: Option<String>,
     /// True when the target profile was already active (no write happened).
@@ -73,7 +77,7 @@ pub struct Outcome {
 
 impl Outcome {
     pub fn err(msg: String) -> Self {
-        Outcome { ok: false, wrote: 0, failed: 0, error: Some(msg), already: false }
+        Outcome { ok: false, wrote: 0, verified: 0, failed: 0, error: Some(msg), already: false }
     }
 }
 
@@ -107,7 +111,7 @@ pub fn run(
                 while let Ok(Work::Apply(_)) = rx.try_recv() {}
                 engine.release_holds();
                 let out = engine.restore();
-                on_restored(RestoredEvent { retire, ok: out.ok, failed: out.failed });
+                on_restored(RestoredEvent { retire, ok: out.ok, wrote: out.wrote, verified: out.verified, failed: out.failed });
             }
             Work::Apply(first_job) => {
                 let mut job = first_job;
@@ -137,7 +141,7 @@ pub fn run(
                 if let Some(r) = restore_deferred {
                     engine.release_holds();
                     let out = engine.restore();
-                    on_restored(RestoredEvent { retire: r.retire, ok: out.ok, failed: out.failed });
+                    on_restored(RestoredEvent { retire: r.retire, ok: out.ok, wrote: out.wrote, verified: out.verified, failed: out.failed });
                     continue;
                 }
 
@@ -155,6 +159,7 @@ pub fn run(
                     src_pkg: job.src_pkg.clone(),
                     ok: out.ok,
                     wrote: out.wrote,
+                    verified: out.verified,
                     failed: out.failed,
                     ms: started.elapsed().as_millis() as u64,
                     settle_ms,
@@ -170,7 +175,7 @@ struct Restore {
 
 fn run_once(engine: &mut dyn EngineDriver, job: &Job) -> Outcome {
     if engine.active().as_deref() == Some(job.profile.as_str()) {
-        return Outcome { ok: true, wrote: 0, failed: 0, error: None, already: true };
+        return Outcome { ok: true, wrote: 0, verified: 0, failed: 0, error: None, already: true };
     }
     engine.apply(&job.profile)
 }
@@ -190,11 +195,11 @@ mod tests {
     use std::sync::mpsc;
 
     fn ok_out(wrote: usize) -> Outcome {
-        Outcome { ok: true, wrote, failed: 0, error: None, already: false }
+        Outcome { ok: true, wrote, verified: wrote, failed: 0, error: None, already: false }
     }
 
     fn fail_out(errored: bool) -> Outcome {
-        Outcome { ok: false, wrote: 1, failed: 1, error: errored.then(|| "boom".into()), already: false }
+        Outcome { ok: false, wrote: 1, verified: 0, failed: 1, error: errored.then(|| "boom".into()), already: false }
     }
 
     /// Scriptable engine: records calls, returns scripted outcomes.

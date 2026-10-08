@@ -1,45 +1,36 @@
 package com.mifinetune.dynamic
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.util.Log
+import com.mifinetune.core.RootBridge
+import com.mifinetune.core.Tuner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
+import java.io.File
 
 /**
- * Persistent dynamic profile settings (SharedPreferences) exposed as StateFlows
- * where the UI needs to react.
+ * App-owned user config (`filesDir/config.json`), exposed as StateFlows.
  *
- * Responsibility: typed config storage.
- * Non-goals: service lifecycle, arbiter logic.
+ * Ownership: the app is the SINGLE writer; the Rust daemon reads the file
+ * (start, `config_changed` hint, mtime fallback). Writes are atomic
+ * (tmp + rename). One-time migration reads the old SharedPreferences.
+ *
+ * Responsibility: typed config storage + migration + daemon hints.
+ * Non-goals: decisions (daemon), UI.
  */
 class DynamicProfileConfig private constructor(context: Context) {
 
     companion object {
-        private const val PREFS = "dynamic_profile"
+        private const val TAG = "MiFineTune"
+        const val FILE = "config.json"
+        const val DEFAULT_BASE = "balance"
 
-        /**
-         * v0.5 rebrand migration: settings used to live in `automation.xml`.
-         * The legacy file is copied once (bridge hold restore points
-         * included) and then left in place — never deleted, so a downgrade
-         * still finds its data.
-         */
+        // legacy SharedPreferences (v0.5); kept as a downgrade fallback
+        private const val PREFS = "dynamic_profile"
         private const val LEGACY_PREFS = "automation"
         private const val K_MIGRATED = "prefs_migrated_from_automation"
-
-        private const val K_ENABLED = "enabled"
-        private const val K_DYNAMIC = "dynamic_enabled"
-        private const val K_BASE = "base_profile"
-        private const val K_APP_MAP = "app_map"
-        private const val K_SYNC_PERF = "sync_miui_perf"
-        private const val K_GMODE_CHECKER = "game_mode_checker"
-        private const val K_SYNC_SAVER = "sync_miui_saver"
-        private const val K_HOLD_PERF = "bridge_hold_perf"
-        private const val K_SAVED_PERF = "bridge_saved_perf"
-        private const val K_HOLD_SAVER = "bridge_hold_saver"
-        private const val K_SAVED_SAVER = "bridge_saved_saver"
-
-        /** Fresh installs start with Balance as the universal base. */
-        const val DEFAULT_BASE = "balance"
 
         @Volatile
         private var instance: DynamicProfileConfig? = null
@@ -48,132 +39,181 @@ class DynamicProfileConfig private constructor(context: Context) {
             instance ?: synchronized(this) {
                 instance ?: DynamicProfileConfig(context.applicationContext).also { instance = it }
             }
+
+        fun path(context: Context): String =
+            File(context.filesDir, FILE).absolutePath
     }
 
-    private val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val file = File(context.filesDir, FILE)
+    private val lock = Any()
 
-    init {
-        // one-time copy from the pre-rebrand prefs file (see LEGACY_PREFS)
-        if (!sp.getBoolean(K_MIGRATED, false)) {
-            val legacy = context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
-            val all = legacy.all
-            val editor = sp.edit()
-            for ((k, v) in all) {
-                when (v) {
-                    is Boolean -> editor.putBoolean(k, v)
-                    is String -> editor.putString(k, v)
-                    is Int -> editor.putInt(k, v)
-                    is Long -> editor.putLong(k, v)
-                    is Float -> editor.putFloat(k, v)
-                    is Set<*> -> @Suppress("UNCHECKED_CAST") editor.putStringSet(k, v as Set<String>)
-                }
-            }
-            editor.putBoolean(K_MIGRATED, true).apply()
-        }
-    }
-
-    private val _enabled = MutableStateFlow(sp.getBoolean(K_ENABLED, true))
+    private val _enabled = MutableStateFlow(true)
     val enabledFlow: StateFlow<Boolean> = _enabled
     var enabled: Boolean
         get() = _enabled.value
-        set(v) {
-            sp.edit().putBoolean(K_ENABLED, v).apply()
-            _enabled.value = v
-        }
+        set(v) = put { it.put("enabled", v) }
 
-    /**
-     * Dynamic Profile: ON = a mapped app in front overrides the universal
-     * base (and the MIUI bridge follows it); OFF = the universal base always
-     * wins, app mappings are ignored while the service keeps running.
-     */
-    private val _dynamicEnabled = MutableStateFlow(sp.getBoolean(K_DYNAMIC, true))
+    private val _dynamicEnabled = MutableStateFlow(true)
     val dynamicEnabledFlow: StateFlow<Boolean> = _dynamicEnabled
     var dynamicEnabled: Boolean
         get() = _dynamicEnabled.value
-        set(v) {
-            sp.edit().putBoolean(K_DYNAMIC, v).apply()
-            _dynamicEnabled.value = v
-        }
+        set(v) = put { it.put("dynamic", v) }
 
-    // --- MIUI bridge switches (v0.5) -------------------------------------
-
-    private val _syncMiuiPerf = MutableStateFlow(sp.getBoolean(K_SYNC_PERF, true))
-    /** Game in front → MIUI's own Performance switch follows our profile. */
+    private val _syncMiuiPerf = MutableStateFlow(true)
     val syncMiuiPerfFlow: StateFlow<Boolean> = _syncMiuiPerf
     var syncMiuiPerf: Boolean
         get() = _syncMiuiPerf.value
-        set(v) {
-            sp.edit().putBoolean(K_SYNC_PERF, v).apply()
-            _syncMiuiPerf.value = v
-        }
+        set(v) = put { it.put("sync_miui_perf", v) }
 
-    private val _gameModeChecker = MutableStateFlow(sp.getBoolean(K_GMODE_CHECKER, true))
-    /** Warn when MIUI Game Booster still boosts a game mapped to us. */
-    val gameModeCheckerFlow: StateFlow<Boolean> = _gameModeChecker
-    var gameModeChecker: Boolean
-        get() = _gameModeChecker.value
-        set(v) {
-            sp.edit().putBoolean(K_GMODE_CHECKER, v).apply()
-            _gameModeChecker.value = v
-        }
-
-    private val _syncSaver = MutableStateFlow(sp.getBoolean(K_SYNC_SAVER, true))
-    /** Frugal-mapped app in front → MIUI battery saver follows our profile. */
+    private val _syncSaver = MutableStateFlow(true)
     val syncSaverFlow: StateFlow<Boolean> = _syncSaver
     var syncSaver: Boolean
         get() = _syncSaver.value
-        set(v) {
-            sp.edit().putBoolean(K_SYNC_SAVER, v).apply()
-            _syncSaver.value = v
-        }
+        set(v) = put { it.put("sync_miui_saver", v) }
 
-    // --- bridge hold persistence (crash-safe restore points) --------------
+    private val _gameModeChecker = MutableStateFlow(true)
+    val gameModeCheckerFlow: StateFlow<Boolean> = _gameModeChecker
+    var gameModeChecker: Boolean
+        get() = _gameModeChecker.value
+        set(v) = put { it.put("game_mode_checker", v) }
 
-    /** A bridge hold survives service death: on restart the restore point is
-     *  still valid, so release writes the user's own value back. */
-    var bridgeHoldPerf: Boolean
-        get() = sp.getBoolean(K_HOLD_PERF, false)
-        set(v) = sp.edit().putBoolean(K_HOLD_PERF, v).apply()
+    private val _appMap = MutableStateFlow<Map<String, String>>(emptyMap())
+    val appMapFlow: StateFlow<Map<String, String>> = _appMap
 
-    var bridgeSavedPerf: String
-        get() = sp.getString(K_SAVED_PERF, null) ?: "middle"
-        set(v) = sp.edit().putString(K_SAVED_PERF, v).apply()
-
-    var bridgeHoldSaver: Boolean
-        get() = sp.getBoolean(K_HOLD_SAVER, false)
-        set(v) = sp.edit().putBoolean(K_HOLD_SAVER, v).apply()
-
-    var bridgeSavedSaver: Boolean
-        get() = sp.getBoolean(K_SAVED_SAVER, false)
-        set(v) = sp.edit().putBoolean(K_SAVED_SAVER, v).apply()
+    private var _baseProfile: String = DEFAULT_BASE
 
     /** The universal base: the last manually selected profile. */
     var baseProfile: String
-        get() = sp.getString(K_BASE, DEFAULT_BASE) ?: DEFAULT_BASE
-        set(v) {
-            sp.edit().putString(K_BASE, v).apply()
-        }
+        get() = _baseProfile
+        set(v) = put { it.put("base_profile", v) }
 
-    // --- per-app mapping -------------------------------------------------
-
-    private val _appMap = MutableStateFlow(readMap())
-    val appMapFlow: StateFlow<Map<String, String>> = _appMap
+    init {
+        val json = load() ?: migrateFromPrefs(context)
+        apply(json)
+    }
 
     fun appMap(): Map<String, String> = _appMap.value
 
     /** null profileId removes the mapping (app falls back to the base). */
-    fun setAppProfile(pkg: String, profileId: String?) {
+    fun setAppProfile(pkg: String, profileId: String?) = put { json ->
+        val map = JSONObject()
         val next = _appMap.value.toMutableMap()
         if (profileId == null) next.remove(pkg) else next[pkg] = profileId
-        sp.edit().putString(K_APP_MAP, JSONObject(next as Map<*, *>).toString()).apply()
-        _appMap.value = next
+        for ((k, v) in next) map.put(k, v)
+        json.put("app_map", map)
     }
 
-    private fun readMap(): Map<String, String> {
-        val raw = sp.getString(K_APP_MAP, null) ?: return emptyMap()
-        return runCatching {
-            val obj = JSONObject(raw)
-            obj.keys().asSequence().associateWith { obj.getString(it) }
-        }.getOrDefault(emptyMap())
+    // --- internals ---------------------------------------------------------
+
+    private fun load(): JSONObject? = runCatching {
+        if (!file.exists()) return null
+        JSONObject(file.readText())
+    }.getOrNull()
+
+    private fun apply(json: JSONObject) {
+        _enabled.value = json.optBoolean("enabled", true)
+        _dynamicEnabled.value = json.optBoolean("dynamic", true)
+        _syncMiuiPerf.value = json.optBoolean("sync_miui_perf", true)
+        _syncSaver.value = json.optBoolean("sync_miui_saver", true)
+        _gameModeChecker.value = json.optBoolean("game_mode_checker", true)
+        _baseProfile = json.optString("base_profile", DEFAULT_BASE).ifEmpty { DEFAULT_BASE }
+        val map = mutableMapOf<String, String>()
+        json.optJSONObject("app_map")?.let { obj ->
+            obj.keys().forEach { k -> map[k] = obj.optString(k) }
+        }
+        _appMap.value = map
+    }
+
+    /** Mutates one key, persists atomically, refreshes flows, hints daemon. */
+    private fun put(mutate: (JSONObject) -> Unit) {
+        synchronized(lock) {
+            val json = load() ?: baseJson()
+            mutate(json)
+            json.put("schema", 1)
+            writeAtomic(json.toString())
+            apply(json)
+        }
+        DaemonLink.configChanged()
+    }
+
+    private fun baseJson(): JSONObject = JSONObject()
+        .put("schema", 1)
+        .put("enabled", _enabled.value)
+        .put("dynamic", _dynamicEnabled.value)
+        .put("base_profile", _baseProfile)
+        .put("sync_miui_perf", _syncMiuiPerf.value)
+        .put("sync_miui_saver", _syncSaver.value)
+        .put("game_mode_checker", _gameModeChecker.value)
+        .put("app_map", JSONObject())
+
+    private fun writeAtomic(body: String) {
+        runCatching {
+            val tmp = File(file.parentFile, "$FILE.tmp")
+            tmp.writeText(body)
+            if (!tmp.renameTo(file)) {
+                file.writeText(body)
+                tmp.delete()
+            }
+        }.onFailure { Log.w(TAG, "config write failed: $it") }
+    }
+
+    /**
+     * One-time migration from the v0.5 SharedPreferences. The legacy file
+     * is left in place (downgrade-safe); bridge holds are copied to the
+     * daemon's holds.json when one was active at upgrade time.
+     */
+    private fun migrateFromPrefs(context: Context): JSONObject {
+        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!sp.getBoolean(K_MIGRATED, false)) {
+            // first: copy the pre-rebrand file (v0.5 migration chain)
+            val legacy = context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+            sp.edit().apply {
+                for ((k, v) in legacy.all) {
+                    when (v) {
+                        is Boolean -> putBoolean(k, v)
+                        is String -> putString(k, v)
+                        is Int -> putInt(k, v)
+                        is Long -> putLong(k, v)
+                        is Float -> putFloat(k, v)
+                        is Set<*> -> @Suppress("UNCHECKED_CAST") putStringSet(k, v as Set<String>)
+                    }
+                }
+                putBoolean(K_MIGRATED, true)
+            }.apply()
+        }
+        val json = JSONObject()
+            .put("schema", 1)
+            .put("enabled", sp.getBoolean("enabled", true))
+            .put("dynamic", sp.getBoolean("dynamic_enabled", true))
+            .put("base_profile", sp.getString("base_profile", DEFAULT_BASE) ?: DEFAULT_BASE)
+            .put("sync_miui_perf", sp.getBoolean("sync_miui_perf", true))
+            .put("sync_miui_saver", sp.getBoolean("sync_miui_saver", true))
+            .put("game_mode_checker", sp.getBoolean("game_mode_checker", true))
+            .put("app_map", runCatching { JSONObject(sp.getString("app_map", "{}") ?: "{}") }.getOrDefault(JSONObject()))
+        writeAtomic(json.toString())
+        migrateHolds(context, sp)
+        Log.d(TAG, "config migrated from prefs -> ${file.name}")
+        return json
+    }
+
+    /** Copies an active bridge hold into the daemon's holds.json (rare path). */
+    private fun migrateHolds(context: Context, sp: SharedPreferences) {
+        val perfHeld = sp.getBoolean("bridge_hold_perf", false)
+        val saverHeld = sp.getBoolean("bridge_hold_saver", false)
+        if (!perfHeld && !saverHeld) return
+        runCatching {
+            val holds = JSONObject()
+                .put("perf_held", perfHeld)
+                .put("perf_saved", sp.getString("bridge_saved_perf", "middle"))
+                .put("saver_held", saverHeld)
+                .put("saver_saved", sp.getBoolean("bridge_saved_saver", false))
+            val tmp = File(context.cacheDir, "holds.json.migrate")
+            tmp.writeText(holds.toString())
+            Tuner.bridge.sh(
+                "mkdir -p ${RootBridge.STATE_DIR}; " +
+                    "cp ${tmp.absolutePath} ${RootBridge.STATE_DIR}/holds.json; " +
+                    "rm ${tmp.absolutePath}"
+            )
+        }.onFailure { Log.w(TAG, "holds migration skipped: $it") }
     }
 }

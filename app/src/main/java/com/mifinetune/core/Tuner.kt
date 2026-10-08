@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
  *
  * Responsibility: serializing engine access (one apply at a time), hosting the
  * shared drift guard, exposing guard state.
- * Non-goals: deciding *which* profile to apply (ModeArbiter / UI do that).
+ * Non-goals: deciding *which* profile to apply (Rust daemon / UI do that).
  */
 object Tuner {
 

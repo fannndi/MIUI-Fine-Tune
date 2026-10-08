@@ -351,6 +351,7 @@ impl Runtime {
             src_pkg: ev.src_pkg,
             ok: ev.ok,
             wrote: ev.wrote,
+            verified: ev.verified,
             failed: ev.failed,
             ms: ev.ms,
             settle_ms: ev.settle_ms,
@@ -366,10 +367,20 @@ impl Runtime {
         }
         if ev.retire {
             self.log(&format!("retire: restore ok={} failed={}", ev.ok, ev.failed));
-            self.publisher.emit(&Event::Retired { ok: ev.ok, failed: ev.failed });
+            self.publisher.emit(&Event::Retired {
+                ok: ev.ok,
+                wrote: ev.wrote,
+                verified: ev.verified,
+                failed: ev.failed,
+            });
         } else {
             self.log(&format!("restore: ok={} failed={}", ev.ok, ev.failed));
-            self.publisher.emit(&Event::Restored { ok: ev.ok, failed: ev.failed });
+            self.publisher.emit(&Event::Restored {
+                ok: ev.ok,
+                wrote: ev.wrote,
+                verified: ev.verified,
+                failed: ev.failed,
+            });
         }
         self.emit_state(false);
     }

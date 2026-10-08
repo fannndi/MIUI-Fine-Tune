@@ -45,11 +45,12 @@ class RootBridge {
     }
 
     /**
-     * Starts `<su> -c <cmd>` as a long-lived streaming process (caller reads
-     * stdout lines and destroys it). Used by the foreground watcher.
+     * Starts `<su> -c <cmd>` as a long-lived process with stdout/stderr
+     * separate (protocol on stdout, logs on stderr). Used by the daemon
+     * client; the caller owns the process lifecycle.
      */
-    fun stream(cmd: String): Process = ProcessBuilder(suBin, "-c", cmd)
-        .redirectErrorStream(true)
+    fun spawn(cmd: String): Process = ProcessBuilder(suBin, "-c", cmd)
+        .redirectErrorStream(false)
         .start()
 
     /** True when `su` gives us uid 0. */
