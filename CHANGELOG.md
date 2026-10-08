@@ -22,7 +22,7 @@ daemon; Kotlin is now a thin UI + lifecycle client.
   restart); apply/restore route through the daemon when connected.
 - **Engine** split into small modules (`engine/` tree, all files ≤ ~300
   lines) with a module index; no behavior change.
-- **Tests**: 84 Rust unit tests + 3 host E2E tests (daemon protocol ×2,
+- **Tests**: 84 Rust unit tests + 4 host E2E tests (daemon protocol ×3,
   watcher pipeline with a fake logcat).
 - **Docs**: README, AGENTS, ARCHITECTURE, IPC-PROTOCOL, ROM-HARMONY — all
   English.

@@ -69,7 +69,7 @@ Compose UI ──► HomeViewModel ───────────────
 ## Build
 
 ```bash
-# host: Rust tests (81 unit + 2 protocol E2E)
+# host: Rust tests (84 unit + 4 host E2E)
 cd core && cargo test
 
 # cross-build arm64 + refresh the app assets (syncCore also runs in Gradle)

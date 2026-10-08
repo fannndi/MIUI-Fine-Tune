@@ -121,7 +121,7 @@ parameters, always through the catalog guard.
 ## Build & test
 
 ```bash
-# Rust (host): 81 unit tests + 2 protocol E2E tests
+# Rust (host): 84 unit tests + 4 host E2E tests
 cd core && cargo test
 
 # cross-build arm64 + assets (syncCore also runs automatically in Gradle)
