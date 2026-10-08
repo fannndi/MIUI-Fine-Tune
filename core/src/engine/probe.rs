@@ -2,9 +2,9 @@
 //! + framework evidence (values MIUI owns and we must never write).
 //!
 //! Responsibility: reading the live device into [`ProbeData`].
-//! Non-goals: deciding what to write (profile/apply own that).
+//! Non-goals: deciding what to write (plan/apply own that).
 
-use crate::catalog::{catalog, Entry};
+use crate::engine::catalog::{catalog, Entry};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs;

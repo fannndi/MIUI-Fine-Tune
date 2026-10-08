@@ -6,10 +6,10 @@
 //! `serve` is special: it does not return a JSON payload on exit — it runs
 //! the stdio daemon (JSON-lines protocol) until stdin closes. See `serve.rs`.
 
-use mifinetune_core::apply::{self, Store};
-use mifinetune_core::catalog;
-use mifinetune_core::probe;
-use mifinetune_core::profile::build_plan;
+use mifinetune_core::engine::apply::{self, Store};
+use mifinetune_core::engine::catalog;
+use mifinetune_core::engine::probe;
+use mifinetune_core::engine::plan::build_plan;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
