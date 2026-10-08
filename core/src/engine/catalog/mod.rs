@@ -167,7 +167,7 @@ mod tests {
         assert!(guard_path("/sys/class/thermal/thermal_message/sconfig").is_err());
         assert!(guard_path("/proc/sys/vm/swappiness").is_err());
         assert!(guard_path("/dev/cpuset/game/cpus").is_err());
-        assert!(guard_path("/sys/class/power_supply/battery/input_suspend").is_err());
+        assert!(guard_path("/sys/class/power_supply/battery/sw_jeita_enabled").is_err());
         assert!(guard_path("/sys/block/zram0/disksize").is_err());
         assert!(guard_path("/sys/module/cpu_boost/parameters/input_boost_freq").is_err());
     }
@@ -176,6 +176,10 @@ mod tests {
     fn allowed_paths_pass() {
         assert!(guard_path("/proc/sys/vm/vfs_cache_pressure").is_ok());
         assert!(guard_path("/sys/devices/system/cpu/cpufreq/policy0/scaling_governor").is_ok());
+        // the two audited ALLOWED_EXACT charge nodes (ROM opens them for
+        // userspace; everything else under power_supply stays forbidden)
+        assert!(guard_path("/sys/class/power_supply/battery/battery_charging_enabled").is_ok());
+        assert!(guard_path("/sys/class/power_supply/battery/input_suspend").is_ok());
         // prefix confusion must not trip: a longer benign path that merely
         // starts like a forbidden one without matching the boundary
         assert!(guard_path("/proc/sys/vm/vfs_cache_pressure2").is_ok());

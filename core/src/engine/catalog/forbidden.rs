@@ -9,6 +9,10 @@ pub const ALLOWED_EXACT: &[&str] = &[
     // exists (audited 2026-10-08). Everything else under the prefix stays
     // forbidden (JEITA/step-charge/current limits are driver-owned).
     "/sys/class/power_supply/battery/battery_charging_enabled",
+    // Per-app bypass: init.target.rc + init.miui.rc chmod 0777 + chown
+    // system; MIUI's mishow.sh writes it and hvdcp_opti only reads it
+    // (device-verified 2026-10-08). JEITA/current nodes stay forbidden.
+    "/sys/class/power_supply/battery/input_suspend",
 ];
 
 /// Path prefixes that must never be written — runtime-owned by the framework.

@@ -6,6 +6,7 @@
 
 use super::holds::{PerfAction, PowerMode, SaverAction};
 use super::{Bridge, State};
+use crate::daemon::config::AppProfile;
 use crate::daemon::proto::Event;
 use crate::daemon::settings;
 use std::fs;
@@ -20,7 +21,14 @@ pub struct SyncCtx {
     pub sync_perf: bool,
     pub sync_saver: bool,
     pub game_checker: bool,
+    /// Merged app map (`app_profiles[*].profile` over `app_map`).
     pub app_map: std::collections::BTreeMap<String, String>,
+    /// Apps Profile entries (software extras), keyed by package.
+    pub app_profiles: std::collections::BTreeMap<String, AppProfile>,
+    /// Bypass safety floor (clamped, 15..50).
+    pub bypass_floor_pct: u8,
+    /// The app granted Do Not Disturb access (set by the `dnd_access` cmd).
+    pub dnd_granted: bool,
     /// Charge-guard inputs from the last env sample.
     pub battery_pct: Option<u8>,
     pub charging: Option<bool>,
@@ -132,6 +140,13 @@ fn mapped_profile(ctx: &SyncCtx) -> Option<&str> {
         .map(|s| s.as_str())
 }
 
+/// The Apps Profile entry for the current foreground app, if any.
+pub(super) fn fg_app_profile(ctx: &SyncCtx) -> Option<&AppProfile> {
+    ctx.last_real
+        .as_deref()
+        .and_then(|p| ctx.app_profiles.get(p))
+}
+
 /// Perf mirror wants Performance: Dynamic ON + sync ON + mapped game in
 /// front + screen visible & unlocked.
 fn perf_want(ctx: &SyncCtx) -> bool {
@@ -171,6 +186,9 @@ mod tests {
             sync_saver: true,
             game_checker: true,
             app_map: crate::daemon::test_util::map(map),
+            app_profiles: Default::default(),
+            bypass_floor_pct: 30,
+            dnd_granted: false,
             battery_pct: None,
             charging: None,
             charge_limit: false,

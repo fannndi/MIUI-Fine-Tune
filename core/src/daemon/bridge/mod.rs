@@ -1,15 +1,22 @@
-//! MIUI bridge: perf mirror + saver follow + game-mode checker.
+//! MIUI bridge: perf mirror + saver follow + game-mode checker + the
+//! Apps-Profile software surfaces (charge guard, bypass, renderer, DND).
 //!
 //! Files:
-//! - `holds.rs`  PowerMode + hold/restore state machine + persisted file
-//! - `sync.rs`   SyncCtx, pure gates, the sync IO (settings CLI)
-//! - `mod.rs`    Bridge (shared state + one Mutex) + recover/release/persist
+//! - `holds.rs`    PowerMode + hold/restore state machine + persisted file
+//! - `sync.rs`     SyncCtx, pure gates, the settings-CLI sync IO
+//! - `charge.rs`   charge guard (`battery_charging_enabled`)
+//! - `bypass.rs`   per-app bypass charging (`input_suspend`)
+//! - `dnd.rs`      per-app DND decision (the app executes the official API)
+//! - `mod.rs`      Bridge (shared state + one Mutex) + recover/release/persist
 //!
 //! Harmony rules:
-//! - Only two write targets exist: `Settings.Global low_power` (live effect)
-//!   and the `Settings.System power_mode` mirror of MIUI's performance
-//!   switch. The real property (`persist.sys.aries.power_profile`) is
-//!   SELinux-locked — it is never attempted.
+//! - Settings targets: `Settings.Global low_power` (live effect) and the
+//!   `Settings.System power_mode` mirror of MIUI's performance switch. The
+//!   real property (`persist.sys.aries.power_profile`) is SELinux-locked —
+//!   it is never attempted. Refresh rate is MIUI's (F9 removed).
+//! - Node targets: only the two audited `ALLOWED_EXACT` charge nodes.
+//! - DND is decided here but executed by the app through the official API
+//!   (`zen_mode` is framework-owned and never written directly).
 //! - Everything app-driven is gated by the Dynamic Profile switch
 //!   (`ctx.dynamic`); Ultra saver retires the daemon entirely (restore).
 //!
@@ -18,7 +25,9 @@
 //! single Mutex serializes all state + IO — the old "two syncs raced and
 //! yo-yoed the mode" bug class is structurally impossible.
 
+mod bypass;
 mod charge;
+mod dnd;
 mod holds;
 mod sync;
 
@@ -49,6 +58,8 @@ struct State {
     holds: Holds,
     /// Game-mode warning dedupe: one notification per game session.
     game_warned_for: Option<String>,
+    /// Last DND mode we told the app to apply (None = released).
+    dnd_sent: Option<String>,
 }
 
 impl Bridge {
@@ -68,9 +79,11 @@ impl Bridge {
                 saver_saved: f.saver_saved,
                 charge_held: f.charge_held,
                 charge_saved: f.charge_saved,
+                bypass_held: f.bypass_held,
+                bypass_saved: f.bypass_saved,
             })
             .unwrap_or_default();
-        if holds.perf_held || holds.saver_held || holds.charge_held {
+        if holds.perf_held || holds.saver_held || holds.charge_held || holds.bypass_held {
             publisher.log("bridge: recovered holds from previous run");
         }
         let bridge = Arc::new(Bridge {
@@ -79,6 +92,7 @@ impl Bridge {
             state: Mutex::new(State {
                 holds,
                 game_warned_for: None,
+                dnd_sent: None,
             }),
             saver_override: AtomicI8::new(-1),
         });
@@ -106,6 +120,9 @@ impl Bridge {
             saver_saved: st.holds.saver_saved,
             charge_held: st.holds.charge_held,
             charge_saved: st.holds.charge_saved.clone(),
+            bypass_held: st.holds.bypass_held,
+            bypass_saved: st.holds.bypass_saved.clone(),
+            dnd_mode: st.dnd_sent.clone(),
         }
     }
 
@@ -138,15 +155,22 @@ impl Bridge {
     pub fn sync(&self, ctx: &SyncCtx) {
         // The lock is held across the settings execs so two syncs can never
         // interleave their read/write pairs (the old yo-yo bug class).
-        let (perf_changed, saver_changed, charge_changed) = {
+        let (perf_changed, saver_changed, charge_changed, extra_changed) = {
             let mut st = self.lock();
             let perf_changed = self.sync_perf(&mut st, ctx);
             let saver_changed = self.sync_saver(&mut st, ctx);
             let charge_changed = self.sync_charge(&mut st, ctx);
+            let bypass_changed = self.sync_bypass(&mut st, ctx);
+            let dnd_changed = self.sync_dnd(&mut st, ctx);
             self.game_check(&mut st, ctx);
-            (perf_changed, saver_changed, charge_changed)
+            (
+                perf_changed,
+                saver_changed,
+                charge_changed,
+                bypass_changed || dnd_changed,
+            )
         };
-        if perf_changed || saver_changed || charge_changed {
+        if perf_changed || saver_changed || charge_changed || extra_changed {
             self.refresh_attribution();
             let st = self.lock();
             self.persist(&st);
@@ -190,6 +214,23 @@ impl Bridge {
                 st.holds.charge_saved = None;
                 changed = true;
             }
+            if st.holds.bypass_held {
+                let value = st.holds.bypass_saved.clone().unwrap_or_else(|| "0".into());
+                let node = crate::engine::env::default_root()
+                    .join("sys/class/power_supply/battery/input_suspend");
+                let _ = crate::engine::apply::guarded_write(&node.display().to_string(), &value);
+                self.log_event(format!("bypass charging OFF (node {value})"));
+                st.holds.bypass_held = false;
+                st.holds.bypass_saved = None;
+                changed = true;
+            }
+            if st.dnd_sent.is_some() {
+                // the app executes the official DND API; release via event
+                self.publisher.emit(&Event::Dnd { mode: None });
+                self.log_event("DND released".into());
+                st.dnd_sent = None;
+                changed = true;
+            }
             changed
         };
         if changed {
@@ -209,6 +250,8 @@ impl Bridge {
             saver_saved: st.holds.saver_saved,
             charge_held: st.holds.charge_held,
             charge_saved: st.holds.charge_saved.clone(),
+            bypass_held: st.holds.bypass_held,
+            bypass_saved: st.holds.bypass_saved.clone(),
         };
         let Ok(s) = serde_json::to_string_pretty(&file) else {
             return;
@@ -264,6 +307,8 @@ mod tests {
             saver_saved: true,
             charge_held: true,
             charge_saved: Some("1".into()),
+            bypass_held: true,
+            bypass_saved: Some("0".into()),
         };
         std::fs::write(dir.join("holds.json"), serde_json::to_string(&f).unwrap()).unwrap();
         let publisher = Publisher::new();
@@ -275,6 +320,8 @@ mod tests {
         assert!(st.holds.saver_saved);
         assert!(st.holds.charge_held);
         assert_eq!(st.holds.charge_saved.as_deref(), Some("1"));
+        assert!(st.holds.bypass_held);
+        assert_eq!(st.holds.bypass_saved.as_deref(), Some("0"));
         drop(st);
         let _ = std::fs::remove_dir_all(&dir);
     }

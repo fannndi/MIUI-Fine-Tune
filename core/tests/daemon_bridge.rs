@@ -12,6 +12,13 @@ use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+fn chmod(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(path).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(path, perms).unwrap();
+}
+
 /// Fake `settings` script: one state file per `scope.key`.
 fn write_fake_settings(dir: &Path) -> PathBuf {
     let state = dir.join("settings-state");
@@ -25,10 +32,7 @@ fn write_fake_settings(dir: &Path) -> PathBuf {
         ),
     )
     .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    let mut perms = std::fs::metadata(&script).unwrap().permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&script, perms).unwrap();
+    chmod(&script);
     state
 }
 
@@ -255,6 +259,110 @@ fn dynamic_off_stops_the_bridge_follow() {
         "no write while dynamic is off"
     );
     assert_eq!(setting(&state, "global.low_power"), None);
+
+    d.send(json!({"cmd":"shutdown"}));
+    d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Apps Profile software layer E2E: a mapped app with bypass + DND engages
+/// both through the real daemon code paths (fake sysfs + fake settings), the
+/// floor releases bypass, and leaving the app releases DND.
+#[test]
+fn app_profile_software_engages_and_restores() {
+    let dir = tmp("bridge-appprofile");
+    let _state = write_fake_settings(&dir);
+    let root = dir.join("fake-root");
+    let w = |rel: &str, body: &str| {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    };
+    w("sys/class/power_supply/battery/capacity", "80\n");
+    w("sys/class/power_supply/usb/online", "1\n");
+    w("sys/class/power_supply/battery/input_suspend", "0\n");
+
+    std::fs::write(
+        dir.join("config.json"),
+        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance",
+            "bypass_floor_pct":30,
+            "app_profiles":{"com.g":{"profile":"game","bypass_charge":true,
+                                     "dnd":"priority"}}}"#,
+    )
+    .unwrap();
+
+    let mut d = Daemon::spawn_env(
+        &dir.join("state"),
+        &dir.join("config.json"),
+        &[
+            (
+                "MIFINETUNE_SETTINGS_BIN",
+                dir.join("settings").to_str().unwrap(),
+            ),
+            ("MIFINETUNE_LOGCAT_BIN", "/nonexistent-logcat"),
+            ("MIFINETUNE_SYSFS_ROOT", root.to_str().unwrap()),
+        ],
+    );
+
+    let node = root.join("sys/class/power_supply/battery/input_suspend");
+    d.wait_for(|v| v["event"] == "hello", Duration::from_secs(5));
+    d.send(json!({"cmd":"dnd_access","granted":true}));
+    d.send(json!({"cmd":"screen","on":true,"locked":false}));
+    d.send(json!({"cmd":"fg","pkg":"com.g"}));
+
+    // bypass engages (node 1) while the charger is online
+    d.wait_for(
+        |v| {
+            v["event"] == "bridge"
+                && v["msg"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("bypass charging ON")
+        },
+        Duration::from_secs(10),
+    );
+    assert_eq!(std::fs::read_to_string(&node).unwrap().trim(), "1");
+
+    // DND decision emitted for the app (executed by the app on device)
+    let dnd = d.wait_for(
+        |v| v["event"] == "dnd" && v.get("mode").is_some(),
+        Duration::from_secs(10),
+    );
+    assert_eq!(dnd["mode"], "priority");
+
+    // battery drops below the floor -> bypass releases (charging returns)
+    w("sys/class/power_supply/battery/capacity", "25\n");
+    d.send(json!({"cmd":"dnd_access","granted":true})); // trigger one more sync
+    d.wait_for(
+        |v| {
+            v["event"] == "bridge"
+                && v["msg"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("bypass charging OFF")
+        },
+        Duration::from_secs(10),
+    );
+    assert_eq!(std::fs::read_to_string(&node).unwrap().trim(), "0");
+
+    // leaving the app releases DND
+    d.send(json!({"cmd":"fg","pkg":"com.miui.home"}));
+    let dnd = d.wait_for(|v| v["event"] == "dnd", Duration::from_secs(10));
+    assert!(
+        dnd.get("mode").is_none(),
+        "release event carries no mode: {dnd}"
+    );
+
+    // holds are clean after the release
+    let holds_path = dir.join("state").join("holds.json");
+    assert!(
+        wait_file_contains(
+            &holds_path,
+            "\"bypass_held\": false",
+            Duration::from_secs(2)
+        ),
+        "bypass hold must be released"
+    );
 
     d.send(json!({"cmd":"shutdown"}));
     d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));

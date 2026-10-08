@@ -120,6 +120,8 @@ struct Runtime {
     /// is forced so a pack update or drift that happened while we were down
     /// is reconciled.
     reconciled: bool,
+    /// The app granted Do Not Disturb access (official-API bridge gate).
+    dnd_granted: bool,
     /// Storage maintenance state (weekly f2fs GC while charging + idle).
     maint: maintenance::MaintFile,
     maint_running: bool,
@@ -279,6 +281,7 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         thermal_stepped: false,
         last_battery_low: false,
         reconciled: false,
+        dnd_granted: false,
         maint: maintenance::MaintFile::load(state_dir),
         maint_running: false,
         screen_off_since: None,

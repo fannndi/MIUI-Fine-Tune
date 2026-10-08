@@ -62,6 +62,12 @@ impl Runtime {
             Command::Fg { pkg } => self.on_fg(pkg),
             Command::Seed { pkg } => self.on_seed(pkg, "unlock"),
             Command::Mw { active, other } => self.on_mw(active, other),
+            Command::DndAccess { granted } => {
+                self.dnd_granted = granted;
+                self.log(&format!("DND access: {granted}"));
+                // re-evaluate the DND bridge immediately (no profile decision)
+                let _ = self.sync_tx.send(self.bridge_ctx());
+            }
             Command::Ultra { on } => {
                 self.ultra = on;
                 self.log(&format!("MIUI extreme saver: {on}"));

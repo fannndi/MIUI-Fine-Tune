@@ -24,6 +24,33 @@ fn default_base() -> String {
     "balance".into()
 }
 
+/// Apps Profile entry (software layer, per app): Device-Profile mapping plus
+/// the audited software surfaces. Every field is opt-in; an absent field
+/// means "leave MIUI untouched".
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AppProfile {
+    /// Device-Profile mapping (the extended source; `app_map` stays a mirror).
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// Per-app bypass charging (`input_suspend`) while this app is in front.
+    #[serde(default)]
+    pub bypass_charge: bool,
+    /// Do Not Disturb while in front: `priority` | `total`.
+    #[serde(default)]
+    pub dnd: Option<String>,
+}
+
+impl AppProfile {
+    /// Valid DND mode; invalid values are ignored.
+    pub fn dnd_mode(&self) -> Option<&'static str> {
+        match self.dnd.as_deref() {
+            Some("priority") => Some("priority"),
+            Some("total") => Some("total"),
+            _ => None,
+        }
+    }
+}
+
 /// User intent mirrored from the app. Unknown fields are ignored (the app
 /// may add UI-only keys); missing fields fall back to defaults, so a partial
 /// file still yields a sane daemon.
@@ -39,6 +66,14 @@ pub struct DaemonConfig {
     pub base_profile: String,
     #[serde(default)]
     pub app_map: BTreeMap<String, String>,
+    /// Apps Profile: per-app software extras (mapping + bypass + renderer +
+    /// DND). `app_map` stays as a backward-compatible mirror of `profile`.
+    #[serde(default)]
+    pub app_profiles: BTreeMap<String, AppProfile>,
+    /// Bypass safety floor: input suspend releases at/below this % and
+    /// re-engages 5 % above (Settings slider, 15..50).
+    #[serde(default = "default_bypass_floor")]
+    pub bypass_floor_pct: u8,
     #[serde(default = "default_true")]
     pub sync_miui_perf: bool,
     #[serde(default = "default_true")]
@@ -73,6 +108,10 @@ fn default_charge_pct() -> u8 {
     80
 }
 
+fn default_bypass_floor() -> u8 {
+    30
+}
+
 fn default_battery_floor() -> u8 {
     20
 }
@@ -93,6 +132,8 @@ impl Default for DaemonConfig {
             dynamic: true,
             base_profile: default_base(),
             app_map: BTreeMap::new(),
+            app_profiles: BTreeMap::new(),
+            bypass_floor_pct: default_bypass_floor(),
             sync_miui_perf: true,
             sync_miui_saver: true,
             game_mode_checker: true,
@@ -196,6 +237,32 @@ fn default_cfg() -> DaemonConfig {
     DaemonConfig::default()
 }
 
+impl DaemonConfig {
+    /// `app_map` merged with `app_profiles[*].profile` (the extended source
+    /// wins). The arbiter and the bridge use this single view.
+    pub fn merged_app_map(&self) -> BTreeMap<String, String> {
+        let mut merged = self.app_map.clone();
+        for (pkg, ap) in &self.app_profiles {
+            if let Some(p) = &ap.profile {
+                if !p.is_empty() {
+                    merged.insert(pkg.clone(), p.clone());
+                }
+            }
+        }
+        merged
+    }
+
+    /// Effective bypass floor, clamped to the Settings slider range.
+    pub fn bypass_floor(&self) -> u8 {
+        self.bypass_floor_pct.clamp(15, 50)
+    }
+
+    /// The Apps Profile entry for a package, if any.
+    pub fn app_profile(&self, pkg: &str) -> Option<&AppProfile> {
+        self.app_profiles.get(pkg)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +285,52 @@ mod tests {
         assert!(!c.charge_limit, "charge limit is opt-in");
         assert!(!c.jank_boost, "jank boost is opt-in");
         assert_eq!(c.charge_limit_pct, 80);
+        assert!(c.app_profiles.is_empty());
+        assert_eq!(c.bypass_floor_pct, 30);
+    }
+
+    #[test]
+    fn app_profiles_parse_and_merge_with_app_map() {
+        let c: DaemonConfig = serde_json::from_str(
+            r#"{"app_map":{"com.a":"powersave","com.b":"balance"},
+                "app_profiles":{
+                  "com.a":{"profile":"game","bypass_charge":true,"dnd":"priority"},
+                  "com.c":{"dnd":"bogus","bypass_charge":false}
+                }}"#,
+        )
+        .unwrap();
+        // extended source wins for com.a, legacy mirror still honored
+        let merged = c.merged_app_map();
+        assert_eq!(merged.get("com.a").map(String::as_str), Some("game"));
+        assert_eq!(merged.get("com.b").map(String::as_str), Some("balance"));
+        assert!(!merged.contains_key("com.c"), "no profile -> not mapped");
+
+        let a = c.app_profile("com.a").unwrap();
+        assert!(a.bypass_charge);
+        assert_eq!(a.dnd_mode(), Some("priority"));
+
+        // invalid enum-ish values are ignored (never written)
+        let cc = c.app_profile("com.c").unwrap();
+        assert_eq!(cc.dnd_mode(), None);
+    }
+
+    #[test]
+    fn bypass_floor_clamps_to_slider_range() {
+        let low = DaemonConfig {
+            bypass_floor_pct: 5,
+            ..Default::default()
+        };
+        assert_eq!(low.bypass_floor(), 15);
+        let high = DaemonConfig {
+            bypass_floor_pct: 90,
+            ..Default::default()
+        };
+        assert_eq!(high.bypass_floor(), 50);
+        let mid = DaemonConfig {
+            bypass_floor_pct: 35,
+            ..Default::default()
+        };
+        assert_eq!(mid.bypass_floor(), 35);
     }
 
     #[test]

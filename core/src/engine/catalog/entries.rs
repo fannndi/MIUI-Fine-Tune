@@ -436,6 +436,20 @@ pub fn catalog() -> &'static [Entry] {
             0,
             1
         ),
+        // v0.8 per-app bypass: init.target.rc + init.miui.rc open this node
+        // for userspace (chmod 0777 + chown system); MIUI's own mishow.sh
+        // writes it and hvdcp_opti only reads it (therm-balance monitor).
+        // Kernel: vote 0 mA on usb_icl + suspend dc (USER_VOTER) -> input
+        // cut, the device runs on battery. Device-verified 2026-10-08.
+        er!(
+            "charge.input_suspend",
+            "/sys/class/power_supply/battery/input_suspend",
+            Baseline,
+            Int,
+            "",
+            0,
+            1
+        ),
         // --- scheduler sysctls (NOT written by the moorea post_boot block) ---
         e!(
             "kernel.sched_latency_ns",

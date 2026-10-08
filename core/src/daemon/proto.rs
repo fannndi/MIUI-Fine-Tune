@@ -37,6 +37,9 @@ pub enum Command {
     Seed { pkg: Option<String> },
     /// Multi-window state forwarded by the app watcher.
     Mw { active: bool, other: Option<String> },
+    /// The app granted (or revoked) Do Not Disturb access — gates the
+    /// per-app DND bridge (the app executes the official API).
+    DndAccess { granted: bool },
     /// MIUI Ultra battery saver broadcast.
     Ultra { on: bool },
     /// Manual card tap: apply now and treat as the universal base.
@@ -94,6 +97,12 @@ pub enum Event {
     Stats { entries: Vec<StatEntry> },
     /// Bridge timeline entry (MIUI mode writes).
     Bridge { msg: String },
+    /// Per-app DND desired state (Some = apply this mode, None = restore).
+    /// The app executes it through `NotificationManager.setInterruptionFilter`.
+    Dnd {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mode: Option<String>,
+    },
     /// Storage maintenance finished (weekly f2fs GC window).
     Maintenance { ok: bool, detail: String },
     /// MIUI Game Booster conflict for a mapped game (warn once per session).
@@ -234,6 +243,8 @@ mod tests {
         assert_eq!(c, Command::Diag);
         let c: Command = serde_json::from_str(r#"{"cmd":"stats"}"#).unwrap();
         assert_eq!(c, Command::Stats);
+        let c: Command = serde_json::from_str(r#"{"cmd":"dnd_access","granted":true}"#).unwrap();
+        assert_eq!(c, Command::DndAccess { granted: true });
     }
 
     #[test]

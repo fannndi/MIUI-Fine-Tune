@@ -58,6 +58,17 @@ pub enum ChargeAction {
     Resume(Option<String>),
 }
 
+/// Per-app bypass action (`input_suspend` node).
+#[derive(Debug)]
+pub enum BypassAction {
+    None,
+    Keep,
+    /// Suspend input (write 1): the device runs on battery.
+    Engage,
+    /// Release: write the captured value back (None = assume "0").
+    Release(Option<String>),
+}
+
 /// Hold/restore state machine (pure, unit tested).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Holds {
@@ -68,6 +79,9 @@ pub struct Holds {
     pub charge_held: bool,
     /// The node value before the pause (None = assume "1").
     pub charge_saved: Option<String>,
+    pub bypass_held: bool,
+    /// The node value before the bypass (None = assume "0").
+    pub bypass_saved: Option<String>,
 }
 
 impl Default for Holds {
@@ -79,6 +93,8 @@ impl Default for Holds {
             saver_saved: false,
             charge_held: false,
             charge_saved: None,
+            bypass_held: false,
+            bypass_saved: None,
         }
     }
 }
@@ -177,6 +193,36 @@ impl Holds {
             (false, false) => (self.clone(), ChargeAction::None),
         }
     }
+
+    /// `live` = current `input_suspend`; `want` = the per-app bypass wants
+    /// the input suspended. Capture on the first engage, write back on
+    /// release (a missing capture assumes "0" — stock).
+    pub fn request_bypass(&self, live: Option<String>, want: bool) -> (Holds, BypassAction) {
+        match (want, self.bypass_held) {
+            (true, false) => (
+                Holds {
+                    bypass_held: true,
+                    bypass_saved: live.clone(),
+                    ..self.clone()
+                },
+                if live.as_deref() == Some("1") {
+                    BypassAction::Keep
+                } else {
+                    BypassAction::Engage
+                },
+            ),
+            (true, true) => (self.clone(), BypassAction::Keep),
+            (false, true) => (
+                Holds {
+                    bypass_held: false,
+                    bypass_saved: None,
+                    ..self.clone()
+                },
+                BypassAction::Release(self.bypass_saved.clone()),
+            ),
+            (false, false) => (self.clone(), BypassAction::None),
+        }
+    }
 }
 
 /// Persisted holds (crash-safe restore points), `holds.json` in the state dir.
@@ -190,6 +236,10 @@ pub struct HoldsFile {
     pub charge_held: bool,
     #[serde(default)]
     pub charge_saved: Option<String>,
+    #[serde(default)]
+    pub bypass_held: bool,
+    #[serde(default)]
+    pub bypass_saved: Option<String>,
 }
 
 /// Read-only hold view for diagnostics (`diag` command); never mutates.
@@ -202,6 +252,11 @@ pub struct HoldsInfo {
     pub charge_held: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub charge_saved: Option<String>,
+    pub bypass_held: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bypass_saved: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dnd_mode: Option<String>,
 }
 
 #[cfg(test)]
@@ -316,6 +371,36 @@ mod tests {
         assert!(n.charge_saved.is_none());
         let (_, a2) = n.request_charge(Some("0".into()), false);
         assert!(matches!(a2, ChargeAction::Resume(None)));
+    }
+
+    #[test]
+    fn bypass_hold_engages_and_releases() {
+        let s = Holds::default();
+        let (n, a) = s.request_bypass(Some("0".into()), true);
+        assert!(matches!(a, BypassAction::Engage));
+        assert!(n.bypass_held);
+        assert_eq!(n.bypass_saved.as_deref(), Some("0"));
+
+        // still wanted -> keep (no repeated writes, capture frozen)
+        let (n2, a2) = n.request_bypass(Some("1".into()), true);
+        assert!(matches!(a2, BypassAction::Keep));
+        assert_eq!(n2.bypass_saved.as_deref(), Some("0"));
+
+        // release -> restore the captured 0
+        let (n3, a3) = n2.request_bypass(Some("1".into()), false);
+        assert!(matches!(a3, BypassAction::Release(Some(ref v)) if v == "0"));
+        assert!(!n3.bypass_held);
+        assert!(n3.bypass_saved.is_none());
+    }
+
+    #[test]
+    fn bypass_hold_assumes_stock_when_capture_missing() {
+        let s = Holds::default();
+        let (n, a) = s.request_bypass(None, true);
+        assert!(matches!(a, BypassAction::Engage));
+        assert!(n.bypass_saved.is_none());
+        let (_, a2) = n.request_bypass(Some("1".into()), false);
+        assert!(matches!(a2, BypassAction::Release(None)));
     }
 
     #[test]
