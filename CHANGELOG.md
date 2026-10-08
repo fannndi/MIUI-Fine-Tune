@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.7.0 — observability + adaptive guards (2026-10-08)
+## v0.7.0 — telemetry, guards, maintenance & FAS-lite (2026-10-08)
 
 Read-only telemetry, transition history, an in-app Diagnostics screen and
 the first env-aware guards — the foundation for everything after.
