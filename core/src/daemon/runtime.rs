@@ -67,6 +67,50 @@ impl Runtime {
         if (bat, therm) != prev && cfg.enabled && !self.retired {
             self.evaluate("env", None);
         }
+        self.maybe_maintenance(&cfg);
+    }
+
+    /// Spawns the weekly f2fs GC when the trigger conditions hold.
+    fn maybe_maintenance(&mut self, cfg: &super::config::DaemonConfig) {
+        if self.maint_running || self.retired || !cfg.enabled {
+            return;
+        }
+        let off_secs = self
+            .screen_off_since
+            .map(|t| t.elapsed().as_secs())
+            .unwrap_or(0);
+        if !super::maintenance::due(
+            cfg.maintenance,
+            self.env.charging,
+            self.screen_on,
+            off_secs,
+            super::maintenance::min_off_secs(),
+            self.maint.last,
+            super::maintenance::now_epoch(),
+        ) {
+            return;
+        }
+        self.maint_running = true;
+        self.log("maintenance: starting f2fs GC (charging, idle)");
+        super::maintenance::spawn(self.tx.clone());
+    }
+
+    pub(super) fn on_maint_done(&mut self, out: super::maintenance::MaintOutcome) {
+        self.maint_running = false;
+        self.maint.last = super::maintenance::now_epoch();
+        self.maint.result = out.detail.clone();
+        self.maint.dirty_before = out.dirty_before;
+        self.maint.dirty_after = out.dirty_after;
+        self.maint.save(&self.state_dir);
+        self.log(&format!(
+            "maintenance: {} ({})",
+            if out.ok { "done" } else { "skipped" },
+            out.detail
+        ));
+        self.publisher.emit(&Event::Maintenance {
+            ok: out.ok,
+            detail: out.detail,
+        });
     }
 
     pub(super) fn on_applied(&mut self, ev: worker::AppliedEvent) {

@@ -18,6 +18,12 @@ pub use store::Store;
 pub use verify::verify_plan;
 pub use write::{apply_plan, apply_with_pass2};
 
+/// Guarded single write (catalog guard + node write) for daemon-side
+/// maintenance windows — same gate as every engine write.
+pub fn guarded_write(path: &str, value: &str) -> Result<(), String> {
+    write::write_one(path, value)
+}
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;

@@ -59,6 +59,11 @@ A long-lived root process started once by the app. It owns:
 - **The environment sampler** (`env.rs`) — read-only telemetry (battery,
   thermal zones, GPU busy) into the main loop every 30 s; the app renders it
   live (`env` events) and `diag` reports it.
+- **Storage maintenance** (`maintenance.rs`, opt-in) — weekly bounded f2fs
+  GC while charging + screen off, mirroring the ROM's own
+  `checkpoint_gc` (sleep 50, `gc_urgent=1`, poll `dirty_segments` to ≤100,
+  restore; capped at 10 min). Runs on its own thread; every write passes
+  the catalog guard.
 - **Env-aware guards** — config-gated safety rules evaluated on every
   decision and immediately when the guard verdict flips on a fresh sample:
   - *battery guard*: at/below `battery_floor_pct` while not charging →

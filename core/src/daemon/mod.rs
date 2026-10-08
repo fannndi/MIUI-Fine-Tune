@@ -27,6 +27,7 @@ mod config;
 mod engine_driver;
 mod env;
 mod evaluate;
+mod maintenance;
 mod proto;
 mod runtime;
 mod settings;
@@ -81,6 +82,8 @@ enum Msg {
     },
     /// Fresh environment sample (battery / thermal / GPU busy).
     Env(EnvSnapshot),
+    /// Storage maintenance finished (result to persist + report).
+    MaintDone(maintenance::MaintOutcome),
     /// A watcher stream died; the supervisor restarts it with backoff.
     WatcherDown(WatcherKind),
 }
@@ -113,6 +116,10 @@ struct Runtime {
     /// is forced so a pack update or drift that happened while we were down
     /// is reconciled.
     reconciled: bool,
+    /// Storage maintenance state (weekly f2fs GC while charging + idle).
+    maint: maintenance::MaintFile,
+    maint_running: bool,
+    screen_off_since: Option<Instant>,
     // device context
     screen_on: bool,
     locked: bool,
@@ -263,6 +270,9 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         thermal_stepped: false,
         last_battery_low: false,
         reconciled: false,
+        maint: maintenance::MaintFile::load(state_dir),
+        maint_running: false,
+        screen_off_since: None,
         screen_on: true,
         locked: false,
         multi_window: false,
@@ -317,6 +327,7 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
             Ok(Msg::Mw { active, other }) => rt.on_mw(active, other),
             Ok(Msg::Peek { pkg, trigger }) => rt.on_seed(pkg, trigger),
             Ok(Msg::Env(snap)) => rt.on_env(snap),
+            Ok(Msg::MaintDone(out)) => rt.on_maint_done(out),
             Ok(Msg::WatcherDown(kind)) => {
                 rt.log(&format!("{} stream ended", kind.name()));
             }

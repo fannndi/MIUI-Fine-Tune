@@ -39,9 +39,11 @@ impl Runtime {
                     if was_on {
                         self.log("screen off");
                     }
+                    self.screen_off_since = Some(Instant::now());
                     self.sleep_deadline =
                         Some(Instant::now() + Duration::from_millis(SLEEP_DELAY_MS));
                 } else {
+                    self.screen_off_since = None;
                     self.sleep_deadline = None;
                     if !was_on {
                         self.log("screen on");

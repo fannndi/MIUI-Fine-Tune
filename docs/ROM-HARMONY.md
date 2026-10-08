@@ -10,9 +10,10 @@ sources:
 
 ## Who writes what
 
-Catalog (v0.7+): **87 nodes** (51 Baseline, 36 Free). v0.7 added three
-evidence-backed entries: `io.read_ahead_kb` (Free — see the row below) and
-the two L3-latency devfreq floors (Baseline).
+Catalog (v0.7+): **89 nodes** (53 Baseline, 36 Free). v0.7 added five
+evidence-backed entries: `io.read_ahead_kb` (Free — see the row below), the
+two L3-latency devfreq floors (Baseline) and the two f2fs GC maintenance
+nodes (Baseline — see the storage-maintenance row).
 
 | Node / parameter | Boot (`init.qcom.post_boot.sh`) | Runtime | Owner | MiFineTune |
 |---|---|---|---|---|
@@ -40,6 +41,7 @@ the two L3-latency devfreq floors (Baseline).
 | `io.scheduler` / `nr_requests` / `nomerges` / `iostats` / `rq_affinity` | ✗ (only `read_ahead_kb` written) | ✗ | – | **Free** |
 | `io.read_ahead_kb` (sda/userdata, queue view) | ✗ for **sda** — `init.qcom.rc` writes `dm-0/1/2` only (2048 during boot, reset to 512 after boot); the 512 sda value is the kernel default (Xiaomi patches `VM_MAX_READAHEAD` to 512, `include/linux/mm.h`) | ✗ | – | **Free** (`queue_ra_store` → `bdi->ra_pages`, `block/blk-sysfs.c`; v0.7 profiles: 128/512/1024) |
 | `devfreq cpu0/cpu6 l3-lat min_freq` | ✓ SKU blocks write min/max (SA6150: min 940800000) | ✗ (mem_latency governor votes internally; no sysfs writer) | ROM | **Baseline** (v0.7 game floor 940800000, else stock 300000000; values must be in `available_frequencies`) |
+| `f2fs gc_urgent` / `gc_urgent_sleep_time` | ✓ `vendor/bin/checkpoint_gc` (AOSP): sleep=50 + urgent=1, polls `dirty_segments` to ≤100, restores | ✗ | ROM (boot window) | **Baseline** — v0.7 storage maintenance reuses the exact AOSP pattern weekly (charging + idle + 60 s screen-off, bounded 10 min); device run 2026-10-08: `gc 3521 -> 30 dirty segments in 70s`, nodes restored |
 | `stune/*/schedtune.*` | ✓ `top-app/prefer_idle` | ✓ perf HAL `top-app` | ROM + perf HAL | **Baseline** |
 | `stune/{rt,audio-app}` | ✗ | ✓ audio HAL / RT task framework | framework | **Forbidden** (framework cgroups) |
 | `stune.root/…/schedtune.colocate` | ✓ `init.target.rc` (root/bg/sys-bg/fg=0, top-app=1) | ✗ | ROM | **Baseline** (not referenced by profiles; coexist) |

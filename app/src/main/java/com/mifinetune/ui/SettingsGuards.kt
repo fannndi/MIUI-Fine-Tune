@@ -32,10 +32,12 @@ internal fun GuardsCard(
     batteryFloor: Int,
     guardThermal: Boolean,
     thermalCeiling: Float,
+    maintenance: Boolean,
     onGuardBattery: (Boolean) -> Unit,
     onBatteryFloor: (Int) -> Unit,
     onGuardThermal: (Boolean) -> Unit,
     onThermalCeiling: (Float) -> Unit,
+    onMaintenance: (Boolean) -> Unit,
 ) {
     var floor by remember { mutableFloatStateOf(batteryFloor.toFloat()) }
     LaunchedEffect(batteryFloor) { floor = batteryFloor.toFloat() }
@@ -88,6 +90,19 @@ internal fun GuardsCard(
                     valueRange = 65f..85f,
                     steps = 3,
                 )
+            }
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Storage maintenance", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Weekly f2fs GC while charging & idle (bounded window, " +
+                            "dirty-segment threshold 100)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = maintenance, onCheckedChange = onMaintenance)
             }
         }
     }

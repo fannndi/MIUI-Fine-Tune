@@ -57,6 +57,7 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
     val batteryFloor: StateFlow<Int> = config.batteryFloorFlow
     val guardThermal: StateFlow<Boolean> = config.guardThermalFlow
     val thermalCeiling: StateFlow<Float> = config.thermalCeilingFlow
+    val maintenance: StateFlow<Boolean> = config.maintenanceFlow
 
     private val _state = MutableStateFlow(DynamicProfileUiState())
     val state: StateFlow<DynamicProfileUiState> = _state.asStateFlow()
@@ -102,6 +103,10 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setThermalCeiling(v: Float) {
         config.thermalCeiling = v
+    }
+
+    fun setMaintenance(v: Boolean) {
+        config.maintenance = v
     }
 
     fun checkRoot() {

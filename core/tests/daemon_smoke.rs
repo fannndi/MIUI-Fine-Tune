@@ -297,6 +297,54 @@ fn profile_pack_change_triggers_reevaluation() {
 }
 
 #[test]
+fn maintenance_triggers_while_charging_and_idle() {
+    let dir = tmp("maint");
+    let cfg_path = dir.join("config.json");
+    std::fs::write(
+        &cfg_path,
+        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance","maintenance":true}"#,
+    )
+    .unwrap();
+
+    // fake sysfs: charging (f2fs nodes intentionally absent -> reported skip)
+    let root = dir.join("fake-root");
+    let w = |rel: &str, body: &str| {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    };
+    w("sys/class/power_supply/battery/capacity", "80\n");
+    w("sys/class/power_supply/battery/status", "Charging\n");
+
+    let mut d = Daemon::spawn_env(
+        &dir,
+        &cfg_path,
+        &[
+            ("MIFINETUNE_SYSFS_ROOT", root.to_str().unwrap()),
+            ("MIFINETUNE_ENV_SAMPLE_MS", "200"),
+            ("MIFINETUNE_MAINT_MIN_OFF_SECS", "0"),
+            ("MIFINETUNE_MAINT_POLL_MS", "100"),
+            ("MIFINETUNE_MAINT_MAX_SECS", "2"),
+        ],
+    );
+
+    d.wait_for(|v| v["event"] == "hello", Duration::from_secs(5));
+    // screen off, charging -> the weekly window runs (first run: last = 0)
+    d.send(json!({"cmd":"screen","on":false,"locked":true}));
+    let ev = d.wait_for(|v| v["event"] == "maintenance", Duration::from_secs(10));
+    assert_eq!(ev["ok"], false, "host has no f2fs nodes");
+    assert!(ev["detail"].as_str().unwrap_or("").contains("unavailable"));
+
+    // bookkeeping persisted so the next run is a week away
+    let f = std::fs::read_to_string(dir.join("maintenance.json")).unwrap();
+    assert!(f.contains("unavailable"), "file: {f}");
+
+    d.send(json!({"cmd":"shutdown"}));
+    d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn daemon_exits_on_stdin_eof() {
     let dir = tmp("eof");
     let cfg_path = dir.join("config.json");

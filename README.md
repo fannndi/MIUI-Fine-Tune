@@ -38,6 +38,7 @@ the framework, never touches SELinux, and always keeps a stock restore path.
 | CPU near the ceiling (default 75 °C) | Game steps down to Balance, releases 5 °C lower |
 | Mapped game in front | + MIUI perf mirror + 120 Hz refresh |
 | Power Save-mapped app in front | + MIUI battery saver + 60 Hz refresh |
+| Charging + idle (weekly, opt-in) | Bounded f2fs GC window (`dirty_segments` → ≤100) |
 | Service OFF | All values written back to stock + daemon exits |
 
 Non-app rules (sleep, multi-window, saver, env guards) keep working with

@@ -27,7 +27,7 @@ parameters, always through the catalog guard.
 | `profiles.json` | profile pack (embedded via `include_str!`, mirrored to assets) |
 | `src/engine/mod.rs` | engine module index + test fixtures hookup |
 | `src/engine/catalog/mod.rs` | tier/kind/entry types, `find`, `guard_path` (forbidden-path guard) |
-| `src/engine/catalog/entries.rs` | the 87-node registry table (data only) |
+| `src/engine/catalog/entries.rs` | the 89-node registry table (data only) |
 | `src/engine/catalog/forbidden.rs` | framework-owned path prefixes + exact keys (never written) |
 | `src/engine/env.rs` | read-only telemetry sampler (battery / thermal / GPU busy) |
 | `src/engine/probe.rs` | read-only device capture: node values, options, framework evidence |
@@ -53,6 +53,7 @@ parameters, always through the catalog guard.
 | `src/daemon/engine_driver.rs` | engine adapter for the worker (in-process, no `su`) |
 | `src/daemon/watcher.rs` | logcat watchers (`-v epoch`): foreground + multi-window + peek |
 | `src/daemon/env.rs` | env sampler thread (read-only telemetry into the loop) |
+| `src/daemon/maintenance.rs` | opt-in weekly f2fs GC window (charging + idle, bounded) |
 | `src/daemon/stats.rs` | transition history (bounded, persisted `stats.json`) |
 | `src/daemon/bridge/mod.rs` | Bridge: shared state + one Mutex, recover/release/persist |
 | `src/daemon/bridge/holds.rs` | PowerMode + hold/restore state machine + holds.json |

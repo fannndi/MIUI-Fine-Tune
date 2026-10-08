@@ -58,6 +58,9 @@ pub struct DaemonConfig {
     pub guard_thermal: bool,
     #[serde(default = "default_thermal_ceiling")]
     pub thermal_ceiling_c: f32,
+    /// Storage maintenance: weekly bounded f2fs GC while charging + idle.
+    #[serde(default)]
+    pub maintenance: bool,
 }
 
 fn default_battery_floor() -> u8 {
@@ -88,6 +91,7 @@ impl Default for DaemonConfig {
             battery_floor_pct: default_battery_floor(),
             guard_thermal: true,
             thermal_ceiling_c: default_thermal_ceiling(),
+            maintenance: false,
         }
     }
 }
@@ -199,6 +203,7 @@ mod tests {
         assert_eq!(c.battery_floor_pct, 20);
         assert_eq!(c.thermal_ceiling_c, 75.0);
         assert!(c.sync_refresh);
+        assert!(!c.maintenance, "maintenance is opt-in");
     }
 
     #[test]

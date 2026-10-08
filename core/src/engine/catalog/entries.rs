@@ -400,6 +400,28 @@ pub fn catalog() -> &'static [Entry] {
             0,
             2000000000
         ),
+        // f2fs storage maintenance: /vendor/bin/checkpoint_gc (AOSP, boot)
+        // sets gc_urgent_sleep_time=50 + gc_urgent=1, polls dirty_segments
+        // until <=100 then restores — boot-transient -> Baseline. Kernel:
+        // gc_urgent >= 1 -> GC_URGENT, 0 -> GC_NORMAL (fs/f2fs/sysfs.c:259).
+        er!(
+            "f2fs.gc_urgent",
+            "/sys/fs/f2fs/sda16/gc_urgent",
+            Baseline,
+            Int,
+            "",
+            0,
+            1
+        ),
+        er!(
+            "f2fs.gc_urgent_sleep_time",
+            "/sys/fs/f2fs/sda16/gc_urgent_sleep_time",
+            Baseline,
+            Int,
+            "",
+            1,
+            10000
+        ),
         // --- scheduler sysctls (NOT written by the moorea post_boot block) ---
         e!(
             "kernel.sched_latency_ns",

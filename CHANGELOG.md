@@ -31,6 +31,12 @@ the first env-aware guards — the foundation for everything after.
   V12.0.9 ROM + kernel source; kgsl micro knobs stay out (the perf HAL
   runtime-writes the safe ones — force_clk_on/no_nap/idle_timer — and the
   rest are hang-recovery/firmware semantics).
+- **Storage maintenance (opt-in)**: weekly bounded f2fs GC while charging +
+  screen off, reusing the ROM's own `checkpoint_gc` pattern (short
+  `gc_urgent_sleep_time`, `gc_urgent=1`, poll `dirty_segments` to ≤100,
+  restore, `sync`; capped at 10 min). Two Baseline catalog nodes; runs on a
+  daemon thread, result persisted in `maintenance.json` and logged.
+  Device run: `gc 3521 -> 30 dirty segments in 70s`, nodes restored.
 - **Pack-update reconciliation**: profiles.json is mtime-watched; the first
   apply of every daemon run and every config/pack hint forces a re-plan, so
   new catalog keys reach the device without waiting for an app switch (the
@@ -51,9 +57,9 @@ the first env-aware guards — the foundation for everything after.
   the system file picker (validated + clamped, unknown keys ignored).
 - **Doctor v2**: env telemetry checks, future-knob surface probe (f2fs /
   devfreq / kgsl / read-head), refresh-rate key, logcat `-v epoch` format.
-- **Tests**: 106 unit + 10 host E2E across three binaries (protocol/decision,
+- **Tests**: 109 unit + 11 host E2E across three binaries (protocol/decision,
   watcher streams, bridge hold/restore; fake-sysfs env/guard E2E; profile
-  pack update E2E).
+  pack update E2E; maintenance trigger E2E).
 - **CI** (`.github/workflows/ci.yml`): Rust job (fmt check, clippy with
   `-D warnings`, all tests) and an Android job (NDK arm64 core build +
   `assembleDebug`); the identical coverage runs locally with `cargo test`.

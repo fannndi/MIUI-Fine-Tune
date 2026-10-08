@@ -94,6 +94,8 @@ pub enum Event {
     Stats { entries: Vec<StatEntry> },
     /// Bridge timeline entry (MIUI mode writes).
     Bridge { msg: String },
+    /// Storage maintenance finished (weekly f2fs GC window).
+    Maintenance { ok: bool, detail: String },
     /// MIUI Game Booster conflict for a mapped game (warn once per session).
     GameModeConflict { pkg: String },
     /// Ultra saver retire finished: the app must set enabled=false + stop.
