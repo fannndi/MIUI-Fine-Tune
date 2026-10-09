@@ -270,6 +270,28 @@ MIUI-side charge-limit UI exists on this build. MiFineTune uses
 
 ---
 
+## 5b. Boot/perf writers audited this round (2026-10-10)
+
+- **`system_perf_init`** (`/system/xbin/system_perf_init`, one-shot
+  `init.svc.system_perf_init`, now stopped) is the ZRAM/VM boot tool: it
+  writes `/sys/block/zram0/{disksize,comp_algorithm,max_comp_streams,backing_dev}`,
+  `/proc/sys/vm/{swappiness,page-cluster}`, `dalvik.vm.*dex2oat-threads` and
+  `/dev/cpuset/background/cpus`. This is why the catalog guard forbids those
+  nodes (except the baseline-tier cpuset mask we legitimately manage).
+  Live: zram 2.5 GiB (`lzo`), swappiness 100, SwapTotal 2.5 GB, ~2.1 GB
+  MemAvailable on 5.7 GB total.
+- **`vendor.perfservice`** (`/system/bin/perfservice`, system user, PID 1225)
+  is Qualcomm's legacy PerfService client (`libqti-perfd-client_system.so`:
+  `perf_hint`, `perf_lock_acq/rel`, `perf_sync_request`,
+  `perf_ux_engine_events`) sitting alongside the perf@2.0 HAL. ROM-owned, we
+  never poke it; it is one of the paths MIUI/qualified apps use to request
+  boosts.
+- **`msm_performance`** kernel QoS was idle during the audit
+  (`cpu_max_freq` all-unlimited, no min floors) — good default-state check
+  for the diagnostics insight.
+- **lmkd** runs stock (`init.svc.lmkd`), no override props beyond the
+  perfconfigstore default `ro.lmk.enable_userspace_lmk=false`.
+
 ## 6. Golden rules derived from this RE
 
 1. The panel is only moved by the HAL / SF transaction — settings keys are
