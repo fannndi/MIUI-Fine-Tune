@@ -76,6 +76,11 @@
 /sys/devices/system/cpu/cpufreq/schedutil/hispeed_load
 /sys/devices/system/cpu/cpufreq/schedutil/down_rate_limit_us
 /sys/devices/system/cpu/cpufreq/schedutil/rtg_boost_freq
+# v0.9: commonresourceconfigs (0x11) also declares cpu0/cpufreq/schedutil/pl —
+#     that path RESOLVES on surya (cpu0/cpufreq -> policy0 symlink) but no
+#     perfboostsconfig entry uses opcode 0x11 -> "declared, unused" like the
+#     four above. Catalog keeps policy0/policy6 entries at Baseline (coexist).
+/sys/devices/system/cpu/cpu0/cpufreq/schedutil/pl
 
 # --- network stack (netd) ---
 /proc/sys/net/ipv4/tcp_rmem
