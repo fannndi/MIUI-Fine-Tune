@@ -368,3 +368,133 @@ fn app_profile_software_engages_and_restores() {
     d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn refresh_follow_per_app_and_sleep() {
+    let dir = tmp("bridge-refresh");
+    let state = write_fake_settings(&dir);
+    // the user's own value: 120 Hz
+    std::fs::write(state.join("system.user_refresh_rate"), "120").unwrap();
+    std::fs::write(
+        dir.join("config.json"),
+        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance",
+            "app_profiles":{
+              "com.miui.home":{"refresh_hz":90},
+              "com.google.android.youtube":{"refresh_hz":60}}}"#,
+    )
+    .unwrap();
+
+    let script = dir.join("settings");
+    let mut d = Daemon::spawn_env(
+        &dir.join("state"),
+        &dir.join("config.json"),
+        &[
+            ("MIFINETUNE_SETTINGS_BIN", script.to_str().unwrap()),
+            ("MIFINETUNE_LOGCAT_BIN", "/nonexistent-logcat"),
+        ],
+    );
+
+    d.wait_for(|v| v["event"] == "hello", Duration::from_secs(5));
+    d.send(json!({"cmd":"screen","on":true,"locked":false}));
+
+    // launcher entry (90) captured the user's 120, wrote 90
+    d.send(json!({"cmd":"fg","pkg":"com.miui.home"}));
+    d.wait_for(
+        |v| {
+            v["event"] == "bridge"
+                && v["msg"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("refresh follow 90 Hz (com.miui.home)")
+        },
+        Duration::from_secs(10),
+    );
+    assert_eq!(
+        setting(&state, "system.user_refresh_rate").as_deref(),
+        Some("90")
+    );
+
+    // video app entry -> 60 (capture must NOT move)
+    d.send(json!({"cmd":"fg","pkg":"com.google.android.youtube"}));
+    d.wait_for(
+        |v| {
+            v["event"] == "bridge"
+                && v["msg"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("refresh follow 60 Hz (com.google.android.youtube)")
+        },
+        Duration::from_secs(10),
+    );
+    assert_eq!(
+        setting(&state, "system.user_refresh_rate").as_deref(),
+        Some("60")
+    );
+
+    // an app without a target releases -> the captured 120 returns
+    d.send(json!({"cmd":"fg","pkg":"com.whatsapp"}));
+    d.wait_for(
+        |v| {
+            v["event"] == "bridge"
+                && v["msg"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("refresh restored (120)")
+        },
+        Duration::from_secs(10),
+    );
+    assert_eq!(
+        setting(&state, "system.user_refresh_rate").as_deref(),
+        Some("120")
+    );
+
+    // screen off -> the fixed sleep rate (30 Hz). The sleep decision fires
+    // after the 10 s grace (SLEEP_DELAY_MS), so this wait is longer.
+    d.send(json!({"cmd":"screen","on":false,"locked":true}));
+    d.wait_for(
+        |v| {
+            v["event"] == "bridge"
+                && v["msg"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("refresh follow 30 Hz (sleep)")
+        },
+        Duration::from_secs(25),
+    );
+    assert_eq!(
+        setting(&state, "system.user_refresh_rate").as_deref(),
+        Some("30")
+    );
+
+    // wake -> release again (no app target for whatsapp)
+    d.send(json!({"cmd":"screen","on":true,"locked":false}));
+    d.wait_for(
+        |v| {
+            v["event"] == "bridge"
+                && v["msg"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("refresh restored (120)")
+        },
+        Duration::from_secs(10),
+    );
+    assert_eq!(
+        setting(&state, "system.user_refresh_rate").as_deref(),
+        Some("120")
+    );
+
+    // holds are clean after the release
+    let holds_path = dir.join("state").join("holds.json");
+    assert!(
+        wait_file_contains(
+            &holds_path,
+            "\"refresh_held\": false",
+            Duration::from_secs(2)
+        ),
+        "refresh hold must be released"
+    );
+
+    d.send(json!({"cmd":"shutdown"}));
+    d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
+    let _ = std::fs::remove_dir_all(&dir);
+}

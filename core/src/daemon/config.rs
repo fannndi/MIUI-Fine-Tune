@@ -38,6 +38,10 @@ pub struct AppProfile {
     /// Do Not Disturb while in front: `priority` | `total`.
     #[serde(default)]
     pub dnd: Option<String>,
+    /// Per-app display refresh target (Hz): 30 | 60 | 90 | 120.
+    /// Absent/`Default` = MIUI/system keeps control for this app.
+    #[serde(default)]
+    pub refresh_hz: Option<u32>,
 }
 
 impl AppProfile {
@@ -46,6 +50,14 @@ impl AppProfile {
         match self.dnd.as_deref() {
             Some("priority") => Some("priority"),
             Some("total") => Some("total"),
+            _ => None,
+        }
+    }
+
+    /// Valid refresh target; anything else is ignored (Default behavior).
+    pub fn refresh_target(&self) -> Option<u32> {
+        match self.refresh_hz {
+            Some(v) if matches!(v, 30 | 60 | 90 | 120) => Some(v),
             _ => None,
         }
     }
@@ -78,6 +90,11 @@ pub struct DaemonConfig {
     pub sync_miui_perf: bool,
     #[serde(default = "default_true")]
     pub sync_miui_saver: bool,
+    /// Per-app refresh follow (`Settings.System user_refresh_rate`): capture
+    /// the user's value once, apply the app target while it is in front,
+    /// restore on release. Sleep (screen off) holds a fixed low rate.
+    #[serde(default = "default_true")]
+    pub sync_refresh: bool,
     #[serde(default = "default_true")]
     pub game_mode_checker: bool,
     /// Battery guard: force Power Save below the floor (unless charging).
@@ -140,6 +157,7 @@ impl Default for DaemonConfig {
             bypass_floor_pct: default_bypass_floor(),
             sync_miui_perf: true,
             sync_miui_saver: true,
+            sync_refresh: true,
             game_mode_checker: true,
             guard_battery: true,
             battery_floor_pct: default_battery_floor(),

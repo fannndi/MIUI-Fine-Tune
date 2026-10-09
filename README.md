@@ -39,6 +39,7 @@ the framework, never touches SELinux, and always keeps a stock restore path.
 | Mapped game in front | + MIUI perf mirror (refresh stays MIUI's) |
 | Power Save-mapped app in front | + MIUI battery saver |
 | Apps Profile: bypass charging ON (opt-in) | Charger input suspended while that app is in front; releases at the bypass floor |
+| Apps Profile: refresh target (opt-in) | 120/90/60/30 Hz while that app is in front (`Default` = MIUI); your value is captured and restored on exit; screen-off holds 30 Hz |
 | Apps Profile: DND (opt-in) | DND set through Android's official API while in front; restored on exit |
 | Charging + idle (weekly, opt-in) | Bounded f2fs GC window (`dirty_segments` → ≤100) |
 | Charge limit (opt-in, default 80 %) | Charging pauses at the limit, resumes 5 % lower; stock switch returns on exit |
@@ -67,8 +68,10 @@ front:
   and always restores on exit.
 - **Do Not Disturb** — through Android's official DND access API, restored on
   exit (no direct `zen_mode` writes).
+- **Refresh rate** — per-app 120/90/60/30 Hz (`Default` = MIUI keeps
+  control); the user's own value is captured once and restored on exit.
 
-MiFineTune never overwrites what MIUI controls: refresh rate, MIUI power
+MiFineTune never overwrites what MIUI controls: the vendor dfps props, MIUI power
 modes, GameTurbo, thermal and charging internals stay MIUI's. Every per-app
 effect is captured first and restored on app exit, Service OFF or daemon
 recovery.

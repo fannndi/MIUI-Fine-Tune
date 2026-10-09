@@ -170,6 +170,7 @@ impl Runtime {
             dynamic: cfg.dynamic,
             sync_perf: cfg.sync_miui_perf,
             sync_saver: cfg.sync_miui_saver,
+            sync_refresh: cfg.sync_refresh,
             game_checker: cfg.game_mode_checker,
             app_map: cfg.merged_app_map(),
             app_profiles: cfg.app_profiles.clone(),

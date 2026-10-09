@@ -47,6 +47,17 @@ pub enum SaverAction {
     Restore,
 }
 
+/// Refresh-rate follow action (`Settings.System user_refresh_rate`).
+#[derive(Debug)]
+pub enum RefreshAction {
+    None,
+    Keep,
+    /// Write this hz value.
+    Write(String),
+    /// Release: write the captured value back (None = the key was absent).
+    Restore(Option<String>),
+}
+
 /// Charge-guard action (`battery_charging_enabled` node).
 #[derive(Debug)]
 pub enum ChargeAction {
@@ -76,6 +87,10 @@ pub struct Holds {
     pub perf_saved: PowerMode,
     pub saver_held: bool,
     pub saver_saved: bool,
+    /// Per-app refresh follow: captured user value while we hold the setting.
+    pub refresh_held: bool,
+    /// The user's `user_refresh_rate` before our first write (None = absent).
+    pub refresh_saved: Option<String>,
     pub charge_held: bool,
     /// The node value before the pause (None = assume "1").
     pub charge_saved: Option<String>,
@@ -91,6 +106,8 @@ impl Default for Holds {
             perf_saved: PowerMode::Balanced,
             saver_held: false,
             saver_saved: false,
+            refresh_held: false,
+            refresh_saved: None,
             charge_held: false,
             charge_saved: None,
             bypass_held: false,
@@ -164,6 +181,48 @@ impl Holds {
         }
     }
 
+    /// `live` = current `user_refresh_rate`; `want` = desired hz (None =
+    /// release). Unlike perf/saver the wanted VALUE can change while held
+    /// (launcher 120 -> video app 60), so `live` is re-read each sync.
+    pub fn request_refresh(
+        &self,
+        live: Option<String>,
+        want: Option<u32>,
+    ) -> (Holds, RefreshAction) {
+        let desired = want.map(|v| v.to_string());
+        match (desired, self.refresh_held) {
+            (None, false) => (self.clone(), RefreshAction::None),
+            (None, true) => (
+                Holds {
+                    refresh_held: false,
+                    refresh_saved: None,
+                    ..self.clone()
+                },
+                RefreshAction::Restore(self.refresh_saved.clone()),
+            ),
+            (Some(v), false) => (
+                Holds {
+                    refresh_held: true,
+                    refresh_saved: live.clone(),
+                    ..self.clone()
+                },
+                if live.as_deref() == Some(v.as_str()) {
+                    RefreshAction::Keep
+                } else {
+                    RefreshAction::Write(v)
+                },
+            ),
+            (Some(v), true) => (
+                self.clone(),
+                if live.as_deref() == Some(v.as_str()) {
+                    RefreshAction::Keep
+                } else {
+                    RefreshAction::Write(v)
+                },
+            ),
+        }
+    }
+
     /// `live` = current `battery_charging_enabled`; `want_pause` = the guard
     /// wants charging stopped. Capture on the first pause, write back on
     /// release (a missing capture assumes "1" — stock).
@@ -233,6 +292,10 @@ pub struct HoldsFile {
     pub saver_held: bool,
     pub saver_saved: bool,
     #[serde(default)]
+    pub refresh_held: bool,
+    #[serde(default)]
+    pub refresh_saved: Option<String>,
+    #[serde(default)]
     pub charge_held: bool,
     #[serde(default)]
     pub charge_saved: Option<String>,
@@ -249,6 +312,9 @@ pub struct HoldsInfo {
     pub perf_saved: String,
     pub saver_held: bool,
     pub saver_saved: bool,
+    pub refresh_held: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_saved: Option<String>,
     pub charge_held: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub charge_saved: Option<String>,
@@ -409,6 +475,57 @@ mod tests {
         assert_eq!(PowerMode::of("middle"), PowerMode::Balanced);
         assert_eq!(PowerMode::of("anything-else"), PowerMode::Balanced);
         assert_eq!(PowerMode::Performance.key(), "high");
+    }
+
+    #[test]
+    fn refresh_hold_captures_and_restores_the_value() {
+        let s = Holds::default();
+        // user had 60; the app entry asks 120 -> Write, capture 60
+        let (n, a) = s.request_refresh(Some("60".into()), Some(120));
+        assert!(matches!(a, RefreshAction::Write(ref v) if v == "120"));
+        assert!(n.refresh_held);
+        assert_eq!(n.refresh_saved.as_deref(), Some("60"));
+
+        // while held the wanted value may change (video app -> 60):
+        // write it, but never move the capture
+        let (n2, a2) = n.request_refresh(Some("120".into()), Some(60));
+        assert!(matches!(a2, RefreshAction::Write(ref v) if v == "60"));
+        assert_eq!(n2.refresh_saved.as_deref(), Some("60"));
+
+        // already at the wanted value -> Keep (no settings write)
+        let (n3, a3) = n2.request_refresh(Some("60".into()), Some(60));
+        assert!(matches!(a3, RefreshAction::Keep));
+        assert_eq!(n3, n2);
+
+        // release -> Restore the captured 60
+        let (n4, a4) = n3.request_refresh(Some("60".into()), None);
+        assert!(matches!(a4, RefreshAction::Restore(Some(ref v)) if v == "60"));
+        assert!(!n4.refresh_held);
+        assert!(n4.refresh_saved.is_none());
+    }
+
+    #[test]
+    fn refresh_absent_key_restores_as_delete() {
+        let s = Holds::default();
+        // the user never set the key -> capture None, restore = delete
+        let (n, a) = s.request_refresh(None, Some(90));
+        assert!(matches!(a, RefreshAction::Write(ref v) if v == "90"));
+        assert!(n.refresh_saved.is_none());
+        let (_, a2) = n.request_refresh(Some("90".into()), None);
+        assert!(matches!(a2, RefreshAction::Restore(None)));
+    }
+
+    #[test]
+    fn refresh_recovered_hold_restores_captured_value_not_live() {
+        // daemon died while holding (user's 120, ours 60)
+        let s = Holds {
+            refresh_held: true,
+            refresh_saved: Some("120".into()),
+            ..Default::default()
+        };
+        let (n, a) = s.request_refresh(Some("60".into()), None);
+        assert!(matches!(a, RefreshAction::Restore(Some(ref v)) if v == "120"));
+        assert!(!n.refresh_held);
     }
 
     // --- pure gate rules (dynamic/profile/screen combinations) -------------

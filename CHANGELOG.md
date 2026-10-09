@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.16.0 — display refresh per-app + efficiency retune (WIP)
+
+### Refresh rate follow, per app (F9 re-introduced, by user request)
+
+- Apps Profile entries gain a **Refresh rate** target: `Default` (MIUI keeps
+  control) | 120 | 90 | 60 | 30 Hz. The launcher is now listed too (it had
+  `CATEGORY_HOME`, not `CATEGORY_LAUNCHER`, so the picker never showed it).
+- Daemon: the F9 hold machinery is back — capture the user's
+  `user_refresh_rate` on the first write, apply the app target while it is
+  in front (Dynamic ON), restore on app exit / Dynamic OFF / Service OFF /
+  crash recovery (`holds.json`). Screen-off holds **30 Hz** (user idea).
+  Master switch: Settings → MIUI bridge → "Refresh rate follow".
+- Never touches the vendor dfps props; `Default` never writes.
+- Device-verified 2026-10-09: launcher 90 → YouTube 60 → HOME 90 →
+  screen-off 30 → config removed → restored 120, holds clean. Host E2E
+  (`refresh_follow_per_app_and_sleep`) covers the same cycle; unit tests
+  port the original F9 state machine.
+
 ## v0.15.0 — bench report + polish (2026-10-09)
 
 - `tools/bench.sh` fixed (dead `sample()` line was a hard syntax error),

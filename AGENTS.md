@@ -29,19 +29,24 @@ Two layers, two scopes. Keep them separate; never overwrite what MIUI controls.
 
 Rules:
 1. A parameter belongs to exactly one layer; the catalog is hardware-only.
-2. MIUI-owned parameters are never written: refresh rate
-   (`user_refresh_rate`/dfps), MIUI power modes (`persist.sys.aries.*`),
-   GameTurbo (`gb_boosting`/`vtb_boosting`/`screen_game_mode`), thermal, perf
-   locks, LMK/zram, JEITA/step-charging, direct `zen_mode` writes.
+2. MIUI-owned parameters are never written: vendor dfps props, MIUI power
+   modes (`persist.sys.aries.*`), GameTurbo
+   (`gb_boosting`/`vtb_boosting`/`screen_game_mode`), thermal, perf locks,
+   LMK/zram, JEITA/step-charging, direct `zen_mode` writes. `user_refresh_rate`
+   is the one audited exception (v0.16.0): a per-app Apps-Profile surface
+   with capture/restore through the bridge hold state machine.
 3. Per-app features use only audited user-facing surfaces: `input_suspend`
    (bypass charging) and the official DND API (`dnd` event -> the app calls
    `NotificationManager.setInterruptionFilter`). Every effect is restored on
    app exit, Service OFF and daemon recovery (`holds.json`).
 4. Per-app gates: `dynamic && service enabled`; an absent field leaves MIUI
    untouched.
-5. Refresh rate is MIUI's; MiFineTune does not manage it (F9 removed). The
-   HWUI renderer prop was dropped: the app-spawned daemon runs in
-   `untrusted_app`, where SELinux denies `debug_prop` writes.
+5. Refresh rate: per-app opt-in (F9 re-introduced v0.16.0, user request).
+   The bridge captures the user's `user_refresh_rate` once and restores it on
+   release; `Default` never writes; screen-off holds 30 Hz. The vendor dfps
+   props and MIUI's own toggle remain untouched. The HWUI renderer prop was
+   dropped: the app-spawned daemon runs in `untrusted_app`, where SELinux
+   denies `debug_prop` writes.
 
 ## File map (one line per file — keep this current)
 

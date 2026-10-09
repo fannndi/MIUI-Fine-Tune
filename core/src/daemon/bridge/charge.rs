@@ -117,6 +117,7 @@ mod tests {
             charge_limit: limit,
             charge_limit_pct: limit_pct,
             charge_once: false,
+            sync_refresh: false,
         }
     }
 

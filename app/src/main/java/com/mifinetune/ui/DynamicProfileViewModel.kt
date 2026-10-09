@@ -53,6 +53,7 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
     /** MIUI bridge switches (Settings page). */
     val syncMiuiPerf: StateFlow<Boolean> = config.syncMiuiPerfFlow
     val syncSaver: StateFlow<Boolean> = config.syncSaverFlow
+    val syncRefresh: StateFlow<Boolean> = config.syncRefreshFlow
     val gameModeChecker: StateFlow<Boolean> = config.gameModeCheckerFlow
     val bridgeLog: StateFlow<List<String>> = DynamicProfileState.bridgeLog
 
@@ -96,6 +97,10 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setSyncSaver(v: Boolean) {
         config.syncSaver = v
+    }
+
+    fun setSyncRefresh(v: Boolean) {
+        config.syncRefresh = v
     }
 
 
@@ -158,26 +163,37 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
             val apps = withContext(Dispatchers.IO) {
                 val app = getApplication<Application>()
                 val pm = app.packageManager
-                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
                 val seen = HashSet<String>()
-                pm.queryIntentActivities(intent, 0)
-                    .mapNotNull { ri ->
-                        val ai = ri.activityInfo.applicationInfo
-                        val pkg = ai.packageName
-                        if (pkg == app.packageName || !seen.add(pkg)) return@mapNotNull null
-                        val isSystem = (ai.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                        if (isSystem) return@mapNotNull null
-                        AppEntry(
-                            pkg = pkg,
-                            label = runCatching { pm.getApplicationLabel(ai).toString() }
-                                .getOrDefault(pkg),
-                            isGame = ai.category == ApplicationInfo.CATEGORY_GAME,
-                            icon = runCatching {
-                                pm.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap()
-                            }.getOrNull(),
-                        )
-                    }
-                    .sortedBy { it.label.lowercase() }
+                val entries = ArrayList<AppEntry>()
+                fun add(ai: ApplicationInfo) {
+                    val pkg = ai.packageName
+                    if (pkg == app.packageName || !seen.add(pkg)) return
+                    entries += AppEntry(
+                        pkg = pkg,
+                        label = runCatching { pm.getApplicationLabel(ai).toString() }
+                            .getOrDefault(pkg),
+                        isGame = ai.category == ApplicationInfo.CATEGORY_GAME,
+                        icon = runCatching {
+                            pm.getApplicationIcon(pkg).toBitmap(96, 96).asImageBitmap()
+                        }.getOrNull(),
+                    )
+                }
+                // Home packages first: the launcher is a system app whose
+                // activity carries CATEGORY_HOME (not LAUNCHER), so it must be
+                // merged explicitly to be configurable (e.g. refresh rate).
+                val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                pm.queryIntentActivities(home, 0).forEach { ri ->
+                    ri.activityInfo?.applicationInfo?.let(::add)
+                }
+                // Regular launcher entries; system apps stay hidden (their
+                // settings are MIUI's), except ones already merged above.
+                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                pm.queryIntentActivities(intent, 0).forEach { ri ->
+                    val ai = ri.activityInfo.applicationInfo
+                    val isSystem = (ai.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    if (!isSystem) add(ai)
+                }
+                entries.sortedBy { it.label.lowercase() }
             }
             _state.update { it.copy(apps = apps, loading = false) }
         }

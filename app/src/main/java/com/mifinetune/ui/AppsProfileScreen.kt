@@ -202,6 +202,7 @@ private fun AppRow(
     val extras = buildList {
         if (configured?.bypassCharge == true) add("Bypass")
         if (configured?.dnd != null) add("DND")
+        configured?.refreshHz?.let { add("$it Hz") }
     }
     Row(
         Modifier

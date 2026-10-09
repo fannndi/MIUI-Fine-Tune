@@ -38,7 +38,7 @@ class DynamicProfileConfig private constructor(context: Context) {
         /** Keys a backup may carry (anything else is ignored). */
         private val IMPORT_KEYS = setOf(
             "enabled", "dynamic", "base_profile", "app_map",
-            "sync_miui_perf", "sync_miui_saver", "game_mode_checker",
+            "sync_miui_perf", "sync_miui_saver", "sync_refresh", "game_mode_checker",
             "guard_battery", "battery_floor_pct", "guard_thermal", "thermal_ceiling_c",
             "maintenance", "charge_limit", "charge_limit_pct", "jank_boost",
             "app_profiles", "bypass_floor_pct",
@@ -82,6 +82,13 @@ class DynamicProfileConfig private constructor(context: Context) {
     var syncSaver: Boolean
         get() = _syncSaver.value
         set(v) = put { it.put("sync_miui_saver", v) }
+
+    /** Per-app refresh follow (`Settings.System user_refresh_rate`). */
+    private val _syncRefresh = MutableStateFlow(true)
+    val syncRefreshFlow: StateFlow<Boolean> = _syncRefresh
+    var syncRefresh: Boolean
+        get() = _syncRefresh.value
+        set(v) = put { it.put("sync_refresh", v) }
 
     private val _gameModeChecker = MutableStateFlow(true)
     val gameModeCheckerFlow: StateFlow<Boolean> = _gameModeChecker
@@ -229,6 +236,7 @@ class DynamicProfileConfig private constructor(context: Context) {
             if (src.has("dynamic")) next.put("dynamic", src.optBoolean("dynamic"))
             if (src.has("sync_miui_perf")) next.put("sync_miui_perf", src.optBoolean("sync_miui_perf"))
             if (src.has("sync_miui_saver")) next.put("sync_miui_saver", src.optBoolean("sync_miui_saver"))
+            if (src.has("sync_refresh")) next.put("sync_refresh", src.optBoolean("sync_refresh"))
             if (src.has("game_mode_checker")) next.put("game_mode_checker", src.optBoolean("game_mode_checker"))
             if (src.has("guard_battery")) next.put("guard_battery", src.optBoolean("guard_battery"))
             if (src.has("guard_thermal")) next.put("guard_thermal", src.optBoolean("guard_thermal"))
@@ -295,6 +303,7 @@ class DynamicProfileConfig private constructor(context: Context) {
         _dynamicEnabled.value = json.optBoolean("dynamic", true)
         _syncMiuiPerf.value = json.optBoolean("sync_miui_perf", true)
         _syncSaver.value = json.optBoolean("sync_miui_saver", true)
+        _syncRefresh.value = json.optBoolean("sync_refresh", true)
         _gameModeChecker.value = json.optBoolean("game_mode_checker", true)
         _guardBattery.value = json.optBoolean("guard_battery", true)
         _batteryFloor.value = json.optInt("battery_floor_pct", 20).coerceIn(5, 50)
@@ -348,6 +357,7 @@ class DynamicProfileConfig private constructor(context: Context) {
         def("base_profile", DEFAULT_BASE)
         def("sync_miui_perf", true)
         def("sync_miui_saver", true)
+        def("sync_refresh", true)
         def("game_mode_checker", true)
         def("guard_battery", true)
         def("battery_floor_pct", 20)
@@ -370,6 +380,7 @@ class DynamicProfileConfig private constructor(context: Context) {
         .put("base_profile", _baseProfile)
         .put("sync_miui_perf", _syncMiuiPerf.value)
         .put("sync_miui_saver", _syncSaver.value)
+        .put("sync_refresh", _syncRefresh.value)
         .put("game_mode_checker", _gameModeChecker.value)
         .put("guard_battery", _guardBattery.value)
         .put("battery_floor_pct", _batteryFloor.value)

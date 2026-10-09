@@ -178,6 +178,14 @@ fun AppProfileDetailScreen(
                 detail = "Through Android's official DND access (restored on exit)",
                 onClick = { picker = "dnd" },
             )
+            HorizontalDivider()
+            PickerRow(
+                title = "Refresh rate",
+                value = refreshLabel(draft.refreshHz),
+                detail = "While this app is in front — captures your MIUI value " +
+                    "and restores it on exit; Default = MIUI keeps control",
+                onClick = { picker = "refresh" },
+            )
             if (draft.dnd != null && !dndGranted) {
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
@@ -253,6 +261,13 @@ fun AppProfileDetailScreen(
                 "balance" to "Balance",
                 "game" to "Game",
             )
+            "refresh" -> "Refresh rate" to listOf(
+                null to "Default (MIUI)",
+                "120" to "120 Hz",
+                "90" to "90 Hz",
+                "60" to "60 Hz",
+                "30" to "30 Hz",
+            )
             else -> "Do Not Disturb" to listOf(
                 null to "Off",
                 "priority" to "Priority only",
@@ -268,6 +283,7 @@ fun AppProfileDetailScreen(
                 )
                 val selected = when (which) {
                     "profile" -> draft.profile
+                    "refresh" -> draft.refreshHz?.toString()
                     else -> draft.dnd
                 }
                 options.forEach { (value, label) ->
@@ -278,6 +294,7 @@ fun AppProfileDetailScreen(
                                 picker = null
                                 draft = when (which) {
                                     "profile" -> draft.copy(profile = value)
+                                    "refresh" -> draft.copy(refreshHz = value?.toIntOrNull())
                                     else -> draft.copy(dnd = value)
                                 }
                             }
@@ -367,6 +384,14 @@ private fun dndLabel(value: String?): String = when (value) {
     "priority" -> "Priority"
     "total" -> "Total silence"
     else -> "Off"
+}
+
+private fun refreshLabel(value: Int?): String = when (value) {
+    120 -> "120 Hz"
+    90 -> "90 Hz"
+    60 -> "60 Hz"
+    30 -> "30 Hz"
+    else -> "Default"
 }
 
 internal fun isDndGranted(context: Context): Boolean = runCatching {

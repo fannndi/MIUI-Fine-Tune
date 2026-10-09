@@ -4,7 +4,7 @@
 //! state machine lives in `holds.rs`. Every sync runs under the bridge
 //! Mutex held by the caller.
 
-use super::holds::{PerfAction, PowerMode, SaverAction};
+use super::holds::{PerfAction, PowerMode, RefreshAction, SaverAction};
 use super::{Bridge, State};
 use crate::daemon::config::AppProfile;
 use crate::daemon::proto::Event;
@@ -20,6 +20,8 @@ pub struct SyncCtx {
     pub dynamic: bool,
     pub sync_perf: bool,
     pub sync_saver: bool,
+    /// Per-app refresh follow (`Settings.System user_refresh_rate`).
+    pub sync_refresh: bool,
     pub game_checker: bool,
     /// Merged app map (`app_profiles[*].profile` over `app_map`).
     pub app_map: std::collections::BTreeMap<String, String>,
@@ -87,6 +89,40 @@ impl Bridge {
                 );
                 self.log_event("MIUI saver restored".into());
             }
+            _ => {}
+        }
+        st.holds = next;
+        changed
+    }
+
+    /// Per-app refresh follow (`Settings.System user_refresh_rate`): the
+    /// capture fires on the first write, survives daemon restarts and is
+    /// released on app exit / Service OFF / recovery.
+    pub(super) fn sync_refresh(&self, st: &mut State, ctx: &SyncCtx) -> bool {
+        let want = refresh_want(ctx);
+        let live = settings::read("system", settings::REFRESH_KEY);
+        let (next, action) = st.holds.request_refresh(live, want);
+        let changed = next != st.holds;
+        match action {
+            RefreshAction::Write(v) => {
+                let _ = settings::put("system", settings::REFRESH_KEY, &v);
+                let who = if !ctx.screen_on {
+                    "sleep".to_string()
+                } else {
+                    ctx.last_real.clone().unwrap_or_else(|| "?".into())
+                };
+                self.log_event(format!("refresh follow {v} Hz ({who})"));
+            }
+            RefreshAction::Restore(saved) => match &saved {
+                Some(v) => {
+                    let _ = settings::put("system", settings::REFRESH_KEY, v);
+                    self.log_event(format!("refresh restored ({v})"));
+                }
+                None => {
+                    let _ = settings::delete("system", settings::REFRESH_KEY);
+                    self.log_event("refresh restored (user setting was unset)".into());
+                }
+            },
             _ => {}
         }
         st.holds = next;
@@ -174,6 +210,28 @@ fn game_want(ctx: &SyncCtx) -> bool {
     ctx.dynamic && ctx.game_checker && mapped_profile(ctx) == Some("game")
 }
 
+/// Fixed refresh while the panel is off: a low rate avoids a 60/120 burst
+/// on the wake transition (the user asked for 30 Hz in the off-screen mode).
+const REFRESH_SLEEP_HZ: u32 = 30;
+
+/// Refresh follow: master ON, then
+/// - screen off -> the fixed sleep value,
+/// - visible & unlocked & Dynamic ON -> the app entry's value
+///   ("Default"/absent releases; MIUI/system keeps control),
+/// - anything else -> release (restore the captured user value).
+fn refresh_want(ctx: &SyncCtx) -> Option<u32> {
+    if !ctx.sync_refresh {
+        return None;
+    }
+    if !ctx.screen_on {
+        return Some(REFRESH_SLEEP_HZ);
+    }
+    if ctx.locked || !ctx.dynamic {
+        return None;
+    }
+    fg_app_profile(ctx).and_then(|e| e.refresh_target())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +244,7 @@ mod tests {
             dynamic: true,
             sync_perf: true,
             sync_saver: true,
+            sync_refresh: true,
             game_checker: true,
             app_map: crate::daemon::test_util::map(map),
             app_profiles: Default::default(),
@@ -197,6 +256,67 @@ mod tests {
             charge_limit_pct: 80,
             charge_once: false,
         }
+    }
+
+    fn ctx_profiles(profiles: &[(&str, AppProfile)], fg: Option<&str>) -> SyncCtx {
+        let mut c = ctx(&[], fg);
+        c.app_profiles = profiles
+            .iter()
+            .map(|(p, a)| (p.to_string(), a.clone()))
+            .collect();
+        c
+    }
+
+    #[test]
+    fn refresh_gate_per_app_default_and_sleep() {
+        // no entry -> release (Default / MIUI keeps control)
+        assert_eq!(refresh_want(&ctx(&[], Some("com.x"))), None);
+        // entry with a value -> that value
+        let app60 = AppProfile {
+            refresh_hz: Some(60),
+            ..Default::default()
+        };
+        assert_eq!(
+            refresh_want(&ctx_profiles(&[("com.p", app60.clone())], Some("com.p"))),
+            Some(60)
+        );
+        // entry without a value (Default) -> release
+        assert_eq!(
+            refresh_want(&ctx_profiles(
+                &[("com.d", AppProfile::default())],
+                Some("com.d")
+            )),
+            None
+        );
+        // invalid value (e.g. 75) -> release (validation filter)
+        let bad = AppProfile {
+            refresh_hz: Some(75),
+            ..Default::default()
+        };
+        assert_eq!(
+            refresh_want(&ctx_profiles(&[("com.b", bad)], Some("com.b"))),
+            None
+        );
+        // screen off -> sleep value (non-app rule, works with Dynamic OFF)
+        let mut c = ctx_profiles(&[("com.p", app60.clone())], Some("com.p"));
+        c.screen_on = false;
+        assert_eq!(refresh_want(&c), Some(30));
+        let mut c = ctx(&[], Some("com.x"));
+        c.screen_on = false;
+        c.dynamic = false;
+        assert_eq!(refresh_want(&c), Some(30));
+        // locked -> release
+        let mut c = ctx_profiles(&[("com.p", app60.clone())], Some("com.p"));
+        c.locked = true;
+        assert_eq!(refresh_want(&c), None);
+        // Dynamic OFF -> release (app entries are app-driven)
+        let mut c = ctx_profiles(&[("com.p", app60.clone())], Some("com.p"));
+        c.dynamic = false;
+        assert_eq!(refresh_want(&c), None);
+        // master off -> release even with a value
+        let mut c = ctx_profiles(&[("com.p", app60)], Some("com.p"));
+        c.sync_refresh = false;
+        assert_eq!(refresh_want(&c), None);
     }
 
     #[test]
