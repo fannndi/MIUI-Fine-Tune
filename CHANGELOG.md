@@ -20,6 +20,8 @@
 - No value changes for balance/game/sleep — the audit validated them
   (balance big cap 1324800 sits exactly at perfd/thermal consensus, game's
   140/120 group migration matches QTI boost conventions).
+- Profile descriptions corrected in the UI (balance no longer claims to be
+  the stock mirror; powersave mentions the disabled touch boost).
 
 ## v0.16.1 — instant refresh switching + ROM internals (2026-10-10)
 

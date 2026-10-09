@@ -8,7 +8,7 @@
     {
       "id": "powersave",
       "label": "Power Save",
-      "desc": "Governor powersave, freq capped, GPU powersave, small I/O queues, wide scheduler granularity.",
+      "desc": "Governor powersave, freq capped, GPU powersave, small I/O queues, wide scheduler granularity; touch input-boost off (true min-lock).",
       "params": {
         "policy0.scaling_governor": "powersave",
         "policy0.scaling_min_freq": "576000",
@@ -61,7 +61,7 @@
     {
       "id": "balance",
       "label": "Balance",
-      "desc": "ROM stock baseline (mirrors init.qcom.post_boot.sh moorea block + kernel defaults).",
+      "desc": "Perf/watt retune (freqbench max-eff): big cap 1.32 GHz, peak-efficiency OPPs, lazier migration, tuned schedutil. Default daily profile.",
       "params": {
         "policy0.scaling_governor": "schedutil",
         "policy0.scaling_min_freq": "576000",
