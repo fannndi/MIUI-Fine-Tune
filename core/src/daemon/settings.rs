@@ -185,7 +185,10 @@ pub fn apply_refresh_fps_with(app_bin: &str, dex: &Path, hz: u32) -> Result<Stri
 // fires when the display-feature HAL reports fps changes. `<idx>` indexes the
 // active panel's supported-dfps list from the device tree; for the surya
 // nt36672c panels that is `[120, 90, 60, 50, 30]` (idx 0..4).
-// Device-verified 2026-10-09: idx 0->120, 2->60, 3->50, 4->30, persistent.
+// Device-verified 2026-10-09/10: idx 0->120, 1->90, 2->60, 3->50, 4->30,
+// persistent. Note: the MIUI HAL helper ignores 90 Hz on this build (it
+// logs "the setting fps is the same" and no-ops), so the SF transaction is
+// the authoritative lever — which is why it runs first.
 // This runs *before* the MIUI `setScreenEffect(24)` helper so the visual
 // switch is instant while the HAL's own state catches up ~1 s later.
 //

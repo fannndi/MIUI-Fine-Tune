@@ -47,6 +47,9 @@ silently no-ops; the magisk/su context works).
 **What MiFineTune uses (v0.16.1):**
 - `service call SurfaceFlinger 1035 i32 <idx>` — instant panel switch
   (verified 0=120, 1=90, 2=60, 3=50, 4=30; persistent while idle).
+  Quirk: the MIUI HAL helper (`setScreenEffect(24, 90)`) silently no-ops for
+  90 Hz on this build ("the setting fps is the same") — the SF transaction is
+  authoritative, which is why the daemon fires it first.
 - `app_process` + embedded dex → `setScreenEffect(24, hz)` — keeps MIUI's HAL
   state in sync (~1 s later).
 - `settings put user_refresh_rate` — keeps the MIUI UI honest.
