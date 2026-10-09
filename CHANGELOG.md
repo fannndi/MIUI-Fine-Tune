@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.16.0 — display refresh per-app + efficiency retune (WIP)
+## v0.16.0 — display refresh per-app + balance efficiency retune (2026-10-09)
 
 ### Refresh rate follow, per app (F9 re-introduced, by user request)
 
@@ -23,6 +23,24 @@
   screen-off 30 → config removed → restored 120, holds clean. Host E2E
   (`refresh_follow_per_app_and_sleep`) covers the same cycle; unit tests
   port the original F9 state machine.
+
+### Balance → "max-eff" (freqbench sm7150ac data)
+
+- little cap `1804800→1708800`, big cap `2304000→1324800` (both
+  peak-efficiency OPPs per kdrag0n/freqbench), big hispeed `1209600@90`,
+  little hispeed `1324800@90`, `pl 1→0`, up/downmigrate `80/70`,
+  `sched_migration_cost_ns 2 ms`, `wakeup_granularity 3 ms`,
+  `coloc_fmin 1248000`, background cpuset `0-3`, VM/IO back to stock
+  batching, GPU max level 1 (650 MHz). Device-verified live.
+
+### Powersave — A/B pending
+
+- Three variants (min-lock 576 / min-lock 1248 / schedutil-capped) are
+  prepared with the common retunes (core_ctl min 1/max 3, busy 80/65/50,
+  background/system-background cpuset 0-1, VM batching) in a bench-only
+  pack. `tools/bench.sh` gained a deterministic `scroll` scenario and a
+  real `video` scenario for the comparison. Deferred by the user
+  (2026-10-09); run the A/B when convenient and ship the winner.
 
 ## v0.15.0 — bench report + polish (2026-10-09)
 
