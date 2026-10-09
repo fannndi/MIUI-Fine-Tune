@@ -80,6 +80,41 @@ pub const FORBIDDEN_PREFIXES: &[&str] = &[
     // SELinux / kernel core (never tuning targets)
     "/sys/fs/selinux",
     "/proc/sys/kernel/random",
+    // devfreq: memlat/llcc/bw/busmon families are governor + perf-HAL owned
+    // (v0.10 device inventory); the cpu*-cpu-l3-lat devices stay cataloged on
+    // purpose, everything else here would double-control live governor votes.
+    "/sys/class/devfreq/soc:qcom,cpu-cpu-llcc-bw",
+    "/sys/class/devfreq/soc:qcom,cpu-llcc-ddr-bw",
+    "/sys/class/devfreq/soc:qcom,cpu0-cpu-llcc-lat",
+    "/sys/class/devfreq/soc:qcom,cpu6-cpu-llcc-lat",
+    "/sys/class/devfreq/soc:qcom,cpu0-llcc-ddr-lat",
+    "/sys/class/devfreq/soc:qcom,cpu6-llcc-ddr-lat",
+    "/sys/class/devfreq/soc:qcom,cpu0-cpu-ddr-latfloor",
+    "/sys/class/devfreq/soc:qcom,cpu6-cpu-ddr-latfloor",
+    "/sys/class/devfreq/soc:qcom,gpubw",
+    "/sys/class/devfreq/soc:qcom,kgsl-busmon",
+    "/sys/class/devfreq/soc:qcom,npu-npu-ddr-bw",
+    "/sys/class/devfreq/soc:qcom,snoc_cnoc_keepalive",
+    "/sys/class/devfreq/1d84000.ufshc",
+    "/sys/class/devfreq/5000000.qcom,kgsl-3d0",
+    "/sys/class/devfreq/aa00000.qcom,vidc1",
+    "/sys/class/devfreq/mmc0",
+    // cpuidle state gating: nothing in the ROM writes it and blocking deep
+    // idle states burns battery for no measured win -> reject surface.
+    "/sys/devices/system/cpu/cpu0/cpuidle/",
+    "/sys/devices/system/cpu/cpuidle/",
+    // written only by the lito/atoll arms and ABSENT on this kernel
+    // (ls /proc/sys/kernel has no sched_coloc_* nodes) -> future-proof guard.
+    "/proc/sys/kernel/sched_coloc_busy_hyst",
+    "/proc/sys/kernel/sched_coloc_downmigrate",
+    // charger/parallel/USB power paths are micharge + charger-HW owned;
+    // our charge surface stays strictly under /battery.
+    "/sys/class/power_supply/main/",
+    "/sys/class/power_supply/dc/",
+    "/sys/class/power_supply/usb/",
+    "/sys/class/power_supply/bms/",
+    "/sys/class/power_supply/bq2597x-standalone/",
+    "/sys/class/power_supply/pc_port/",
 ];
 
 /// Forbidden exact keys (post-boot ROM blocks kept as hard rules even though

@@ -173,6 +173,10 @@ private fun EnvCard(env: EnvSnapshot?) {
         )
         KV("Battery temp", fmtTemp(env.batteryTempC))
         KV("CPU / GPU temp", "${fmtTemp(env.cpuTempC)} · ${fmtTemp(env.gpuTempC)}")
+        KV("Battery I/V", fmtCurrent(env.batteryCurrentUa, env.batteryVoltageUv))
+        KV("CPU L/B MHz", fmtPairMhz(env.littleFreqMhz, env.bigFreqMhz))
+        KV("GPU MHz", env.gpuFreqMhz?.let { "$it" } ?: "—")
+        KV("Storage written", env.storageWrittenKb?.let { String.format(Locale.US, "%.1f GB", it / 1_000_000.0) } ?: "—")
         KV("GPU busy", env.gpuBusyPct?.let { "$it%" } ?: "—")
         KV("Panel FPS", env.screenFps?.let { String.format("%.1f fps", it) } ?: "—")
     }
@@ -259,6 +263,21 @@ private fun alive(ok: Boolean) = if (ok) "alive" else "down"
 private fun fmtTemp(t: Float?): String =
     t?.let { String.format(Locale.US, "%.1f °C", it) } ?: "—"
 
+/** µA + µV -> "-0.58 A (chg)" style; sign: negative = charging. */
+private fun fmtCurrent(ua: Long?, uv: Long?): String {
+    if (ua == null && uv == null) return "—"
+    val i = ua?.let {
+        val a = Math.abs(it) / 1_000_000.0
+        val dir = if (it < 0) "chg" else "dis"
+        if (a >= 0.05) String.format(Locale.US, "%.2f A (%s)", a, dir)
+        else String.format(Locale.US, "%.0f mA (%s)", it / 1000.0, dir)
+    } ?: "—"
+    val v = uv?.let { String.format(Locale.US, "%.2f V", it / 1_000_000.0) } ?: "—"
+    return "$i · $v"
+}
+
+private fun fmtPairMhz(l: Int?, b: Int?): String =
+    if (l == null || b == null) "—" else "$l · $b"
 private fun fmtUptime(s: Long): String = when {
     s < 60 -> "${s}s"
     s < 3600 -> "${s / 60}m ${s % 60}s"

@@ -39,6 +39,26 @@ pub struct EnvSnapshot {
     /// Read-only telemetry: MiFineTune never writes it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub screen_fps: Option<f32>,
+    /// Battery current in µA (read-only FG node): negative = charging,
+    /// positive = discharging. Sign verified 2026-10-09 with a controlled
+    /// `input_suspend` bypass test (suspend: +600 mA; restore: negative).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub battery_current_ua: Option<i64>,
+    /// Battery voltage in µV (~4 100 000 near full charge).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub battery_voltage_uv: Option<u32>,
+    /// Little/policy0 and big/policy6 current CPU frequency in MHz
+    /// (`cpuinfo_cur_freq` is kHz and 0400 root-only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub little_freq_mhz: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub big_freq_mhz: Option<u32>,
+    /// GPU current clock in MHz (`gpuclk` reports Hz on this kernel).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_freq_mhz: Option<u32>,
+    /// F2FS userdata lifetime write counter in KB (read-only, updates lazily).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage_written_kb: Option<u64>,
 }
 
 /// The sysfs prefix for this process (`/` on device, a fixture in tests).
@@ -92,6 +112,21 @@ impl Sampler {
             ),
             screen_fps: self
                 .read_parse("sys/class/drm/sde-crtc-0/measured_fps", parse_measured_fps),
+            battery_current_ua: self
+                .read_parse("sys/class/power_supply/battery/current_now", first_i64),
+            battery_voltage_uv: self
+                .read_parse("sys/class/power_supply/battery/voltage_now", first_u32),
+            little_freq_mhz: self.read_parse(
+                "sys/devices/system/cpu/cpufreq/policy0/cpuinfo_cur_freq",
+                khz_to_mhz,
+            ),
+            big_freq_mhz: self.read_parse(
+                "sys/devices/system/cpu/cpufreq/policy6/cpuinfo_cur_freq",
+                khz_to_mhz,
+            ),
+            gpu_freq_mhz: self.read_parse("sys/class/kgsl/kgsl-3d0/gpuclk", hz_to_mhz),
+            storage_written_kb: self
+                .read_parse("sys/fs/f2fs/sda16/lifetime_write_kbytes", first_u64),
         }
     }
 
@@ -171,6 +206,31 @@ pub fn parse_gpu_busy(raw: &str) -> Option<u8> {
     first.parse::<i64>().ok().map(|v| v.clamp(0, 100) as u8)
 }
 
+/// First whitespace token as signed integer (battery current in µA).
+pub fn first_i64(raw: &str) -> Option<i64> {
+    raw.split_whitespace().next()?.parse::<i64>().ok()
+}
+
+/// First whitespace token as u32.
+pub fn first_u32(raw: &str) -> Option<u32> {
+    raw.split_whitespace().next()?.parse::<u32>().ok()
+}
+
+/// First whitespace token as u64.
+pub fn first_u64(raw: &str) -> Option<u64> {
+    raw.split_whitespace().next()?.parse::<u64>().ok()
+}
+
+/// `cpuinfo_cur_freq` reports kHz; diagnostics speak MHz ("1804800" -> 1804).
+pub fn khz_to_mhz(raw: &str) -> Option<u32> {
+    first_i64(raw).map(|v| (v / 1000) as u32)
+}
+
+/// kgsl `gpuclk` reports Hz; diagnostics speak MHz ("430000000" -> 430).
+pub fn hz_to_mhz(raw: &str) -> Option<u32> {
+    first_i64(raw).map(|v| (v / 1_000_000) as u32)
+}
+
 /// DRM `measured_fps` -> frames per second:
 /// "fps: 75.1 duration:1000000 frame_count:97" -> Some(75.1).
 /// Screen off reports fps: 0.0 -> Some(0.0) (honest zero, not absent).
@@ -212,6 +272,18 @@ mod tests {
             "sys/class/drm/sde-crtc-0/measured_fps",
             "fps: 75.1 duration:1000000 frame_count:97\n",
         );
+        w("sys/class/power_supply/battery/current_now", "-580123\n");
+        w("sys/class/power_supply/battery/voltage_now", "3985000\n");
+        w(
+            "sys/devices/system/cpu/cpufreq/policy0/cpuinfo_cur_freq",
+            "1804800\n",
+        );
+        w(
+            "sys/devices/system/cpu/cpufreq/policy6/cpuinfo_cur_freq",
+            "2304000\n",
+        );
+        w("sys/class/kgsl/kgsl-3d0/gpuclk", "430000000\n");
+        w("sys/fs/f2fs/sda16/lifetime_write_kbytes", "53193232\n");
         root
     }
 
@@ -249,6 +321,15 @@ mod tests {
         );
         assert_eq!(parse_measured_fps("fps: 0.0 duration:1000000"), Some(0.0));
         assert_eq!(parse_measured_fps("garbage"), None);
+
+        assert_eq!(first_i64(" -121765\n"), Some(-121765));
+        assert_eq!(first_i64("garbage"), None);
+        assert_eq!(first_u32("4105283\n"), Some(4105283));
+        assert_eq!(first_u64("53193232\n"), Some(53193232));
+        assert_eq!(khz_to_mhz("1804800\n"), Some(1804));
+        assert_eq!(khz_to_mhz("768000"), Some(768));
+        assert_eq!(hz_to_mhz("430000000\n"), Some(430));
+        assert_eq!(hz_to_mhz("garbage"), None);
     }
 
     #[test]
@@ -266,6 +347,12 @@ mod tests {
         assert_eq!(s.gpu_temp_c, Some(41.2));
         assert_eq!(s.gpu_busy_pct, Some(3));
         assert_eq!(s.screen_fps, Some(75.1));
+        assert_eq!(s.battery_current_ua, Some(-580123));
+        assert_eq!(s.battery_voltage_uv, Some(3985000));
+        assert_eq!(s.little_freq_mhz, Some(1804));
+        assert_eq!(s.big_freq_mhz, Some(2304));
+        assert_eq!(s.gpu_freq_mhz, Some(430));
+        assert_eq!(s.storage_written_kb, Some(53193232));
         let _ = fs::remove_dir_all(&root);
     }
 

@@ -133,6 +133,18 @@ pub fn run(state_dir: &Path, config_path: Option<&Path>) -> (bool, Value) {
         false,
         json!({ "busy_pct": env.gpu_busy_pct }),
     );
+    r.check(
+        "env_power",
+        env.battery_current_ua.is_some() && env.battery_voltage_uv.is_some(),
+        false,
+        json!({ "ua": env.battery_current_ua, "uv": env.battery_voltage_uv }),
+    );
+    r.check(
+        "env_freq",
+        env.little_freq_mhz.is_some() && env.big_freq_mhz.is_some() && env.gpu_freq_mhz.is_some(),
+        false,
+        json!({ "little_mhz": env.little_freq_mhz, "big_mhz": env.big_freq_mhz, "gpu_mhz": env.gpu_freq_mhz }),
+    );
 
     // --- future knob surface (informational; Phase 12 candidates) --------------
     let optional = [

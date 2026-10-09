@@ -20,6 +20,14 @@ data class EnvSnapshot(
     val gpuBusyPct: Int?,
     /** Panel frame rate from the read-only DRM `measured_fps` node. */
     val screenFps: Float? = null,
+    /** Battery current µA: negative = charging, positive = discharging. */
+    val batteryCurrentUa: Long? = null,
+    val batteryVoltageUv: Long? = null,
+    val littleFreqMhz: Int? = null,
+    val bigFreqMhz: Int? = null,
+    val gpuFreqMhz: Int? = null,
+    /** F2FS userdata lifetime write counter (KB, read-only node). */
+    val storageWrittenKb: Long? = null,
 )
 
 /** One transition from the daemon's `stats` reply. */
@@ -67,6 +75,12 @@ object DiagnosticsParse {
             gpuTempC = e.floatOrNull("gpu_temp_c"),
             gpuBusyPct = e.intOrNull("gpu_busy_pct"),
             screenFps = e.floatOrNull("screen_fps"),
+            batteryCurrentUa = e.longOrNull("battery_current_ua"),
+            batteryVoltageUv = e.longOrNull("battery_voltage_uv"),
+            littleFreqMhz = e.intOrNull("little_freq_mhz"),
+            bigFreqMhz = e.intOrNull("big_freq_mhz"),
+            gpuFreqMhz = e.intOrNull("gpu_freq_mhz"),
+            storageWrittenKb = e.longOrNull("storage_written_kb"),
         )
     }
 
@@ -124,6 +138,9 @@ internal fun JSONObject.intOrNull(key: String): Int? =
 
 internal fun JSONObject.floatOrNull(key: String): Float? =
     if (has(key) && !isNull(key)) optDouble(key).toFloat() else null
+
+internal fun JSONObject.longOrNull(key: String): Long? =
+    if (has(key) && !isNull(key)) optLong(key) else null
 
 internal fun JSONObject.boolOrNull(key: String): Boolean? =
     if (has(key) && !isNull(key)) optBoolean(key) else null
