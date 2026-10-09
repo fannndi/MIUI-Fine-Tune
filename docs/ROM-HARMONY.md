@@ -274,6 +274,50 @@ evidence. `sched_cstate_aware` (fair.c idle-sibling placement, kernel default
 1, no writer) was surveyed and left out: a placement trade without a
 consumable profile value — documented here, not cataloged.
 
+## Profile identities (v0.11.1) — "masih tidak ada bedanya" diagnostic
+
+Audited truth: `balance` shipped by F13 was **byte-identical to the MIUI
+moorea post-boot defaults** (19/19 freq/sched/core_ctl/IO/VM keys SAME) —
+so daily stock-MIUI behavior plus our balance profile did not feel
+different BY DESIGN. This pass gives each profile a real personality
+without breaking the harmony rule book:
+
+| key | powersave | balance | game | sleep | boost |
+|---|---|---|---|---|---|
+| `p0.scaling_governor` | powersave | schedutil | schedutil | schedutil | schedutil |
+| `p6.scaling_governor` | powersave | schedutil | schedutil | schedutil | schedutil |
+| `p0.scaling_max_freq` | **1248000** | 1804800 | 1804800 | **1017600** | 1804800 |
+| `p6.scaling_max_freq` | **1324800** | 2304000 | 2304000 | **1324800** | **2304000** (add) |
+| `p0.schedutil.hispeed_freq` | – | **1324800 @ 85** | 1497600 @ 75 | 1017600 @ 95 | 1497600 @ 75 |
+| `p6.schedutil.hispeed_freq` | – | **1324800** | 1555200 | 1209600 | 1555200 |
+| `p0.core_ctl.min_cpus` | 2 | **2** | 6 | 1 | 6 |
+| `gpu.max_pwrlevel` | **5** | 0 | 0 | 5 | – |
+
+Choices and their intent:
+1. **balance is now "stock-plus"** — the two Micro knobs the user feels
+   (`hispeed_freq` 1248→1324800 with `hispeed_load` 90→85 mean a swipe
+   reaches 1324 MHz instead of 1248) plus `core_ctl.min_cpus 4→2`
+   (two little cores park at idle, wake latency is trivial). Battery
+   should outperform stock slightly and UI feel slightly snappier.
+2. **powersave truthfully saves**: both governors are `powersave`, and
+   the clocks/GPU are capped (1248 / 1324 / gpu level 5). When the user
+   picks this card the phone will actually be slower on heavy tasks —
+   that expectation is documented.
+3. **sleep** caps below the own hispeed values so background bursts do
+   not run hot while the screen is off (1017600 / 1324800).
+4. **boost fixes a real gap**: a jank burst with a powersave or sleep
+   base previously *could not* exceed the capped `p6.max` because the
+   boost profile never wrote it. Now the 5-s window writes 2304000 and
+   always leaves the device at full-cap CPU (1804800 / 2304000) for the
+   snap.
+5. **game is unchanged on purpose**: the values remaining after F13's
+   bench are the tuned ceiling (1094400 floor, 1555200 hispeed,
+   1804800 little max, `deadline` scheduler, 1024 read-ahead, GPU floor
+   level 3, stune boost 10 + prefer_idle, pl=1).
+
+Ownership audit still reports 94 catalog entries / 0 violations; every
+tuned value is inside the device OPP list or a kernel-trusted clamp.
+
 ## Auto-revive + hands-off (v0.11)
 
 **Symptom found live**: a session's tail values (from earlier applies or a

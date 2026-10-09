@@ -5,7 +5,7 @@ use super::store::{ensure_snapshot, ensure_stock, Store};
 use super::verify::verified_readback;
 use super::{now_secs, ApplyReport, LockedKey, WriteResult};
 use crate::engine::catalog;
-use crate::engine::plan::{build_plan, build_plan_opt, OpStatus, Plan, PlannedOp};
+use crate::engine::plan::{build_plan_opt, OpStatus, Plan, PlannedOp};
 use crate::engine::probe::{self, ProbeData};
 
 pub(super) fn write_one(op_path: &str, resolved: &str) -> Result<(), String> {
@@ -223,6 +223,7 @@ pub fn apply_with_pass2(
 mod tests {
     use super::super::SnapValue;
     use super::*;
+    use crate::engine::plan::build_plan;
     use crate::engine::profile::Profile;
 
     #[test]

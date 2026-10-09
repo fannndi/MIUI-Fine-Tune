@@ -281,6 +281,13 @@ cd core && MIFINETUNE_SYSFS_ROOT=/path/to/fake-root cargo test --test daemon_smo
 #   to silently skip the copy)
 # - diagnostics: Home -> Diagnostics = env + 24 h + transitions + daemon log
 # - backup: Settings -> Backup export/import through the system picker
+# - v0.11.1: profile identities differ from stock by design. balance =
+#   stock-plus (hispeed little 1324@85, core_ctl.min_cpus 2); powersave =
+#   powersave governors + caps 1248/1324 + GPU lvl 5; sleep deeper at
+#   screen-off (p0.max 1017k, p6.max 1324k); boost ALWAYS writes
+#   policy6.scaling_max_freq 2304000 (was absent -> jank burst could not
+#   leave a powersave/sleep cap). This is the value set from the F13
+#   bench audit (game untouched)
 ```
 
 ## Device quirks (save yourself hours)

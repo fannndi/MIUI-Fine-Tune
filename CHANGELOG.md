@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.11.1 — profile identities that actually differ from stock (2026-10-09)
+
+The user's readback: "masih tidak ada bedanya dengan stock" — audited and
+CONFIRMED: the balance profile was byte-identical to the MIUI moorea
+post-boot defaults in every freq/sched/core_ctl/IO/VM key (19/19 SAME),
+so the daily scenario physically cannot feel different. This pass gives
+every profile a distinct personality while staying inside the harmony
+rules (values pre-checked against the OPP lists, core_ctl bounds, GPU
+pwrlevel pair):
+
+- **balance** becomes "stock-plus": `hispeed_freq` little 1248→1324800
+  and `hispeed_load` 90→85 (swipes snap faster), `hispeed_freq` big exact
+  OPP 1324600→1324800, and `core_ctl.min_cpus` 4→2 (idles two little
+  cores at rest — a real battery win with an instant wake, wake cost
+  ≈10 ms). Caps stay at the OPP skyline (1804800 / 2304000).
+- **powersave** stays truthful saver: `p0.max` 1324800→1248000,
+  `p6.max` 1555200→1324800 and `gpu.max_pwrlevel` 4→5 — a genuine clock/
+  GPU cap ladder instead of the near-stock numbers it shipped.
+- **sleep** gets deeper at screen-off: `p0.max` 1248000→1017600
+  (at/below the own hispeed_freq — no surprise bursts while parked) and
+  `p6.max` 1555200→1324800 (background sync still works, thermal cache
+  much smaller).
+- **boost** (jank 5 s window) fixes a real hole: it did not set
+  `policy6.scaling_max_freq`, so a jank burst with a powersave base could
+  not leave the powersave cap; now it writes the full 2304000.
+- **game** unchanged (already distinct: 1094400 floor, 1555200 hispeed,
+  1804800 little max, deadline + 1024 read-ahead, stune boost 10, pl=1).
+  Rationale: those values are the tuned ceiling that survived F13 bench.
+
+Ownership cross-check (owner-map audit still 94 entries / 0 violations):
+all written values exist in the device OPP lists; `gpu.max_pwrlevel 5`
+pairs with the existing `min_pwrlevel 6` (kgsl clamps 5 ≤ 6 ✓);
+`core_ctl.min_cpus 2` sits inside the clamped bounds (little cluster 6
+CPUs, kernel `store_min_cpus` clamps to `max_cpus`).
+
 ## v0.11.0 — full-reconcile + auto-revive watchdog + hands-off service-off (2026-10-09)
 
 The "frequency locked and cannot drop" complaint turned out to be a
