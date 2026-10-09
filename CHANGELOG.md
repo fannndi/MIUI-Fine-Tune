@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.15.0 — bench report + polish (2026-10-09)
+
+- `tools/bench.sh` fixed (dead `sample()` line was a hard syntax error),
+  hardened for `ADB=` overrides, and given a **suspended-charging** mode:
+  with `input_suspend=1` the USB cable can stay attached for adb while the
+  battery remains the only power source — the preflight refuses only real
+  charging (status `Charging`).
+- `docs/BENCH.md`: 10-minute A/B battery-draw matrix with method + numbers
+  (idle-on ×3, idle-off ×2; **game runs deferred** — Azur Lane requires a
+  251.8 MB update before it enters its lobby). First game attempt was
+  invalid (the script's prep forgot to wake/unlock; the runs measured
+  screen-off) — discarded, and the harness now wakes/unlocks and asserts
+  the game's `MainActivity` foreground. Headline result: sleep is −15 %
+  vs stock at screen-off (90.6 mA vs 106.5 mA).
+- CI: the Android job now uploads the debug APK artifact; README/AGENTS
+  test counts refreshed (126 unit + 15 host E2E).
+
 ## v0.14.0 — automation API for Tasker/MacroDroid/adb (2026-10-09)
 
 - New exported `AutomationReceiver` with three deliberately small actions:

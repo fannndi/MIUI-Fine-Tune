@@ -109,7 +109,7 @@ Compose UI ──► HomeViewModel ───────────────
 ## Build
 
 ```bash
-# host: Rust tests (84 unit + 4 host E2E)
+# host: Rust tests (126 unit + 15 host E2E)
 cd core && cargo test
 
 # cross-build arm64 + refresh the app assets (syncCore also runs in Gradle)
@@ -166,4 +166,5 @@ State lives in `/data/adb/mifinetune/` (`state.json`, `snapshot.json`,
 | [docs/IPC-PROTOCOL.md](docs/IPC-PROTOCOL.md) | command/event schema, lifecycle |
 | [docs/ROM-HARMONY.md](docs/ROM-HARMONY.md) | node ownership map, kernel invariants, audit findings |
 | [docs/AUTOMATION.md](docs/AUTOMATION.md) | broadcast API for Tasker/MacroDroid/adb |
+| [docs/BENCH.md](docs/BENCH.md) | 10-minute A/B battery-draw matrix (method + numbers) |
 | [AGENTS.md](AGENTS.md) | file map + hard rules for AI agents and contributors |

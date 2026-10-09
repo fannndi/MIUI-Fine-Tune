@@ -136,7 +136,7 @@ Rules:
 | `docs/IPC-PROTOCOL.md` | stdio protocol schema + lifecycle |
 | `docs/ROM-HARMONY.md` | node ownership map, kernel invariants, audit findings |
 | `docs/AUTOMATION.md` | broadcast automation API (Tasker/MacroDroid/adb) |
-| `tools/bench.sh` | on-device benchmark harness (CLI-based) |
+| `tools/bench.sh` | on-device benchmark harness (CLI applies, `ADB=` override, suspended-charging mode; see docs/BENCH.md) |
 | `data/adb/mifinetune/stock.json` | persistent union-stock baseline (dev-seeded once; engine extends, never consumes) |
 | `tools/owner-map-audit.sh` | catalog vs ROM audit (boot + runtime writers) |
 | `tools/rom-write-audit.sh` | ROM write-target extractor + classifier (`--device`: root probe + live-vs-boot value diff) |
@@ -204,7 +204,7 @@ streams, bridge hold/restore, env guards and the doctor — no device needed.
 ## Build & test
 
 ```bash
-# Rust (host): 119 unit tests + 13 host E2E tests
+# Rust (host): 126 unit tests + 15 host E2E tests
 cd core && cargo test
 
 # cross-build arm64 + assets (syncCore also runs automatically in Gradle)

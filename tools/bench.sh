@@ -30,50 +30,72 @@ MINS="${3:-10}"
 SECS=$(( MINS * 60 ))
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN=/data/local/tmp/mifinetune/miui-ft
+# adb on PATH by default; override with ADB=/path/to/adb
+ADB="${ADB:-adb}"
 
 SUF="$SC-$PROF-$(date +%s)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-sample() () {}
-
 # --- preflight: charged / battery present ---------------------------------
-CHG_ON=$(adb shell "dumpsys battery | grep -m1 'AC powered'" | tr -d '\r' | awk '{print $3}')
-USB_ON=$(adb shell "dumpsys battery" | grep -m1 "USB powered" | tr -d '\r' | awk '{print $3}')
+CHG_ON=$("$ADB" shell "dumpsys battery | grep -m1 'AC powered'" | tr -d '\r' | awk '{print $3}')
+USB_ON=$("$ADB" shell "dumpsys battery" | grep -m1 "USB powered" | tr -d '\r' | awk '{print $3}')
+STATUS=$("$ADB" shell "dumpsys battery" | grep -m1 ' status:' | tr -d '\r' | awk '{print $2}')
+SUSPEND=$("$ADB" shell "su -c 'cat /sys/class/power_supply/battery/input_suspend'" 2>/dev/null | tr -d '\r')
 if [ "$CHG_ON" = "true" ] || [ "$USB_ON" = "true" ]; then
-  echo "REFUSING: device is on a charger (AC=$CHG_ON USB=$USB_ON) — unplug first."
-  exit 2
+  # USB present but charging suspended (input_suspend=1): the battery is the
+  # only power source, so the fuel-gauge current stays a valid measurement.
+  if [ "$SUSPEND" = "1" ] && [ "$STATUS" != "2" ]; then
+    echo "NOTE: USB connected with input_suspend=1 (charging suspended) — measuring battery draw."
+  else
+    echo "REFUSING: device is on a charger (AC=$CHG_ON USB=$USB_ON status=$STATUS suspend=${SUSPEND:-?}) — unplug or suspend first."
+    exit 2
+  fi
 fi
 
 # --- profile setup ---------------------------------------------------------
 if [ "$PROF" = "stock" ]; then
   # stock = engine fully off: restore + stop automation
-  adb shell "su -c '$BIN restore'" >/dev/null
+  "$ADB" shell "su -c '$BIN restore'" >/dev/null
 else
-  adb shell "su -c '$BIN apply $PROF'" >/dev/null
+  "$ADB" shell "su -c '$BIN apply $PROF'" >/dev/null
 fi
 
 # --- scenario prep ----------------------------------------------------------
 case "$SC" in
   idle-on)
-    adb shell input keyevent 82 >/dev/null   # wake/unlock
-    adb shell wm dismiss-keyguard >/dev/null 2>&1
-    adb shell input keyevent 3 >/dev/null    # home
+    "$ADB" shell input keyevent 82 >/dev/null   # wake/unlock
+    "$ADB" shell wm dismiss-keyguard >/dev/null 2>&1
+    "$ADB" shell input keyevent 3 >/dev/null    # home
     ;;
   idle-off)
-    adb shell input keyevent 26 >/dev/null   # screen off
+    "$ADB" shell input keyevent 26 >/dev/null   # screen off
     ;;
   video)
-    adb shell "monkey -p com.google.android.youtube -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1
+    "$ADB" shell "monkey -p com.google.android.youtube -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1
     sleep 4
-    adb shell input keyevent 127 >/dev/null  # pause (media key) — sample current app state, not playback
+    "$ADB" shell input keyevent 127 >/dev/null  # pause (media key) — sample current app state, not playback
     ;;
   game)
-    adb shell "monkey -p com.YoStarEN.AzurLane -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1
+    "$ADB" shell input keyevent 82 >/dev/null   # wake/unlock
+    "$ADB" shell wm dismiss-keyguard >/dev/null 2>&1
+    "$ADB" shell input keyevent 3 >/dev/null    # home
+    "$ADB" shell "monkey -p com.YoStarEN.AzurLane -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1
     ;;
   *) echo "unknown scenario: $SC"; exit 2;;
 esac
 sleep 10   # settle (governors/thermal normalize)
+
+# the game scenario must actually be in the foreground (a locked keyguard
+# used to swallow the launch and the run silently measured screen-off)
+if [ "$SC" = "game" ]; then
+  FOCUS=$("$ADB" shell "dumpsys window 2>/dev/null | grep -m1 mCurrentFocus" | tr -d '\r')
+  case "$FOCUS" in
+    *YoStarEN.AzurLane/com.manjuu.azurlane.MainActivity*) echo "foreground OK: $FOCUS" ;;
+    *YoStarEN*) echo "WARN: game foreground but not MainActivity: $FOCUS" ;;
+    *) echo "WARN: game not foreground at measurement start: $FOCUS" ;;
+  esac
+fi
 
 # --- measurement loop -------------------------------------------------------
 STEPS=$(( SECS / 30 ))     # 30 s
@@ -81,15 +103,15 @@ STEPS=$(( SECS / 30 ))     # 30 s
 for i in $(seq 1 "$STEPS"); do
   TS=$(date +%s)
   IDLE=""    # placeholder for synthetic flags
-  CUR=$(adb shell "su -c 'cat /sys/class/power_supply/battery/current_now'" | tr -d '\r' | tr -d ' ')
-  TEMP=$(adb shell "su -c 'cat /sys/class/thermal/thermal_zone*/temp'" | sort -rn | head -1 | tr -d '\r')
+  CUR=$("$ADB" shell "su -c 'cat /sys/class/power_supply/battery/current_now'" | tr -d '\r' | tr -d ' ')
+  TEMP=$("$ADB" shell "su -c 'cat /sys/class/thermal/thermal_zone*/temp'" | sort -rn | head -1 | tr -d '\r')
   echo "$TS,current=$CUR,temp=$TEMP" >> "$TMP/current.csv"
   sleep 30
 done
-adb shell "dumpsys battery" | grep -E "charge counter|level|status|Charge count" > "$TMP/battery_end.txt"
+"$ADB" shell "dumpsys battery" | grep -E "charge counter|level|status|Charge count" > "$TMP/battery_end.txt"
 
 sleep 2
-CHARGE_END=$(adb shell "dumpsys battery" | grep -m1 "Charge counter" | tr -d '\r' | awk '{print $3+0}')
+CHARGE_END=$("$ADB" shell "dumpsys battery" | grep -m1 "Charge counter" | tr -d '\r' | awk '{print $3+0}')
 CUR_AVG=$(python3 - "$TMP/current.csv" <<'PY'
 import sys, statistics
 vals = []
@@ -107,7 +129,8 @@ echo "===== RESULT $SUF ====="
 echo "scenario=$SC profile=$PROF minutes=$MINS"
 echo "avg_current_uA=$CUR_AVG"
 echo "approx_power_mW=$(( CUR_AVG * 4318 / 1000000 ))   # assume 4.318 V nominal"
+echo "markdown_row=| $SC | $PROF | $(( MINS )) min | $CUR_AVG | $(( CUR_AVG * 4318 / 1000000 )) |"
 echo "charge_counter_uAh_start_note: captured once before loop (see logs above)"
 cat "$TMP/current.csv" | tail -4
 echo "restart/home in place — bring device back if needed:"
-adb shell input keyevent 224 >/dev/null 2>&1
+"$ADB" shell input keyevent 224 >/dev/null 2>&1
