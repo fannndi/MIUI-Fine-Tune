@@ -13,6 +13,14 @@ pub const ALLOWED_EXACT: &[&str] = &[
     // system; MIUI's mishow.sh writes it and hvdcp_opti only reads it
     // (device-verified 2026-10-08). JEITA/current nodes stay forbidden.
     "/sys/class/power_supply/battery/input_suspend",
+    // Touch input boost floor. Kernel proof (surya-q-oss
+    // drivers/cpufreq/cpu-boost.c): the CPUFREQ_POLICY_NOTIFIER raises
+    // policy->min to this value for input_boost_ms on every real input
+    // event. post_boot seeds it (0:1324800 @120ms) and the perf HAL saves
+    // it (perfd default_values `index_113`) — so it is a Baseline node, not
+    // a transient lock: audited 2026-10-10, allowed for the profiles'
+    // efficiency work. Everything else under cpu_boost stays forbidden.
+    "/sys/module/cpu_boost/parameters/input_boost_freq",
 ];
 
 /// Path prefixes that must never be written — runtime-owned by the framework.

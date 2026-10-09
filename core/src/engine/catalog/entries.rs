@@ -762,6 +762,22 @@ pub fn catalog() -> &'static [Entry] {
             Int,
             ""
         ),
+        // Touch input boost floor (kernel cpu-boost.c): on every real input
+        // event the little cluster policy min is raised to this per-CPU
+        // `cpu:freq` list for `input_boost_ms` (stock: 0:1324800 @120 ms).
+        // powersave zeroes it so the min-lock governor is not defeated by
+        // touches; other profiles leave it stock. Baseline: post_boot seeds
+        // it and the perf HAL saves/restores it (perfd default_values
+        // index_113), so a perfd boost release can transiently restore the
+        // stock value — the reconcile/events heal that like any Baseline
+        // node. Read-back format is `<cpu>:<khz> ...` (Text, verbatim).
+        e!(
+            "cpu_boost.input_boost_freq",
+            "/sys/module/cpu_boost/parameters/input_boost_freq",
+            Baseline,
+            Text,
+            ""
+        ),
         e!(
             "net.tcp_mtu_probing",
             "/proc/sys/net/ipv4/tcp_mtu_probing",

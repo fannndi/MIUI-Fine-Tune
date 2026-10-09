@@ -54,7 +54,8 @@
         "policy0.core_ctl.offline_delay_ms": "60",
         "io.cfq.fifo_expire_async": "500",
         "io.cfq.slice_async": "60",
-        "io.cfq.low_latency": "0"
+        "io.cfq.low_latency": "0",
+        "cpu_boost.input_boost_freq": "0:0 1:0 2:0 3:0 4:0 5:0 6:0 7:0"
       }
     },
     {

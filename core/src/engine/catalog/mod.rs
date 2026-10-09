@@ -169,7 +169,11 @@ mod tests {
         assert!(guard_path("/dev/cpuset/game/cpus").is_err());
         assert!(guard_path("/sys/class/power_supply/battery/sw_jeita_enabled").is_err());
         assert!(guard_path("/sys/block/zram0/disksize").is_err());
-        assert!(guard_path("/sys/module/cpu_boost/parameters/input_boost_freq").is_err());
+        // the audited cpu_boost touch-floor param is allowed now; its
+        // siblings (powerkey boost, sched boost) stay under the prefix
+        assert!(guard_path("/sys/module/cpu_boost/parameters/input_boost_freq").is_ok());
+        assert!(guard_path("/sys/module/cpu_boost/parameters/powerkey_input_boost_freq").is_err());
+        assert!(guard_path("/sys/module/cpu_boost/parameters/input_boost_ms").is_err());
     }
 
     #[test]

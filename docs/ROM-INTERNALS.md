@@ -118,6 +118,61 @@ transaction 1023. None are used by MiFineTune yet.
 - `sched_apps` on 7X5 = benchmark packages (Antutu, Geekbench, ...). Daily
   apps/games only enter via cloud configs.
 
+### perf HAL (perfd) resource ownership — audited 2026-10-10
+`vendor.qti.hardware.perf@2.0-service` **is running** (`init.svc.perf-hal-2-0`),
+and `machine = SDMMAGPIE`, so the `sdmmagpie` sections of
+`/vendor/etc/perf/*.xml` and `/vendor/etc/powerhint.xml` apply to surya.
+
+- **150 resources** are defined in `commonresourceconfigs.xml` (Major/Minor →
+  node). The perf HAL saves the pre-existing value of every one of them in
+  `/data/vendor/perfd/default_values` and restores it when a boost is
+  released — that file is the authoritative "perfd-owned" list.
+- Notable stock values there: `sched_migration_cost_ns=500000`,
+  `sched_upmigrate=71`, `sched_downmigrate=65`,
+  `sched_group_upmigrate=100`, `sched_group_downmigrate=85`,
+  `sched_little_cluster_coloc_fmin_khz=740000`,
+  `sched_min_task_util_for_boost=51` / `..._colocation=35`,
+  `sched_load_boost` little 0 / big −6, schedutil hispeed little 1248000@90
+  / big ~1324600@85, **core_ctl little min 4 / max 6**, big min 1 / max 2,
+  cpusets top/foreground 0-7 + system-background/background 0-5,
+  kgsl default/min 6 / max 0, LLCC bw min 4577 + DDR bw min 762,
+  bw_hwmon `up_scale=250 io_percent=68 sample_ms=4 idle_mbps=1600`,
+  memlat ratio_ceil/stall_floor for cpu0/cpu4, `cpu_boost input_boost_freq`
+  (`0:1324800`), `vm/swap_ratio=100`.
+- **19 of those overlap our catalog** (cpusets, stune top-app, up/downmigrate,
+  group_up/downmigrate, coloc_fmin, many_wakeup_threshold, migration_cost,
+  min_task_util_*, sync_hint_enable, kgsl default/min/max_pwrlevel). They are
+  Baseline-tier by construction.
+- **Empirical stomp, device-verified**: launching apps/camera changed
+  `sched_group_downmigrate` 85 → 95 (perfd boost) and it stayed there — the
+  daemon's event re-plan / watchdog heals it; balance does not own that node,
+  game/boost do (and their 140/120 values match QTI boost conventions).
+- `powerhint.xml` on this build only carries `msmsteppe`/`sdmmagpie` camera
+  hints (idx 0x1331-0x1334: little `sched_load_boost` −6, hispeed load 95,
+  bwmon sample_ms 20, DDR bw min 748) plus the 0x130A-0x1312 "indefinite"
+  performance hints (min CPUs 2, freq floors 576/806/1248/2169 MHz).
+  `perfboostsconfig.xml` boosts (0x1081/0x1082, 2 s / 400 ms) only raise
+  bus-frequency floors.
+- Conclusion: perfd is a **coexist** partner. Never write
+  `/sys/module/msm_performance`, lpm_levels, process_reclaim, swap_ratio or
+  the transient boost globals (all forbidden in the catalog guard).
+
+### cpu_boost (touch input floor) — kernel source surya-q-oss
+`drivers/cpufreq/cpu-boost.c`: an input handler hooks real touch/keypad
+devices and, on every event (throttled by `MIN_INPUT_INTERVAL`), raises
+`policy->min` to the per-CPU `input_boost_freq` list for `input_boost_ms`
+via a `CPUFREQ_POLICY_NOTIFIER` (`cpufreq_verify_within_limits`). With the
+stock seed `0:1324800 @120 ms` + `sched_boost_on_input=0`:
+- every real touch floors the **whole little cluster at 1324800** for
+  120 ms — which silently defeats a `powersave` (min-lock) governor;
+- power key additionally uses `powerkey_input_boost_freq` (max little+big)
+  for 400 ms plus a sched boost;
+- synthetic `input tap/swipe` (adb/`input`) do **not** pass through
+  `/dev/input` handlers, so bench results are unaffected by this.
+Adopted: powersave zeroes `input_boost_freq` (disables the floor); other
+profiles leave stock. Catalog key `cpu_boost.input_boost_freq`
+(Baseline/Text, ALLOWED_EXACT audit in `forbidden.rs`).
+
 ### mcd (`/system/bin/mcd`, config `/system/etc/mcd_default.conf`)
 MIUI root daemon; services `mcd_service` + one-shot `mcd_init`. Handles:
 - `sudebug sched <file>` — apply `path#value` lines (used by PowerKeeper).

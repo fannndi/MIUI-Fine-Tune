@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.16.2 — efficiency audit of the perf stack (2026-10-10)
+
+- **Powersave no longer fights itself on touch**: the kernel `cpu-boost`
+  module floors the little cluster at 1324800 MHz for 120 ms on every real
+  input event (source-verified in surya-q-oss `drivers/cpufreq/cpu-boost.c`),
+  which defeats the min-lock governor during use. Powersave now zeroes
+  `cpu_boost/parameters/input_boost_freq` (catalog key
+  `cpu_boost.input_boost_freq`, Text/Baseline; only this audited path is
+  allowed under the otherwise-forbidden `cpu_boost` prefix). Other profiles
+  keep the stock touch boost.
+- Full audit of the running perf HAL (`vendor.qti.hardware.perf@2.0-service`,
+  `machine = SDMMAGPIE`): its 150-resource table, the saved
+  `/data/vendor/perfd/default_values` stock, the 19 nodes shared with our
+  catalog, the sdmmagpie powerhint/perfboost configs, and a device-verified
+  stopper (`sched_group_downmigrate` 85→95 on app launch). All documented in
+  docs/ROM-INTERNALS.md; coexist rules unchanged (perfd-owned paths stay
+  forbidden).
+- No value changes for balance/game/sleep — the audit validated them
+  (balance big cap 1324800 sits exactly at perfd/thermal consensus, game's
+  140/120 group migration matches QTI boost conventions).
+
 ## v0.16.1 — instant refresh switching + ROM internals (2026-10-10)
 
 - **Panel switches are now instant.** Reverse engineering the MIUI display
