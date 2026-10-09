@@ -91,6 +91,9 @@ impl Runtime {
                 };
                 let _ = self.work_tx.send(Work::Apply(job));
             }
+            Command::Boost => {
+                self.trigger_boost();
+            }
             Command::Restore => {
                 self.log("ipc: restore");
                 let _ = self.work_tx.send(Work::Restore { retire: false });

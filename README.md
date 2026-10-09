@@ -77,7 +77,7 @@ Extras: a Diagnostics screen (daemon health, live battery/thermal,
 battery health: full capacity / cycles / wear vs spec, auto-revive heals,
 panel FPS, signed battery current, CPU/GPU clocks, full profile-state
 reconciliation every 30 min auto-revive watchdog, 24 h time-in-profile, relayed daemon log), a Quick Settings tile (service toggle
-with the active profile), suggested game mappings, and JSON config
+with the active profile), suggested game mappings, a small broadcast automation API (Tasker/adb), and JSON config
 export/import through the system file picker.
 
 ## How it works
@@ -165,4 +165,5 @@ State lives in `/data/adb/mifinetune/` (`state.json`, `snapshot.json`,
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | layers, daemon threads, data flow, precision policy |
 | [docs/IPC-PROTOCOL.md](docs/IPC-PROTOCOL.md) | command/event schema, lifecycle |
 | [docs/ROM-HARMONY.md](docs/ROM-HARMONY.md) | node ownership map, kernel invariants, audit findings |
+| [docs/AUTOMATION.md](docs/AUTOMATION.md) | broadcast API for Tasker/MacroDroid/adb |
 | [AGENTS.md](AGENTS.md) | file map + hard rules for AI agents and contributors |

@@ -257,6 +257,32 @@ impl Runtime {
         }
     }
 
+    /// Manual/automated boost request (Apps automation API, `cmd: boost`):
+    /// raises the same short boost window as a jank burst, without the
+    /// cooldown (an explicit request is never rate-limited).
+    pub(super) fn trigger_boost(&mut self) {
+        if self.retired || !self.screen_on || self.locked {
+            return;
+        }
+        let now = Instant::now();
+        self.boost_until = Some(now + Duration::from_secs(env_secs(BOOST_SECS_ENV, 5)));
+        if self.active.as_deref() == Some(BOOST_PROFILE) {
+            self.log("boost: extended (request)");
+            return;
+        }
+        self.log("boost: requested");
+        let job = worker::Job {
+            profile: BOOST_PROFILE.into(),
+            reason: "boost".into(),
+            src_pkg: self.last_real.clone(),
+            used_saver: false,
+            queued: now,
+            force: false,
+            watchdog: false,
+        };
+        let _ = self.work_tx.send(Work::Apply(job));
+    }
+
     /// Jank event from the watcher (experimental FAS-lite): a burst of
     /// skipped frames raises a short responsive overlay (hidden `boost`
     /// profile); the supervisor returns to the normal decision when the

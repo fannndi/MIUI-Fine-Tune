@@ -108,6 +108,7 @@ Rules:
 | `dynamic/DaemonNotifications.kt` | notification channels + builders (service notification, GM warning) |
 | `dynamic/DiagnosticsModels.kt` | diagnostics shapes (env / diag / stats) + JSON parsing |
 | `dynamic/ServiceTile.kt` | Quick Settings tile: service toggle + active profile subtitle |
+| `dynamic/AutomationReceiver.kt` | exported broadcast API: SET_PROFILE / BOOST / SET_CHARGE_LIMIT (docs/AUTOMATION.md) |
 | `dynamic/DynamicProfileConfig.kt` | `config.json` writer (atomic), prefs migration, daemon hints |
 | `dynamic/AppProfileEntry.kt` | Apps Profile entry model (mapping + bypass + DND) |
 | `dynamic/DndController.kt` | the only platform-API executor: DND access + interruption filter |
@@ -134,6 +135,7 @@ Rules:
 | `docs/ARCHITECTURE.md` | layers, daemon thread model, data flow, precision policy |
 | `docs/IPC-PROTOCOL.md` | stdio protocol schema + lifecycle |
 | `docs/ROM-HARMONY.md` | node ownership map, kernel invariants, audit findings |
+| `docs/AUTOMATION.md` | broadcast automation API (Tasker/MacroDroid/adb) |
 | `tools/bench.sh` | on-device benchmark harness (CLI-based) |
 | `data/adb/mifinetune/stock.json` | persistent union-stock baseline (dev-seeded once; engine extends, never consumes) |
 | `tools/owner-map-audit.sh` | catalog vs ROM audit (boot + runtime writers) |

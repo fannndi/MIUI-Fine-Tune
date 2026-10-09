@@ -44,6 +44,8 @@ pub enum Command {
     Ultra { on: bool },
     /// Manual card tap: apply now and treat as the universal base.
     SetBase { profile: String },
+    /// Automation API: raise a short manual boost window (jank-boost profile).
+    Boost,
     /// Service going off: drop pending applies, restore stock, keep running.
     Restore,
     /// Diagnostics snapshot: daemon health + env + holds.
@@ -259,6 +261,8 @@ mod tests {
         assert_eq!(c, Command::Stats);
         let c: Command = serde_json::from_str(r#"{"cmd":"dnd_access","granted":true}"#).unwrap();
         assert_eq!(c, Command::DndAccess { granted: true });
+        let c: Command = serde_json::from_str(r#"{"cmd":"boost"}"#).unwrap();
+        assert_eq!(c, Command::Boost);
     }
 
     #[test]

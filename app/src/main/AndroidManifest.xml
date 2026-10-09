@@ -55,6 +55,18 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- Automation API (Tasker/MacroDroid/adb). Never touches the
+             service lifecycle; only base profile, boost and charge limit. -->
+        <receiver
+            android:name=".dynamic.AutomationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.mifinetune.action.SET_PROFILE" />
+                <action android:name="com.mifinetune.action.BOOST" />
+                <action android:name="com.mifinetune.action.SET_CHARGE_LIMIT" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.14.0 — automation API for Tasker/MacroDroid/adb (2026-10-09)
+
+- New exported `AutomationReceiver` with three deliberately small actions:
+  `SET_PROFILE` (base profile + immediate `set_base`), `BOOST` (manual 5 s
+  boost window, no cooldown — new daemon `cmd: boost`), and
+  `SET_CHARGE_LIMIT` (`enabled` / `pct`). The receiver never touches the
+  Service lifecycle and all decisions stay in the Rust daemon.
+- `docs/AUTOMATION.md`: adb recipes + Tasker Send-Intent steps; README and
+  AGENTS updated.
+- Device-verified 2026-10-09: broadcast SET_PROFILE game -> live game
+  values (busy 35/coloc 1017600); BOOST -> "boost: requested" -> apply
+  boost -> "boost window over" -> back to game; SET_CHARGE_LIMIT pct 85 ->
+  config updated; restore to balance verified.
+
 ## v0.13.0 — battery care v2 + auto-revive visibility (2026-10-09)
 
 - **Battery health telemetry** — the env sample now carries `charge_full_mah`
