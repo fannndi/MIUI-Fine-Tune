@@ -220,12 +220,14 @@ impl Bridge {
                     Some(v) => {
                         let _ = settings::put("system", settings::REFRESH_KEY, &v);
                         if let Ok(hz) = v.parse::<u32>() {
+                            let _ = settings::apply_panel_refresh(hz);
                             let _ = settings::apply_refresh_fps(hz);
                         }
                         self.log_event(format!("refresh restored ({v})"));
                     }
                     None => {
                         let _ = settings::delete("system", settings::REFRESH_KEY);
+                        let _ = settings::apply_panel_refresh(120);
                         let _ = settings::apply_refresh_fps(120);
                         self.log_event("refresh restored (no user value, default 120)".into());
                     }

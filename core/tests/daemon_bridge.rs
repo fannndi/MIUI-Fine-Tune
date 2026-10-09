@@ -395,6 +395,15 @@ fn refresh_follow_per_app_and_sleep() {
     )
     .unwrap();
     chmod(&app_process);
+    // fake `service` binary: records every SurfaceFlinger dfps transaction
+    let svc_log = dir.join("svc-calls.log");
+    let service = dir.join("service");
+    std::fs::write(
+        &service,
+        format!("#!/bin/sh\necho \"$*\" >> {}\n", svc_log.display()),
+    )
+    .unwrap();
+    chmod(&service);
 
     let script = dir.join("settings");
     let mut d = Daemon::spawn_env(
@@ -407,6 +416,7 @@ fn refresh_follow_per_app_and_sleep() {
                 "MIFINETUNE_REFRESH_DEX",
                 dir.join("refresh.dex").to_str().unwrap(),
             ),
+            ("MIFINETUNE_SERVICE_BIN", service.to_str().unwrap()),
             ("MIFINETUNE_LOGCAT_BIN", "/nonexistent-logcat"),
         ],
     );
@@ -435,6 +445,14 @@ fn refresh_follow_per_app_and_sleep() {
         "the FPS helper must run for the launcher target"
     );
     assert!(
+        wait_file_contains(
+            &svc_log,
+            "call SurfaceFlinger 1035 i32 1",
+            Duration::from_secs(3)
+        ),
+        "90 Hz must fire the instant SF dfps transaction (idx 1)"
+    );
+    assert!(
         dir.join("refresh.dex").exists(),
         "the embedded dex must be materialized"
     );
@@ -458,6 +476,14 @@ fn refresh_follow_per_app_and_sleep() {
     assert!(
         wait_file_contains(&fps_log, "mifinetune.RefreshFps 60", Duration::from_secs(3)),
         "the FPS helper must run for the video app"
+    );
+    assert!(
+        wait_file_contains(
+            &svc_log,
+            "call SurfaceFlinger 1035 i32 2",
+            Duration::from_secs(3)
+        ),
+        "60 Hz must fire the instant SF dfps transaction (idx 2)"
     );
     d.send(json!({"cmd":"fg","pkg":"com.whatsapp"}));
     d.wait_for(
@@ -491,6 +517,14 @@ fn refresh_follow_per_app_and_sleep() {
     assert_eq!(
         setting(&state, "system.user_refresh_rate").as_deref(),
         Some("30")
+    );
+    assert!(
+        wait_file_contains(
+            &svc_log,
+            "call SurfaceFlinger 1035 i32 4",
+            Duration::from_secs(3)
+        ),
+        "30 Hz must fire the instant SF dfps transaction (idx 4)"
     );
 
     // wake -> release again (no app target for whatsapp)

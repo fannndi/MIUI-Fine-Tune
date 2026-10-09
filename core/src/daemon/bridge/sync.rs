@@ -107,6 +107,11 @@ impl Bridge {
             RefreshAction::Write(v) => {
                 let _ = settings::put("system", settings::REFRESH_KEY, &v);
                 let hz: u32 = v.parse().unwrap_or(120);
+                // instant panel switch first (SF dfps transaction), then the
+                // MIUI helper syncs the HAL's own state (~1 s)
+                if let Err(e) = settings::apply_panel_refresh(hz) {
+                    self.log_event(format!("refresh panel switch failed: {e}"));
+                }
                 if let Err(e) = settings::apply_refresh_fps(hz) {
                     self.log_event(format!("refresh fps helper failed: {e}"));
                 }
@@ -121,6 +126,9 @@ impl Bridge {
                 Some(v) => {
                     let _ = settings::put("system", settings::REFRESH_KEY, v);
                     if let Ok(hz) = v.parse::<u32>() {
+                        if let Err(e) = settings::apply_panel_refresh(hz) {
+                            self.log_event(format!("refresh panel switch failed: {e}"));
+                        }
                         if let Err(e) = settings::apply_refresh_fps(hz) {
                             self.log_event(format!("refresh fps helper failed: {e}"));
                         }
@@ -130,6 +138,9 @@ impl Bridge {
                 None => {
                     let _ = settings::delete("system", settings::REFRESH_KEY);
                     // no captured value: the panel default is 120 (mode id 1)
+                    if let Err(e) = settings::apply_panel_refresh(120) {
+                        self.log_event(format!("refresh panel switch failed: {e}"));
+                    }
                     if let Err(e) = settings::apply_refresh_fps(120) {
                         self.log_event(format!("refresh fps helper failed: {e}"));
                     }

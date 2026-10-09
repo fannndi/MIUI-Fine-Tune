@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.16.1 — instant refresh switching + ROM internals (2026-10-10)
+
+- **Panel switches are now instant.** Reverse engineering the MIUI display
+  stack (see docs/ROM-INTERNALS.md) turned up the framework's own
+  `SURFACE_FLINGER_TRANSACTION_DISPLAY_FEATURE_DFPS` (1035): a root
+  `service call SurfaceFlinger 1035 i32 <idx>` moves the panel in tens of
+  milliseconds, no JVM. The daemon fires it first, then runs the
+  `setScreenEffect(24, hz)` helper to keep the Xiaomi HAL's own state in
+  sync and still writes `user_refresh_rate` for the MIUI UI. The dfps index
+  is resolved from the active panel's device-tree list at runtime (fallback
+  `[120, 90, 60, 50, 30]`). Device-verified: SDM applies the new mode ~0.7 s
+  before the HAL helper even finishes.
+- New [docs/ROM-INTERNALS.md](docs/ROM-INTERNALS.md): decompiled MIUI
+  display effects (monochrome/paper/game-HDR ids), PowerKeeper
+  Performance-Engine + `mcd` command channel, the decrypted mi_thermald
+  configs for surya (big cap 1209600 @50 °C — exactly the balance cap's
+  horizon), Joyose per-game CPU/migt caps (sgame 1209600, PUBGM 1555200) and
+  the writable battery node inventory. Unlocks future features (per-app
+  monochrome/paper mode) and documents the interop rules.
+- Tests: unit tests for the dfps map + service call, E2E asserts the SF
+  transaction per switch (90→idx 1, 60→idx 2, 30→idx 4).
+
 ## v0.16.0 — display refresh per-app + balance efficiency retune (2026-10-09)
 
 ### Refresh rate follow, per app (F9 re-introduced, by user request)

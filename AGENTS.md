@@ -96,7 +96,7 @@ Rules:
 | `src/daemon/bridge/charge.rs` | charge guard (`battery_charging_enabled`, opt-in limit) |
 | `src/daemon/bridge/bypass.rs` | per-app bypass charging (`input_suspend`, floor + hysteresis) |
 | `src/daemon/bridge/dnd.rs` | per-app DND decision (the app executes the official API) |
-| `src/daemon/settings.rs` | `settings` CLI read/write helpers (saver, power_mode, refresh) + the embedded FPS helper (`apply_refresh_fps`, app_process + dex) |
+| `src/daemon/settings.rs` | `settings` CLI read/write helpers (saver, power_mode, refresh) + panel refresh: SF dfps fast path (`apply_panel_refresh`, transaction 1035) and the embedded FPS helper (`apply_refresh_fps`, app_process + dex) |
 | `tests/daemon_smoke.rs` | end-to-end protocol tests: full decision path, EOF exit |
 | `tests/daemon_watchers.rs` | watcher E2E over a fake logcat script |
 | `tests/daemon_bridge.rs` | bridge E2E over a fake settings binary (hold/restore) |
@@ -143,6 +143,7 @@ Rules:
 | `docs/ARCHITECTURE.md` | layers, daemon thread model, data flow, precision policy |
 | `docs/IPC-PROTOCOL.md` | stdio protocol schema + lifecycle |
 | `docs/ROM-HARMONY.md` | node ownership map, kernel invariants, audit findings |
+| `docs/ROM-INTERNALS.md` | reverse-engineered MIUI internals: display/SF transactions, PowerKeeper PE + mcd, decrypted thermal configs, Joyose game data, charging nodes |
 | `docs/AUTOMATION.md` | broadcast automation API (Tasker/MacroDroid/adb) |
 | `tools/bench.sh` | on-device benchmark harness (CLI applies, `ADB=` override, suspended-charging mode; see docs/BENCH.md) |
 | `core/assets/refresh_fps.dex` | embedded FPS-switch helper dex (built from tools/refresh-fps/RefreshFps.java) |
