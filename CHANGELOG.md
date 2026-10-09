@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.9.0 — ROM compatibility audit + Predictive Load + panel FPS (2026-10-09)
+
+A systematic audit of every configuration file across all ROM partitions
+(359 XML, 231 prop, 179 RC, 62 conf, 51 JSON, 38 sh), automated for reuse:
+
+- **New tool `tools/rom-write-audit.sh`**: extracts every `write`/`echo`
+  target from a ROM tree (546 on V12.0.9), classifies each against the
+  catalog/runtime-writers/forbidden lists, and with `--device` probes
+  existence as root (205 exist — plain uid loses 108 permission-gated
+  `/proc/sys` nodes) plus a **live-vs-boot value diff** that flags unknown
+  runtime writers (result: 0 after analysis).
+- **Catalog 91 → 94**: `policy0/policy6 schedutil pl` (Baseline — perf XML
+  declares the resource but no boost uses it; the executed moorea arm never
+  writes it; live watch stayed 0 during a game boost; write/readback ✓) and
+  `kernel.sched_conservative_pl` (Baseline — written only by the lito/atoll
+  arms; our arm leaves the kernel default 0).
+- **Predictive Load profiles** (semantics from
+  `kernel/sched/cpufreq_schedutil.c`): `pl=1` floors util by WALT's
+  *predicted* load (early ramp), `conservative_pl=1` damps it. game + boost
+  get `pl=1` (game damped, boost undamped); powersave/balance/sleep stay
+  reactive `pl=0`.
+- **Panel FPS telemetry** (read-only): the DRM `measured_fps` node feeds
+  `EnvSnapshot.screen_fps` → `env` events → Diagnostics "Panel FPS" row.
+  Device-verified: idle 75.1 → swipes → 1.5 fps.
+- Audit rejections recorded with evidence: touch nodes are 0444 read-only;
+  `dsi_display_hbm`/`cabc` are property-triggered MIUI controllers;
+  `big_cluster_min_freq_adjust` and most `sched_*` targets don't exist on
+  this SoC; `charging_enabled` is Free but unused (not cataloged); two
+  earlier suspicions corrected (rmem_max has two boot writers, sched_load_boost
+  differs by branch arm).
+- Tests: 119 unit + 13 host E2E, clippy 0, fmt clean; owner-map audit 94
+  entries, 0 violations.
+
 ## v0.8.0 — Apps Profile (software layer) + F9 removal (2026-10-08)
 
 The two profile layers are now explicit: **Device Profile** is the hardware

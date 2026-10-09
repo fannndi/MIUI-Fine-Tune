@@ -54,7 +54,7 @@ Rules:
 | `profiles.json` | profile pack (embedded via `include_str!`, mirrored to assets) |
 | `src/engine/mod.rs` | engine module index + test fixtures hookup |
 | `src/engine/catalog/mod.rs` | tier/kind/entry types, `find`, `guard_path` (forbidden-path guard) |
-| `src/engine/catalog/entries.rs` | the 91-node registry table (data only) |
+| `src/engine/catalog/entries.rs` | the 94-node registry table (data only) |
 | `src/engine/catalog/forbidden.rs` | framework-owned path prefixes + exact keys (never written) |
 | `src/engine/env.rs` | read-only telemetry sampler (battery / thermal / GPU busy) |
 | `src/engine/probe.rs` | read-only device capture: node values, options, framework evidence |
@@ -136,6 +136,7 @@ Rules:
 | `docs/ROM-HARMONY.md` | node ownership map, kernel invariants, audit findings |
 | `tools/bench.sh` | on-device benchmark harness (CLI-based) |
 | `tools/owner-map-audit.sh` | catalog vs ROM audit (boot + runtime writers) |
+| `tools/rom-write-audit.sh` | ROM write-target extractor + classifier (`--device`: root probe + live-vs-boot value diff) |
 | `tools/display-off-diff.sh` | empirical display-off behavior test |
 | `tools/perf-hal-runtime-writers.txt` | runtime writer evidence list |
 | `.github/workflows/ci.yml` | CI: fmt + clippy + full host tests, then Android build |
@@ -255,6 +256,10 @@ cd core && MIFINETUNE_SYSFS_ROOT=/path/to/fake-root cargo test --test daemon_smo
 #   (node 1 -> 0); toggle off / Service OFF -> 'bridge: charge resumed'
 # - jank boost (opt-in): load + heavy swipes -> 'jank: N frames — boosting'
 #   -> 'apply boost: done' -> 'boost window over' -> normal profile
+# - v0.9: Diagnostics shows 'Panel FPS' (live, read-only measured_fps);
+#   mapped game -> profile writes policy0/6 schedutil pl=1 + conservative=1
+#   (read back via 'cat .../schedutil/pl'); tooling:
+#   tools/rom-write-audit.sh <rom> --device -> 0 value-diff unknown writers
 # - diagnostics: Home -> Diagnostics = env + 24 h + transitions + daemon log
 # - backup: Settings -> Backup export/import through the system picker
 ```

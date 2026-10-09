@@ -10,10 +10,11 @@ sources:
 
 ## Who writes what
 
-Catalog (v0.8+): **91 nodes** (55 Baseline, 36 Free). v0.7/v0.8 added seven
+Catalog (v0.9+): **94 nodes** (58 Baseline, 36 Free). v0.7–v0.9 added ten
 evidence-backed entries: `io.read_ahead_kb` (Free — see the row below), the
-two L3-latency devfreq floors (Baseline), the two f2fs GC maintenance
-nodes (Baseline) and the two charge nodes (Baseline — see the rows below).
+two L3-latency devfreq floors (Baseline), the two f2fs GC maintenance nodes,
+the two charge nodes, the two schedutil Predictive-Load knobs and
+`sched_conservative_pl` (all Baseline — see the rows below).
 
 | Node / parameter | Boot (`init.qcom.post_boot.sh`) | Runtime | Owner | MiFineTune |
 |---|---|---|---|---|
@@ -52,6 +53,8 @@ nodes (Baseline) and the two charge nodes (Baseline — see the rows below).
 | `gpu.devfreq/min_freq` & `max_freq` (Hz view) | ✗ | ✓ perf HAL (xml:gpu) | perf HAL | **Forbidden** (exact-path guard; the Hz view belongs to the framework) |
 | `gpu.devfreq/governor` | ✗ | ✗ | – | **Baseline** — device reality: only `msm-adreno-tz` is accepted by kgsl |
 | `battery_charging_enabled` (charge guard, v0.7) | chmod 0777 + chown system in `init.target.rc` (opened for userspace); no value writer | ✗ | – (user-facing switch) | **Baseline** via `ALLOWED_EXACT` — the only `power_supply` path we may write; JEITA/step-charge may override (coexist) |
+| `schedutil pl` × policy0/policy6 (v0.9) | perf XML declares the resource (`commonresourceconfigs` opcode 0x11 — no perfboostsconfig entry uses it); the executed **moorea** post_boot arm (soc 365/366) never writes it | ✗ (live watch 0/0 during a game boost, 60 s) | – | **Baseline**. Kernel semantics (`kernel/sched/cpufreq_schedutil.c`): `pl=1` floors util by WALT's *predicted* load (early ramp), `conservative_pl=1` scales that floor by TARGET_LOAD. Profiles: game+boost `pl=1`, others `pl=0` (reactive) |
+| `kernel.sched_conservative_pl` (v0.9) | post_boot writes 1 in the **lito/atoll** arms only — moorea leaves the kernel default 0 | ✗ | – | **Baseline** (static rule: some ROM script writes it). Device write/readback verified |
 | `thermal_message/*`, cooling devices, `msm_performance/*`, `cpu_boost/*`, other charge nodes, zRAM | ✗ | ✓ mi_thermald / perf HAL / micharge | framework | **Forbidden** (path guard) |
 | perf HAL runtime-only (`/dev/cpuset/foreground/boost/cpus`, `/dev/cpu_dma_latency`, `/sys/kernel/mm/ksm/*`, kgsl `force_no_nap/clk_on/rail_on/idle_timer`, `mmc0/clk_scaling`, `proc_reclaim`, `swap_ratio`, `/proc/%d/sched_group_id`) | ✗ | ✓ libqti-perfd (OptsHandler) / PowerKeeper | framework | **Forbidden** |
 | `workqueue.power_efficient` | – | – | **kernel** (0444 hardcoded) | **Never cataloged** (`kernel/workqueue.c:294`) |
@@ -201,6 +204,44 @@ Transition detection: two event tags, `am_resume_activity` and
 second). The seed peek trusts only fresh events (≤60 s) because the events
 buffer holds hours of history. The daemon parses `logcat -v epoch`, so
 freshness is epoch arithmetic (no timezone/year parsing).
+
+## ROM write-target audit (v0.9)
+
+`tools/rom-write-audit.sh <rom> [--device]` automates the hunt for
+"input_suspend-like gems":
+
+1. Extract every write target from the ROM: `write /sys|/proc` (init `.rc`)
+   + `echo VALUE > /sys|/proc` (`.sh`) → **546 unique paths**.
+2. Classify each: `CATALOG` (91 covered pre-v0.9) / `RUNTIME` / `FORBIDDEN`
+   / `NEW` (429 candidates).
+3. `--device`: probe existence as **root** (plain shell uid loses ~108
+   permission-gated `/proc/sys` nodes — 205 of 546 actually exist; the rest
+   are dead multi-SoC paths) and run a **live-vs-boot value diff**: a live
+   value outside the ROM's boot-value set = unknown runtime writer → never
+   Free. Result: 113 same, 341 not-present, 92 value-diff, **0 true unknown
+   writers after analysis**.
+
+Findings that corrected earlier assumptions:
+
+| Suspect | Verdict |
+|---|---|
+| `net.core/rmem_max` (boot 262144 ≠ live 16777216) | **not** a runtime writer — `netmgrd.rc` writes 16777216 at boot too (two writers) |
+| `cpu*/sched_load_boost` (boot −6 ≠ live 0 on cpu0–5) | branch semantics: the moorea arm writes −6 only for cpu6/cpu7; cpu0–5 keep the kernel default |
+| `vm/swap_ratio` (boot 70 ≠ live 100) | confirmed **runtime writer** (already in the writers list) |
+| `tp_palm`, `tp_grip_area` | **read-only (0444)** on device — unwritable, rejected |
+| `dsi_display_hbm`/`cabc` | property-triggered by MIUI (`on property:sys.dsi_display_hbm`) → framework controller, rejected |
+| `big_cluster_min_freq_adjust`, `power_aware_timer_migration`, most `sched_*` | **absent on device** (other-SoC arms), rejected |
+| `battery/charging_enabled` | ROM's write is commented out (would be Free) — node accepted 1→0→1 writes but status showed no effect at 100 %; not cataloged (no consumer) |
+
+Intel: perfd's `libgameoptfeature` (`vendor/etc/lm/GameOptimizationFeature.xml`)
+monitors `measured_fps` + mem-lat `cur_freq`, votes **DDR min 1144→2086 MHz**
+on workload hints and applies a "Predictive Load 1" game profile — we never
+write `llcc-ddr` nodes (we only own the l3-lat floors) and `pl` stays
+Baseline/coexist.
+
+Branch caveat: post_boot is a multi-SoC script; a static scan cannot know
+which arm executes. Tier decisions therefore use the *executed* arm (soc
+365/366 moorea) when known, and the conservative static label otherwise.
 
 ## Verification
 
