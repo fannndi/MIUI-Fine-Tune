@@ -87,6 +87,7 @@ impl Runtime {
                     queued: Instant::now(),
                     // explicit user tap: re-plan even when already active
                     force: true,
+                    watchdog: false,
                 };
                 let _ = self.work_tx.send(Work::Apply(job));
             }
@@ -131,6 +132,9 @@ impl Runtime {
             Command::Stats => {
                 self.publisher.emit(&Event::Stats {
                     entries: self.stats.entries.clone(),
+                    heals_total: Some(self.stats.heals_total),
+                    heals_last_t: Some(self.stats.heals_last_t),
+                    heals_last_keys: Some(self.stats.heals_last_keys),
                 });
             }
         }

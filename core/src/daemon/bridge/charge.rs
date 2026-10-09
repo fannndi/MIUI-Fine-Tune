@@ -35,9 +35,10 @@ fn read_live() -> Option<String> {
 
 /// Pure gate: start pausing when charging at/above the limit; keep pausing
 /// (even though the status flips to "not charging") until the hysteresis
-/// floor; anything else releases.
+/// floor; anything else releases. `charge_once` (charge-to-100%-once)
+/// suppresses the pause until the next unplug.
 pub fn charge_pause_want(ctx: &SyncCtx, held: bool) -> bool {
-    if !ctx.charge_limit {
+    if !ctx.charge_limit || ctx.charge_once {
         return false;
     }
     let pct = ctx.battery_pct.unwrap_or(0);
@@ -115,7 +116,22 @@ mod tests {
             charging,
             charge_limit: limit,
             charge_limit_pct: limit_pct,
+            charge_once: false,
         }
+    }
+
+    #[test]
+    fn charge_once_suppresses_the_pause() {
+        let mut c = ctx(true, 95, Some(true), 80);
+        c.charge_once = true;
+        assert!(!charge_pause_want(&c, false), "once must skip the limit");
+        assert!(!charge_pause_want(&c, true), "once releases a held pause");
+        c.charge_once = false;
+        assert!(charge_pause_want(&c, false), "limit applies again");
+        // once without the limit is still a no-op
+        let mut c = ctx(false, 95, Some(true), 80);
+        c.charge_once = true;
+        assert!(!charge_pause_want(&c, false));
     }
 
     #[test]

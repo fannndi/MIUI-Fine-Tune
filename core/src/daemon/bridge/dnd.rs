@@ -67,6 +67,7 @@ mod tests {
             charging: None,
             charge_limit: false,
             charge_limit_pct: 80,
+            charge_once: false,
         }
     }
 

@@ -64,6 +64,7 @@ fun SettingsScreen(
     val maintenance = vm?.maintenance?.collectAsStateWithLifecycle()?.value
     val chargeLimit = vm?.chargeLimit?.collectAsStateWithLifecycle()?.value
     val chargeLimitPct = vm?.chargeLimitPct?.collectAsStateWithLifecycle()?.value
+    val chargeOnce = vm?.chargeOnce?.collectAsStateWithLifecycle()?.value
     val bypassFloor = vm?.bypassFloor?.collectAsStateWithLifecycle()?.value
     val jankBoost = vm?.jankBoost?.collectAsStateWithLifecycle()?.value
 
@@ -107,13 +108,17 @@ fun SettingsScreen(
                 )
             }
 
-            if (vm != null && chargeLimit != null && chargeLimitPct != null && bypassFloor != null) {
+            if (vm != null && chargeLimit != null && chargeLimitPct != null &&
+                bypassFloor != null && chargeOnce != null
+            ) {
                 ChargingCard(
                     chargeLimit = chargeLimit,
                     chargeLimitPct = chargeLimitPct,
+                    chargeOnce = chargeOnce,
                     bypassFloor = bypassFloor,
                     onChargeLimit = vm::setChargeLimit,
                     onChargeLimitPct = vm::setChargeLimitPct,
+                    onChargeOnce = vm::setChargeOnce,
                     onBypassFloor = vm::setBypassFloor,
                 )
             }

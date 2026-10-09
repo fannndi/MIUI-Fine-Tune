@@ -141,6 +141,13 @@ class DynamicProfileConfig private constructor(context: Context) {
         get() = _chargeLimitPct.value
         set(v) = put { it.put("charge_limit_pct", v.coerceIn(60, 95)) }
 
+    /** Charge-to-100%-once: skip the limit until the next unplug. */
+    private val _chargeOnce = MutableStateFlow(false)
+    val chargeOnceFlow: StateFlow<Boolean> = _chargeOnce
+    var chargeOnce: Boolean
+        get() = _chargeOnce.value
+        set(v) = put { it.put("charge_once", v) }
+
     private val _bypassFloor = MutableStateFlow(30)
     val bypassFloorFlow: StateFlow<Int> = _bypassFloor
     var bypassFloor: Int
@@ -297,6 +304,7 @@ class DynamicProfileConfig private constructor(context: Context) {
         _jankBoost.value = json.optBoolean("jank_boost", false)
         _chargeLimit.value = json.optBoolean("charge_limit", false)
         _chargeLimitPct.value = json.optInt("charge_limit_pct", 80).coerceIn(60, 95)
+        _chargeOnce.value = json.optBoolean("charge_once", false)
         _bypassFloor.value = json.optInt("bypass_floor_pct", 30).coerceIn(15, 50)
         _baseProfile = json.optString("base_profile", DEFAULT_BASE).ifEmpty { DEFAULT_BASE }
         val map = mutableMapOf<String, String>()
@@ -349,6 +357,7 @@ class DynamicProfileConfig private constructor(context: Context) {
         def("jank_boost", false)
         def("charge_limit", false)
         def("charge_limit_pct", 80)
+        def("charge_once", false)
         def("bypass_floor_pct", 30)
         def("app_map", JSONObject())
         def("app_profiles", JSONObject())
@@ -370,6 +379,7 @@ class DynamicProfileConfig private constructor(context: Context) {
         .put("jank_boost", _jankBoost.value)
         .put("charge_limit", _chargeLimit.value)
         .put("charge_limit_pct", _chargeLimitPct.value)
+        .put("charge_once", _chargeOnce.value)
         .put("bypass_floor_pct", _bypassFloor.value)
         .put("app_map", JSONObject())
         .put(

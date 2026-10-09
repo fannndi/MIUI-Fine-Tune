@@ -84,6 +84,7 @@ fn job(profile: &str) -> Work {
         used_saver: false,
         queued: Instant::now(),
         force: false,
+        watchdog: false,
     })
 }
 

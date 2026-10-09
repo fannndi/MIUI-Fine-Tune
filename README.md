@@ -42,6 +42,7 @@ the framework, never touches SELinux, and always keeps a stock restore path.
 | Apps Profile: DND (opt-in) | DND set through Android's official API while in front; restored on exit |
 | Charging + idle (weekly, opt-in) | Bounded f2fs GC window (`dirty_segments` → ≤100) |
 | Charge limit (opt-in, default 80 %) | Charging pauses at the limit, resumes 5 % lower; stock switch returns on exit |
+| Charge to 100 % once (opt-in) | Skips the limit until the next unplug; the flag clears itself on that unplug |
 | Jank burst ≥ 10 frames (experimental, opt-in) | ~5 s responsive overlay, then back to the normal profile |
 | Service OFF | All values written back to stock + daemon exits |
 
@@ -72,7 +73,9 @@ modes, GameTurbo, thermal and charging internals stay MIUI's. Every per-app
 effect is captured first and restored on app exit, Service OFF or daemon
 recovery.
 
-Extras: a Diagnostics screen (daemon health, live battery/thermal, panel FPS, signed battery current, CPU/GPU clocks, full profile-state
+Extras: a Diagnostics screen (daemon health, live battery/thermal,
+battery health: full capacity / cycles / wear vs spec, auto-revive heals,
+panel FPS, signed battery current, CPU/GPU clocks, full profile-state
 reconciliation every 30 min auto-revive watchdog, 24 h time-in-profile, relayed daemon log), a Quick Settings tile (service toggle
 with the active profile), suggested game mappings, and JSON config
 export/import through the system file picker.

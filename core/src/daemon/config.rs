@@ -102,6 +102,10 @@ pub struct DaemonConfig {
     pub charge_limit: bool,
     #[serde(default = "default_charge_pct")]
     pub charge_limit_pct: u8,
+    /// Charge-to-100%-once: skip the charge limit until the next unplug.
+    /// The daemon emits `charge_once_done` on the unplug; the app clears it.
+    #[serde(default)]
+    pub charge_once: bool,
 }
 
 fn default_charge_pct() -> u8 {
@@ -145,6 +149,7 @@ impl Default for DaemonConfig {
             jank_boost: false,
             charge_limit: false,
             charge_limit_pct: default_charge_pct(),
+            charge_once: false,
         }
     }
 }

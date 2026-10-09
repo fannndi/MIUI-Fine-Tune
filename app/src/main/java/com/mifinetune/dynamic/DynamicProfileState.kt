@@ -70,6 +70,9 @@ object DynamicProfileState {
     /** Transition history (oldest first; the screen renders it reversed). */
     val stats = MutableStateFlow<List<StatEntry>>(emptyList())
 
+    /** Auto-revive watchdog totals (from the same `stats` reply). */
+    val heals = MutableStateFlow(HealsInfo())
+
     /** In-app relay of the daemon's stderr log (capped, timestamped). */
     val logs = MutableStateFlow<List<String>>(emptyList())
 

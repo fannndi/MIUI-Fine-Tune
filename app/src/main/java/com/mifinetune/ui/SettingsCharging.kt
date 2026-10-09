@@ -30,9 +30,11 @@ import kotlin.math.roundToInt
 internal fun ChargingCard(
     chargeLimit: Boolean,
     chargeLimitPct: Int,
+    chargeOnce: Boolean,
     bypassFloor: Int,
     onChargeLimit: (Boolean) -> Unit,
     onChargeLimitPct: (Int) -> Unit,
+    onChargeOnce: (Boolean) -> Unit,
     onBypassFloor: (Int) -> Unit,
 ) {
     var chargePct by remember { mutableFloatStateOf(chargeLimitPct.toFloat()) }
@@ -64,6 +66,18 @@ internal fun ChargingCard(
                     valueRange = 60f..95f,
                     steps = 6,
                 )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Charge to 100% once", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Skips the limit for one cycle; clears itself on the " +
+                                "next unplug",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = chargeOnce, onCheckedChange = onChargeOnce)
+                }
             }
 
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

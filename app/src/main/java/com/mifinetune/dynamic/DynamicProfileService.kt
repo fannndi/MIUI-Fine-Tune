@@ -298,7 +298,17 @@ class DynamicProfileService : Service() {
 
             "diag" -> DiagnosticsParse.diag(ev)?.let { DynamicProfileState.diag.value = it }
 
-            "stats" -> DynamicProfileState.stats.value = DiagnosticsParse.stats(ev)
+            "stats" -> {
+                DynamicProfileState.stats.value = DiagnosticsParse.stats(ev)
+                DynamicProfileState.heals.value = DiagnosticsParse.heals(ev)
+            }
+
+            "charge_once_done" -> {
+                // the daemon consumed charge-to-100%-once (unplug seen):
+                // clear the flag; the write hint re-syncs the daemon
+                Log.d(TAG, "charge-once done (${ev.optInt("pct")}%)")
+                config.chargeOnce = false
+            }
 
             "game_mode_conflict" ->
                 DaemonNotifications.notifyGameModeConflict(this, labelFor(ev.optString("pkg")))

@@ -33,6 +33,9 @@ pub struct Job {
     /// change or an explicit user tap must reach the engine (new keys,
     /// drift), while periodic confirmations keep the fast path.
     pub force: bool,
+    /// The auto-revive watchdog produced this job (drift reconciliation);
+    /// a successful run that wrote keys counts as a heal for diagnostics.
+    pub watchdog: bool,
 }
 
 /// Work items the worker accepts.
@@ -58,6 +61,8 @@ pub struct AppliedEvent {
     pub failed: usize,
     pub ms: u64,
     pub settle_ms: u64,
+    /// Watchdog reconcile that wrote keys (auto-revive heal).
+    pub watchdog: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -195,6 +200,7 @@ pub fn run(
                     failed: out.failed,
                     ms: started.elapsed().as_millis() as u64,
                     settle_ms,
+                    watchdog: job.watchdog,
                 });
             }
         }

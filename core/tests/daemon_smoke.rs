@@ -256,6 +256,87 @@ fn daemon_guards_react_to_env_changes() {
 }
 
 #[test]
+fn charge_once_skips_limit_until_unplug_then_resumes() {
+    let dir = tmp("once");
+    let cfg_path = dir.join("config.json");
+    std::fs::write(
+        &cfg_path,
+        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance",
+            "charge_limit":true,"charge_limit_pct":80,"charge_once":true}"#,
+    )
+    .unwrap();
+
+    let root = dir.join("fake-root");
+    let w = |rel: &str, body: &str| {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    };
+    w("sys/class/power_supply/battery/capacity", "95\n");
+    w("sys/class/power_supply/battery/status", "Charging\n");
+    w(
+        "sys/class/power_supply/battery/battery_charging_enabled",
+        "1\n",
+    );
+
+    let mut d = Daemon::spawn_env(
+        &dir,
+        &cfg_path,
+        &[
+            ("MIFINETUNE_SYSFS_ROOT", root.to_str().unwrap()),
+            ("MIFINETUNE_ENV_SAMPLE_MS", "200"),
+        ],
+    );
+    d.wait_for(|v| v["event"] == "hello", Duration::from_secs(5));
+    d.wait_for(
+        |v| v["event"] == "env" && v["env"]["battery_pct"] == 95,
+        Duration::from_secs(5),
+    );
+    // charge-once: 95% while charging must NOT pause the node
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        read_tree_node(
+            &root,
+            "sys/class/power_supply/battery/battery_charging_enabled"
+        ),
+        "1",
+        "charge-once must leave the stock switch alone"
+    );
+
+    // unplug consumes the flag: the daemon emits the clear event
+    w("sys/class/power_supply/battery/status", "Discharging\n");
+    let once = d.wait_for(|v| v["event"] == "charge_once_done", Duration::from_secs(5));
+    assert!(once["pct"].as_u64().unwrap_or(0) >= 1, "carries the pct");
+
+    // the app clears the flag; the limit applies again
+    std::fs::write(
+        &cfg_path,
+        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance",
+            "charge_limit":true,"charge_limit_pct":80,"charge_once":false}"#,
+    )
+    .unwrap();
+    d.send(serde_json::json!({"cmd": "config_changed"}));
+    w("sys/class/power_supply/battery/status", "Charging\n");
+    let bridge = d.wait_for(
+        |v| v["event"] == "bridge" && v["msg"].as_str().unwrap_or("").contains("charge paused"),
+        Duration::from_secs(10),
+    );
+    assert!(bridge["msg"].as_str().unwrap().contains("80"));
+    assert_eq!(
+        read_tree_node(
+            &root,
+            "sys/class/power_supply/battery/battery_charging_enabled"
+        ),
+        "0",
+        "limit resumes after the flag is cleared"
+    );
+
+    d.send(serde_json::json!({"cmd": "shutdown"}));
+    d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn profile_pack_change_triggers_reevaluation() {
     let dir = tmp("profiles");
     let cfg_path = dir.join("config.json");
@@ -704,6 +785,14 @@ fn watchdog_and_force_apply_reconcile_every_profile_key() {
         "652800",
         "watchdog reconcile must heal the drifted freq floor"
     );
+    // the auto-revive counter records the heal (stats reply carries it)
+    d.send(serde_json::json!({"cmd": "stats"}));
+    let st = d.wait_for(|v| v["event"] == "stats", Duration::from_secs(5));
+    assert!(
+        st["heals_total"].as_u64().unwrap_or(0) >= 1,
+        "watchdog heal must be counted: {st:?}"
+    );
+    assert!(st["heals_last_keys"].as_u64().unwrap_or(0) >= 1);
     d.send(serde_json::json!({"cmd": "shutdown"}));
     d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
     let _ = std::fs::remove_dir_all(&dir);

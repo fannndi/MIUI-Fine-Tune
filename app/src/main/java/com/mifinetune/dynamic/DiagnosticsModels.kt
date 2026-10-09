@@ -28,6 +28,17 @@ data class EnvSnapshot(
     val gpuFreqMhz: Int? = null,
     /** F2FS userdata lifetime write counter (KB, read-only node). */
     val storageWrittenKb: Long? = null,
+    /** Battery full-charge capacity in mAh (`charge_full`), health readout. */
+    val chargeFullMah: Int? = null,
+    /** Battery cycle count (`cycle_count`), when the fuel gauge exposes it. */
+    val cycleCount: Int? = null,
+)
+
+/** Auto-revive (watchdog) totals from the last `stats` reply. */
+data class HealsInfo(
+    val total: Long = 0,
+    val lastT: Long = 0,
+    val lastKeys: Int = 0,
 )
 
 /** One transition from the daemon's `stats` reply. */
@@ -81,8 +92,17 @@ object DiagnosticsParse {
             bigFreqMhz = e.intOrNull("big_freq_mhz"),
             gpuFreqMhz = e.intOrNull("gpu_freq_mhz"),
             storageWrittenKb = e.longOrNull("storage_written_kb"),
+            chargeFullMah = e.intOrNull("charge_full_mah"),
+            cycleCount = e.intOrNull("cycle_count"),
         )
     }
+
+    /** Auto-revive totals carried by the `stats` reply. */
+    fun heals(ev: JSONObject): HealsInfo = HealsInfo(
+        total = ev.optLong("heals_total"),
+        lastT = ev.optLong("heals_last_t"),
+        lastKeys = ev.optInt("heals_last_keys"),
+    )
 
     fun stats(ev: JSONObject): List<StatEntry> {
         val arr: JSONArray = ev.optJSONArray("entries") ?: return emptyList()

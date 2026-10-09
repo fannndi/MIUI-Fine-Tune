@@ -54,13 +54,23 @@ impl Runtime {
     pub(super) fn on_env(&mut self, snap: EnvSnapshot) {
         let changed = snap != self.env;
         let prev = (self.last_battery_low, self.thermal_stepped);
+        let was_charging = self.prev_charging;
         self.env = snap;
+        self.prev_charging = self.env.charging;
         if changed {
             self.publisher.emit(&Event::Env {
                 env: self.env.clone(),
             });
         }
         let cfg = self.config.get().clone();
+        // charge-to-100%-once: a real unplug consumes the flag; the app owns
+        // config.json, so it clears the flag on this event.
+        if cfg.charge_once && was_charging == Some(true) && self.env.charging == Some(false) {
+            self.log("charge-once: done (unplugged)");
+            self.publisher.emit(&Event::ChargeOnceDone {
+                pct: self.env.battery_pct,
+            });
+        }
         let bat = super::evaluate::battery_low(&cfg, &self.env);
         let therm = self.thermal_high(cfg.guard_thermal, cfg.thermal_ceiling_c);
         self.last_battery_low = bat;
@@ -122,6 +132,12 @@ impl Runtime {
         if ev.ok {
             if ev.wrote == 0 {
                 self.log(&format!("apply {}: in place", ev.profile));
+            } else if ev.watchdog {
+                self.log(&format!(
+                    "watchdog: auto-revived {} keys for {}",
+                    ev.wrote, ev.profile
+                ));
+                self.stats.record_heal(ev.wrote);
             } else {
                 self.log(&format!(
                     "apply {}: done in {}ms (settle {}ms)",

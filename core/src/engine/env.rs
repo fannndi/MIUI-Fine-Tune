@@ -59,6 +59,13 @@ pub struct EnvSnapshot {
     /// F2FS userdata lifetime write counter in KB (read-only, updates lazily).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage_written_kb: Option<u64>,
+    /// Battery full-charge capacity in mAh (`charge_full` reports µAh) —
+    /// battery-health readout; a broken/negative node stays absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub charge_full_mah: Option<u32>,
+    /// Battery cycle count (`cycle_count`; absent on some fuel gauges).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cycle_count: Option<u32>,
 }
 
 /// The sysfs prefix for this process (`/` on device, a fixture in tests).
@@ -127,6 +134,9 @@ impl Sampler {
             gpu_freq_mhz: self.read_parse("sys/class/kgsl/kgsl-3d0/gpuclk", hz_to_mhz),
             storage_written_kb: self
                 .read_parse("sys/fs/f2fs/sda16/lifetime_write_kbytes", first_u64),
+            charge_full_mah: self
+                .read_parse("sys/class/power_supply/battery/charge_full", uah_to_mah),
+            cycle_count: self.read_parse("sys/class/power_supply/battery/cycle_count", first_u32),
         }
     }
 
@@ -221,6 +231,17 @@ pub fn first_u64(raw: &str) -> Option<u64> {
     raw.split_whitespace().next()?.parse::<u64>().ok()
 }
 
+/// `charge_full` reports µAh; diagnostics speak mAh ("5008000" -> 5008).
+/// Non-positive values (broken fuel gauge) stay absent.
+pub fn uah_to_mah(raw: &str) -> Option<u32> {
+    let v = first_i64(raw)?;
+    if v <= 0 {
+        None
+    } else {
+        Some((v / 1000) as u32)
+    }
+}
+
 /// `cpuinfo_cur_freq` reports kHz; diagnostics speak MHz ("1804800" -> 1804).
 pub fn khz_to_mhz(raw: &str) -> Option<u32> {
     first_i64(raw).map(|v| (v / 1000) as u32)
@@ -284,6 +305,8 @@ mod tests {
         );
         w("sys/class/kgsl/kgsl-3d0/gpuclk", "430000000\n");
         w("sys/fs/f2fs/sda16/lifetime_write_kbytes", "53193232\n");
+        w("sys/class/power_supply/battery/charge_full", "5008000\n");
+        w("sys/class/power_supply/battery/cycle_count", "562\n");
         root
     }
 
@@ -326,6 +349,10 @@ mod tests {
         assert_eq!(first_i64("garbage"), None);
         assert_eq!(first_u32("4105283\n"), Some(4105283));
         assert_eq!(first_u64("53193232\n"), Some(53193232));
+        assert_eq!(uah_to_mah("5008000\n"), Some(5008));
+        assert_eq!(uah_to_mah("-203568155"), None, "broken FG stays absent");
+        assert_eq!(uah_to_mah("0"), None);
+        assert_eq!(uah_to_mah("garbage"), None);
         assert_eq!(khz_to_mhz("1804800\n"), Some(1804));
         assert_eq!(khz_to_mhz("768000"), Some(768));
         assert_eq!(hz_to_mhz("430000000\n"), Some(430));
@@ -353,6 +380,8 @@ mod tests {
         assert_eq!(s.big_freq_mhz, Some(2304));
         assert_eq!(s.gpu_freq_mhz, Some(430));
         assert_eq!(s.storage_written_kb, Some(53193232));
+        assert_eq!(s.charge_full_mah, Some(5008));
+        assert_eq!(s.cycle_count, Some(562));
         let _ = fs::remove_dir_all(&root);
     }
 

@@ -39,6 +39,15 @@ pub struct StatsFile {
     pub schema: u32,
     #[serde(default)]
     pub entries: Vec<StatEntry>,
+    /// Auto-revive watchdog: reconcile passes that wrote ≥1 key, all-time.
+    #[serde(default)]
+    pub heals_total: u64,
+    /// Epoch seconds of the last heal (display only).
+    #[serde(default)]
+    pub heals_last_t: u64,
+    /// Keys re-asserted by the last heal.
+    #[serde(default)]
+    pub heals_last_keys: u32,
 }
 
 fn default_schema() -> u32 {
@@ -50,6 +59,9 @@ impl Default for StatsFile {
         StatsFile {
             schema: SCHEMA,
             entries: Vec::new(),
+            heals_total: 0,
+            heals_last_t: 0,
+            heals_last_keys: 0,
         }
     }
 }
@@ -58,18 +70,29 @@ impl Default for StatsFile {
 pub struct Stats {
     path: PathBuf,
     pub entries: Vec<StatEntry>,
+    /// Auto-revive counters (see [`Stats::record_heal`]).
+    pub heals_total: u64,
+    pub heals_last_t: u64,
+    pub heals_last_keys: u32,
 }
 
 impl Stats {
     /// Loads `stats.json`; a missing/corrupt file starts empty (never fatal).
     pub fn load(state_dir: &Path) -> Stats {
         let path = state_dir.join("stats.json");
-        let entries = fs::read_to_string(&path)
+        let file = fs::read_to_string(&path)
             .ok()
-            .and_then(|s| serde_json::from_str::<StatsFile>(&s).ok())
-            .map(|f| f.entries)
+            .and_then(|s| serde_json::from_str::<StatsFile>(&s).ok());
+        let (entries, heals_total, heals_last_t, heals_last_keys) = file
+            .map(|f| (f.entries, f.heals_total, f.heals_last_t, f.heals_last_keys))
             .unwrap_or_default();
-        let mut stats = Stats { path, entries };
+        let mut stats = Stats {
+            path,
+            entries,
+            heals_total,
+            heals_last_t,
+            heals_last_keys,
+        };
         stats.cap();
         stats
     }
@@ -92,6 +115,18 @@ impl Stats {
         self.persist();
     }
 
+    /// One auto-revive heal: the watchdog reconcile wrote `keys` keys.
+    /// Counted all-time and persisted (rare event; no rate limiting needed).
+    pub fn record_heal(&mut self, keys: usize) {
+        self.heals_total += 1;
+        self.heals_last_t = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.heals_last_keys = keys as u32;
+        self.persist();
+    }
+
     fn cap(&mut self) {
         if self.entries.len() > MAX_ENTRIES {
             let drop = self.entries.len() - MAX_ENTRIES;
@@ -104,6 +139,9 @@ impl Stats {
         let file = StatsFile {
             schema: SCHEMA,
             entries: self.entries.clone(),
+            heals_total: self.heals_total,
+            heals_last_t: self.heals_last_t,
+            heals_last_keys: self.heals_last_keys,
         };
         let Ok(s) = serde_json::to_string(&file) else {
             return;
@@ -176,6 +214,24 @@ mod tests {
         fs::write(dir.join("stats.json"), "{broken").unwrap();
         let s = Stats::load(&dir);
         assert!(s.entries.is_empty());
+        assert_eq!(s.heals_total, 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn heal_counter_persists_across_reload() {
+        let dir = crate::daemon::test_util::tmpdir("stats-heal");
+        {
+            let mut s = Stats::load(&dir);
+            s.record_heal(3);
+            s.record_heal(1);
+            assert_eq!(s.heals_total, 2);
+            assert_eq!(s.heals_last_keys, 1);
+        }
+        let s = Stats::load(&dir);
+        assert_eq!(s.heals_total, 2);
+        assert_eq!(s.heals_last_keys, 1);
+        assert!(s.heals_last_t > 0);
         let _ = fs::remove_dir_all(&dir);
     }
 }

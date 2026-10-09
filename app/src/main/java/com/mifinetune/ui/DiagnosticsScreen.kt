@@ -35,6 +35,7 @@ import com.mifinetune.dynamic.DaemonLink
 import com.mifinetune.dynamic.DiagInfo
 import com.mifinetune.dynamic.DynamicProfileState
 import com.mifinetune.dynamic.EnvSnapshot
+import com.mifinetune.dynamic.HealsInfo
 import com.mifinetune.dynamic.StatEntry
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -53,6 +54,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
     val diag by DynamicProfileState.diag.collectAsStateWithLifecycle()
     val env by DynamicProfileState.env.collectAsStateWithLifecycle()
     val stats by DynamicProfileState.stats.collectAsStateWithLifecycle()
+    val heals by DynamicProfileState.heals.collectAsStateWithLifecycle()
     val logs by DynamicProfileState.logs.collectAsStateWithLifecycle()
 
     // fresh data on open (the service seeds diag/stats once at connect)
@@ -100,6 +102,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
             }
             item(key = "daemon") { DaemonCard(diag) }
             item(key = "env") { EnvCard(env) }
+            item(key = "heal") { HealCard(heals) }
             item(key = "stats24") { StatsSummaryCard(stats) }
             item(key = "stats") { TransitionsCard(stats) }
             item(key = "log") { LogCard(logs) }
@@ -174,11 +177,26 @@ private fun EnvCard(env: EnvSnapshot?) {
         KV("Battery temp", fmtTemp(env.batteryTempC))
         KV("CPU / GPU temp", "${fmtTemp(env.cpuTempC)} · ${fmtTemp(env.gpuTempC)}")
         KV("Battery I/V", fmtCurrent(env.batteryCurrentUa, env.batteryVoltageUv))
+        KV("Battery health", fmtBatteryHealth(env))
         KV("CPU L/B MHz", fmtPairMhz(env.littleFreqMhz, env.bigFreqMhz))
         KV("GPU MHz", env.gpuFreqMhz?.let { "$it" } ?: "—")
         KV("Storage written", env.storageWrittenKb?.let { String.format(Locale.US, "%.1f GB", it / 1_000_000.0) } ?: "—")
         KV("GPU busy", env.gpuBusyPct?.let { "$it%" } ?: "—")
         KV("Panel FPS", env.screenFps?.let { String.format("%.1f fps", it) } ?: "—")
+    }
+}
+
+@Composable
+private fun HealCard(heals: HealsInfo) {
+    SectionCard("Auto-revive (watchdog)") {
+        if (heals.total == 0L) {
+            Text("No drift needed healing yet.", style = MaterialTheme.typography.bodySmall)
+            return@SectionCard
+        }
+        KV(
+            "Fix-ups",
+            "${heals.total} · last ${fmtTime(heals.lastT)} (${heals.lastKeys} keys)",
+        )
     }
 }
 
@@ -278,6 +296,20 @@ private fun fmtCurrent(ua: Long?, uv: Long?): String {
 
 private fun fmtPairMhz(l: Int?, b: Int?): String =
     if (l == null || b == null) "—" else "$l · $b"
+
+/**
+ * "5008 mAh · 97% of 5160 · 562 cycles" — `charge_full_design` is broken on
+ * this fuel gauge (negative), so the wear estimate uses the device spec.
+ */
+private fun fmtBatteryHealth(env: EnvSnapshot): String {
+    val parts = mutableListOf<String>()
+    env.chargeFullMah?.let {
+        parts += "$it mAh"
+        parts += "${it * 100 / 5160}% of 5160"
+    }
+    env.cycleCount?.let { parts += "$it cycles" }
+    return parts.joinToString(" · ").ifEmpty { "—" }
+}
 private fun fmtUptime(s: Long): String = when {
     s < 60 -> "${s}s"
     s < 3600 -> "${s / 60}m ${s % 60}s"

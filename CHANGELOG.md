@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.13.0 — battery care v2 + auto-revive visibility (2026-10-09)
+
+- **Battery health telemetry** — the env sample now carries `charge_full_mah`
+  (`charge_full` µAh -> mAh; the broken negative `charge_full_design` on this
+  fuel gauge is ignored) and `cycle_count`. Diagnostics shows
+  "5008 mAh · 97% of 5160 · 562 cycles" (device-verified live).
+- **Charge to 100% once** — new `charge_once` config: the charge guard skips
+  the limit until the next unplug; the daemon emits `charge_once_done` on the
+  unplug and the app clears the flag (single-writer rule stays: the app owns
+  config.json). Device-verified full cycle: once=true + 51% >= 40% limit ->
+  node stays 1; once=false -> "charge paused at 51% (limit 40)" (node 0);
+  limit back to 95 -> "charge resumed". Host E2E covers the same cycle.
+- **Auto-revive visibility** — the watchdog reconcile is now tagged as a
+  heal: a successful run that wrote keys increments `heals_total` /
+  `heals_last_keys` / `heals_last_t` in stats.json (surfaced by the `stats`
+  reply and the Diagnostics "Auto-revive" card). Watchdog E2E asserts the
+  counter after a real drift heal.
+- Settings: "Charge to 100% once" switch on the Charging card; Diagnostics
+  gains the battery-health row and the auto-revive card.
+
 ## v0.12.0 — round-2 "tryhard" matrix: the rest of the catalog (2026-10-09)
 
 Full-surface tune: the remaining writable catalog nodes join the profiles.

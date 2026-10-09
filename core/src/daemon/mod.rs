@@ -116,6 +116,8 @@ struct Runtime {
     thermal_stepped: bool,
     /// Last battery-guard verdict (evaluate on flip only).
     last_battery_low: bool,
+    /// Previous battery charging state (charge-once unplug detection).
+    prev_charging: Option<bool>,
     /// False until the first apply of this daemon run: the startup decision
     /// is forced so a pack update or drift that happened while we were down
     /// is reconciled.
@@ -282,6 +284,7 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         stats: Stats::load(state_dir),
         thermal_stepped: false,
         last_battery_low: false,
+        prev_charging: None,
         reconciled: false,
         watchdog_tick: 0,
         dnd_granted: false,

@@ -140,6 +140,7 @@ impl Runtime {
                     used_saver: input.saver_on,
                     queued: Instant::now(),
                     force,
+                    watchdog: trigger == "watchdog",
                 };
                 self.reconciled = true;
                 let _ = self.work_tx.send(Work::Apply(job));
@@ -178,6 +179,7 @@ impl Runtime {
             charging: self.env.charging,
             charge_limit: cfg.charge_limit,
             charge_limit_pct: cfg.charge_limit_pct,
+            charge_once: cfg.charge_once,
         }
     }
 
@@ -291,6 +293,7 @@ impl Runtime {
             used_saver: false,
             queued: now,
             force: false,
+            watchdog: false,
         };
         let _ = self.work_tx.send(Work::Apply(job));
     }

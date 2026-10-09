@@ -65,6 +65,7 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
     val jankBoost: StateFlow<Boolean> = config.jankBoostFlow
     val chargeLimit: StateFlow<Boolean> = config.chargeLimitFlow
     val chargeLimitPct: StateFlow<Int> = config.chargeLimitPctFlow
+    val chargeOnce: StateFlow<Boolean> = config.chargeOnceFlow
 
     private val _state = MutableStateFlow(DynamicProfileUiState())
     val state: StateFlow<DynamicProfileUiState> = _state.asStateFlow()
@@ -132,6 +133,10 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setChargeLimitPct(v: Int) {
         config.chargeLimitPct = v
+    }
+
+    fun setChargeOnce(v: Boolean) {
+        config.chargeOnce = v
     }
 
     fun checkRoot() {

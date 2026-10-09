@@ -281,6 +281,16 @@ cd core && MIFINETUNE_SYSFS_ROOT=/path/to/fake-root cargo test --test daemon_smo
 #   to silently skip the copy)
 # - diagnostics: Home -> Diagnostics = env + 24 h + transitions + daemon log
 # - backup: Settings -> Backup export/import through the system picker
+# - v0.13.0: battery care v2 + auto-revive visibility. EnvSnapshot gains
+#   charge_full_mah + cycle_count (charge_full_design is broken/negative on
+#   surya -> spec 5160 mAh used for the wear estimate). config.charge_once
+#   skips the charge limit until the next unplug; the daemon emits
+#   charge_once_done and the APP clears the flag (config.json stays
+#   app-owned). Watchdog applies are tagged (worker Job.watchdog) and a
+#   successful heal increments stats.json heals_total/heals_last_keys/
+#   heals_last_t; Diagnostics shows the Auto-revive card. Device-verified
+#   2026-10-09: charge-once skip -> pause -> resume cycle + health fields
+#   live (5008 mAh / 562 cycles); host E2E for both paths.
 # - v0.12.0: round-2 profile matrix: core_ctl busy_up/down/offline_delay
 #   thresholds, io.cfq battery batching (fifo_expire_async/slice_async/
 #   low_latency), io.rq_affinity, vm.watermark_scale_factor, WALT group

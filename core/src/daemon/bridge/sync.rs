@@ -34,6 +34,8 @@ pub struct SyncCtx {
     pub charging: Option<bool>,
     pub charge_limit: bool,
     pub charge_limit_pct: u8,
+    /// Charge-to-100%-once: skip the limit until the next unplug.
+    pub charge_once: bool,
 }
 
 impl Bridge {
@@ -193,6 +195,7 @@ mod tests {
             charging: None,
             charge_limit: false,
             charge_limit_pct: 80,
+            charge_once: false,
         }
     }
 

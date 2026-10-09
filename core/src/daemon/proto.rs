@@ -91,10 +91,24 @@ pub enum Event {
     State { state: Snapshot },
     /// Environment sample (battery / thermal / GPU busy) — emitted on change.
     Env { env: EnvSnapshot },
+    /// Charge-to-100%-once consumed (unplug seen): the app clears the flag
+    /// in config.json and points the daemon at it.
+    ChargeOnceDone {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pct: Option<u8>,
+    },
     /// Diagnostics reply for `cmd: diag` (boxed: it carries the whole config).
     Diag { diag: Box<DiagInfo> },
-    /// Transition history reply for `cmd: stats`.
-    Stats { entries: Vec<StatEntry> },
+    /// Transition history reply for `cmd: stats` (plus auto-revive totals).
+    Stats {
+        entries: Vec<StatEntry>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        heals_total: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        heals_last_t: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        heals_last_keys: Option<u32>,
+    },
     /// Bridge timeline entry (MIUI mode writes).
     Bridge { msg: String },
     /// Per-app DND desired state (Some = apply this mode, None = restore).
