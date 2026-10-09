@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.12.0 — round-2 "tryhard" matrix: the rest of the catalog (2026-10-09)
+
+Full-surface tune: the remaining writable catalog nodes join the profiles.
+Every value was checked against the surya-q-oss kernel source and the
+ROM/device audit before shipping:
+
+- **core_ctl hotplug behavior** — `policy0.core_ctl.busy_up_thres /
+  busy_down_thres / offline_delay_ms` per profile (kernel: no cross
+  constraint; 1 value broadcasts to the per-cpu array). Game keeps cores
+  online (`35/15/400`), sleep parks hard (`85/65/40`), powersave `75/55/60`,
+  balance online-early `55/35/120`, boost `25/10/800`.
+- **CFQ batching under the cfq profiles** — `io.cfq.fifo_expire_async 500`,
+  `io.cfq.slice_async 60`, `io.cfq.low_latency 0` for powersave and sleep
+  (fewer, larger async dispatches); `io.rq_affinity 2` for balance/game/boost.
+- **Memory/scheduler** — `vm.watermark_scale_factor` 5 (balance) / 10 (game)
+  for earlier kswapd wakeups; WALT `sched_group_upmigrate/downmigrate`
+  140/120 in game+boost (the kernel cross-bounds the pct pair: `down ≤ up`,
+  equality legal — validated + write-ordered like the sched pair);
+  `sched_little_cluster_coloc_fmin_khz` 940800 (balance) / 1017600 (game,
+  boost), range pinned 0..=2M from `sysctl.c`; `sched_walt_rotate_big_tasks 0`
+  in game/boost; `net.tcp_slow_start_after_idle 0` for balance/game/sleep;
+  `gpu.default_pwrlevel 4` for game/boost (GPU rests higher).
+- **Audited and rejected** — `gpu.idle_timer` is written by libqti-perfd at
+  runtime (stays forbidden); `adrenoboost` does not exist on the stock kernel.
+- **Robustness** — union-stock capture now skips empty reads and refills them
+  later (elevator-dependent ccq tunables can never poison `stock.json`);
+  RepeatInt snapshots normalize to the broadcast single value (uniform
+  arrays) and verify element-wise.
+
+Device E2E (2026-10-09): every profile `plan` = ok/0 locked; balance, sleep,
+game, boost, powersave values all verified live; profile-change reconcile
+heals everything in one apply (boost leftovers → stock). One transient
+perf-HAL overwrite observed (group_downmigrate during game launch), healed
+by the next forced apply — drift-heal class, documented in ROM-HARMONY.
+
 ## v0.11.3 — hotfix: profile CHANGE also reconciles (2026-10-09)
 
 Live E2E on v0.11.2 caught a real hole in the full-reconcile design:

@@ -48,7 +48,13 @@
         "devfreq.cpu6_l3_lat.min_freq": "300000000",
         "policy0.schedutil.pl": "0",
         "policy6.schedutil.pl": "0",
-        "kernel.sched_conservative_pl": "0"
+        "kernel.sched_conservative_pl": "0",
+        "policy0.core_ctl.busy_up_thres": "75",
+        "policy0.core_ctl.busy_down_thres": "55",
+        "policy0.core_ctl.offline_delay_ms": "60",
+        "io.cfq.fifo_expire_async": "500",
+        "io.cfq.slice_async": "60",
+        "io.cfq.low_latency": "0"
       }
     },
     {
@@ -104,7 +110,14 @@
         "devfreq.cpu6_l3_lat.min_freq": "300000000",
         "policy0.schedutil.pl": "1",
         "policy6.schedutil.pl": "1",
-        "kernel.sched_conservative_pl": "0"
+        "kernel.sched_conservative_pl": "0",
+        "policy0.core_ctl.busy_up_thres": "55",
+        "policy0.core_ctl.busy_down_thres": "35",
+        "policy0.core_ctl.offline_delay_ms": "120",
+        "io.rq_affinity": "2",
+        "vm.watermark_scale_factor": "5",
+        "kernel.sched_little_cluster_coloc_fmin_khz": "940800",
+        "net.tcp_slow_start_after_idle": "0"
       }
     },
     {
@@ -158,7 +171,18 @@
         "devfreq.cpu6_l3_lat.min_freq": "940800000",
         "policy0.schedutil.pl": "1",
         "policy6.schedutil.pl": "1",
-        "kernel.sched_conservative_pl": "1"
+        "kernel.sched_conservative_pl": "1",
+        "policy0.core_ctl.busy_up_thres": "35",
+        "policy0.core_ctl.busy_down_thres": "15",
+        "policy0.core_ctl.offline_delay_ms": "400",
+        "io.rq_affinity": "2",
+        "vm.watermark_scale_factor": "10",
+        "gpu.default_pwrlevel": "4",
+        "kernel.sched_group_upmigrate": "140",
+        "kernel.sched_group_downmigrate": "120",
+        "kernel.sched_little_cluster_coloc_fmin_khz": "1017600",
+        "kernel.sched_walt_rotate_big_tasks": "0",
+        "net.tcp_slow_start_after_idle": "0"
       }
     },
     {
@@ -210,7 +234,14 @@
         "devfreq.cpu6_l3_lat.min_freq": "300000000",
         "policy0.schedutil.pl": "0",
         "policy6.schedutil.pl": "0",
-        "kernel.sched_conservative_pl": "0"
+        "kernel.sched_conservative_pl": "0",
+        "policy0.core_ctl.busy_up_thres": "85",
+        "policy0.core_ctl.busy_down_thres": "65",
+        "policy0.core_ctl.offline_delay_ms": "40",
+        "io.cfq.fifo_expire_async": "500",
+        "io.cfq.slice_async": "60",
+        "io.cfq.low_latency": "0",
+        "net.tcp_slow_start_after_idle": "0"
       }
     },
     {
@@ -241,7 +272,16 @@
         "policy0.schedutil.up_rate_limit_us": "0",
         "policy0.schedutil.down_rate_limit_us": "0",
         "policy6.schedutil.up_rate_limit_us": "0",
-        "policy6.schedutil.down_rate_limit_us": "0"
+        "policy6.schedutil.down_rate_limit_us": "0",
+        "policy0.core_ctl.busy_up_thres": "25",
+        "policy0.core_ctl.busy_down_thres": "10",
+        "policy0.core_ctl.offline_delay_ms": "800",
+        "io.rq_affinity": "2",
+        "gpu.default_pwrlevel": "4",
+        "kernel.sched_group_upmigrate": "140",
+        "kernel.sched_group_downmigrate": "120",
+        "kernel.sched_little_cluster_coloc_fmin_khz": "1017600",
+        "kernel.sched_walt_rotate_big_tasks": "0"
       }
     }
   ]

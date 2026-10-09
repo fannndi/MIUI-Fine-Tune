@@ -164,6 +164,23 @@ pub fn build_plan_opt(profile: &Profile, probe: &ProbeData, exact_freq: bool) ->
         }
     }
 
+    // WALT group migration pair (pct values): sysctl.c registers
+    // sched_group_upmigrate with min = downmigrate (extra1) and
+    // sched_group_downmigrate with max = upmigrate (extra2) — the kernel
+    // rejects down > up, equality is legal (999/999 is a real MIUI branch).
+    if let (Some(up), Some(down)) = (
+        profile.params.get("kernel.sched_group_upmigrate"),
+        profile.params.get("kernel.sched_group_downmigrate"),
+    ) {
+        match (up.trim().parse::<i64>(), down.trim().parse::<i64>()) {
+            (Ok(u), Ok(d)) if d <= u => {}
+            (Ok(u), Ok(d)) => errors.push(format!(
+                "kernel.sched_group pair invalid: downmigrate ({d}) must be <= upmigrate ({u})"
+            )),
+            _ => {} // non-numeric values get caught by per-key validation
+        }
+    }
+
     // GPU pwrlevel invariant: max_pwrlevel <= min_pwrlevel — the kgsl driver
     // silently clamps `level > min_pwrlevel` to min (kgsl_pwrctrl.c:692),
     // equality is legal (single allowed level).
@@ -338,5 +355,32 @@ mod tests {
             "errors: {:?}",
             plan.errors
         );
+    }
+
+    #[test]
+    fn group_migrate_pair_invariant_allows_equality_rejects_bad() {
+        // sysctl.c registers sched_group_upmigrate with extra1 = downmigrate
+        // and sched_group_downmigrate with extra2 = upmigrate — the kernel
+        // rejects down > up; equality is legal (post_boot has a 900/900 branch).
+        let p = profile(&[
+            ("kernel.sched_group_upmigrate", "120"),
+            ("kernel.sched_group_downmigrate", "140"),
+        ]);
+        let plan = build_plan(&p, &empty_probe());
+        assert!(!plan.ok);
+        assert!(
+            plan.errors
+                .iter()
+                .any(|e| e.contains("must be <= upmigrate")),
+            "errors: {:?}",
+            plan.errors
+        );
+
+        let p = profile(&[
+            ("kernel.sched_group_upmigrate", "120"),
+            ("kernel.sched_group_downmigrate", "120"),
+        ]);
+        let plan = build_plan(&p, &empty_probe());
+        assert!(plan.ok, "equality must be legal: {:?}", plan.errors);
     }
 }

@@ -550,12 +550,14 @@ pub fn catalog() -> &'static [Entry] {
             0,
             1
         ),
-        e!(
+        er!(
             "kernel.sched_little_cluster_coloc_fmin_khz",
             "/proc/sys/kernel/sched_little_cluster_coloc_fmin_khz",
             Baseline,
             Int,
-            ""
+            "",
+            0,
+            2000000
         ),
         // migration policy (boot-written by post_boot only — baseline)
         e!(

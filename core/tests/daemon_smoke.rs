@@ -543,6 +543,33 @@ fn reconciled_tree(dir: &std::path::Path) -> std::path::PathBuf {
         ("proc/sys/vm/dirty_writeback_centisecs", "1500"),
         ("proc/sys/vm/stat_interval", "3"),
         ("proc/sys/vm/vfs_cache_pressure", "50"),
+        // v0.12 round-2 keys (stale MIUI leftovers to be reconciled)
+        (
+            "sys/devices/system/cpu/cpu0/core_ctl/busy_up_thres",
+            "60 60 60 60 60 60",
+        ),
+        (
+            "sys/devices/system/cpu/cpu0/core_ctl/busy_down_thres",
+            "40 40 40 40 40 40",
+        ),
+        (
+            "sys/devices/system/cpu/cpu0/core_ctl/offline_delay_ms",
+            "100",
+        ),
+        ("sys/block/sda/queue/rq_affinity", "1"),
+        ("sys/block/sda/queue/iosched/fifo_expire_async", "250"),
+        ("sys/block/sda/queue/iosched/slice_async", "40"),
+        ("sys/block/sda/queue/iosched/low_latency", "1"),
+        ("proc/sys/vm/watermark_scale_factor", "1"),
+        ("sys/class/kgsl/kgsl-3d0/default_pwrlevel", "6"),
+        ("proc/sys/kernel/sched_group_upmigrate", "100"),
+        ("proc/sys/kernel/sched_group_downmigrate", "85"),
+        (
+            "proc/sys/kernel/sched_little_cluster_coloc_fmin_khz",
+            "740000",
+        ),
+        ("proc/sys/kernel/sched_walt_rotate_big_tasks", "1"),
+        ("proc/sys/net/ipv4/tcp_slow_start_after_idle", "1"),
     ];
     for (rel, body) in stock {
         if *rel == "ext4" {
@@ -609,6 +636,38 @@ fn watchdog_and_force_apply_reconcile_every_profile_key() {
     assert_eq!(
         read_tree_node(&root, "sys/devices/system/cpu/cpu0/core_ctl/task_thres"),
         "8"
+    );
+    // v0.12 round-2 keys: balance identity reaches the node
+    assert_eq!(
+        read_tree_node(&root, "sys/devices/system/cpu/cpu0/core_ctl/busy_up_thres"),
+        "55"
+    );
+    assert_eq!(
+        read_tree_node(
+            &root,
+            "sys/devices/system/cpu/cpu0/core_ctl/busy_down_thres"
+        ),
+        "35"
+    );
+    assert_eq!(
+        read_tree_node(&root, "sys/block/sda/queue/rq_affinity"),
+        "2"
+    );
+    assert_eq!(
+        read_tree_node(&root, "proc/sys/net/ipv4/tcp_slow_start_after_idle"),
+        "0"
+    );
+    // keys balance does not set stay on the captured union stock
+    assert_eq!(
+        read_tree_node(
+            &root,
+            "sys/devices/system/cpu/cpu0/core_ctl/offline_delay_ms"
+        ),
+        "120"
+    );
+    assert_eq!(
+        read_tree_node(&root, "sys/block/sda/queue/iosched/fifo_expire_async"),
+        "250"
     );
     // union keys that balance doesn't set get stock back (vm.pl)
     assert_eq!(

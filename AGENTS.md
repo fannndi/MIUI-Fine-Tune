@@ -281,6 +281,19 @@ cd core && MIFINETUNE_SYSFS_ROOT=/path/to/fake-root cargo test --test daemon_smo
 #   to silently skip the copy)
 # - diagnostics: Home -> Diagnostics = env + 24 h + transitions + daemon log
 # - backup: Settings -> Backup export/import through the system picker
+# - v0.12.0: round-2 profile matrix: core_ctl busy_up/down/offline_delay
+#   thresholds, io.cfq battery batching (fifo_expire_async/slice_async/
+#   low_latency), io.rq_affinity, vm.watermark_scale_factor, WALT group
+#   migrate pair (down<=up, validated + write-ordered), coloc_fmin
+#   (range 0..=2M), walt_rotate, net.tcp_slow_start_after_idle,
+#   gpu.default_pwrlevel. Device proof 2026-10-09: balance busy 60->55 /
+#   40->35 / delay 100->120, rq 1->2, watermark 1->5, coloc 740000->
+#   940800, slowstart 1->0; game group 100/85->140/120, walt_rotate 0,
+#   default_pwrlevel 4, busy 35/15/400, watermark 10; sleep busy 85/65/40
+#   + cfq 500/60/0; powersave 75/55/60 + cfq 500/0. Boost leftovers
+#   (default_pwrlevel 4, group 140/120, walt 0) reverted in the next
+#   profile-change apply. idle_timer re-audited -> framework-owned
+#   (libqti-perfd), stays forbidden; adrenoboost absent on stock.
 # - v0.11.3: reconcile ALSO fires on every profile-id change (worker
 #   run_once), not just on force — old-profile keys (core_ctl.max_cpus,
 #   cpusets) revert to stock.json values. Device proof: sleep -> game

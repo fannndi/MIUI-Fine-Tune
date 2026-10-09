@@ -131,6 +131,7 @@ are **byte-identical** between `V12.0.7.0.QJGIDXM` (device) and
 | Node | Source rule | Validator impact |
 |---|---|---|
 | `kernel.sched_upmigrate` / `sched_downmigrate` | `sched_updown_migrate_handler` (`kernel/sched/core.c:6943`): violating writes are **rolled back + `-EINVAL`** — `margin_up ≤ margin_down` ⇔ `upmigrate ≥ downmigrate` | the pair is validated before write + write order derived from live values (down first, unless `want_up > cur_down`) |
+| `kernel.sched_group_upmigrate` / `sched_group_downmigrate` | `sysctl.c` registers the pct pair cross-bounded (`upmigrate.extra1 = downmigrate`, `downmigrate.extra2 = upmigrate`); `walt.c walt_proc_update_handler` via `proc_dointvec_minmax` rejects `down > up`, **equality legal** | pair validated (`down ≤ up`) + write order derived from live values; device-verified v0.12.0 (100/85 → 140/120 and back in one apply) |
 | `core_ctl/task_thres` | `store_task_thres` (`core_ctl.c:154`): `val < num_cpus → -EINVAL` | min = cluster CPU count (silver ≥ 6, gold ≥ 2) |
 | `core_ctl/min_cpus` | `store_min_cpus`: `min(val, max_cpus)` — **silent clamp** | pre-clamp to live `max_cpus` so read-back matches |
 | `core_ctl/busy_*_thres` | 1 value = broadcast, or exactly `num_cpus` values | kind `RepeatInt` (write 1, verify all elements equal) |
@@ -166,6 +167,14 @@ reordered per the rules above. Restore uses the same order.
   `kgsl_pwrscale`/`kgsl_pwrctrl.c:839-865`) — plus `core_ctl` min/max_cores
   locks, cpusets, stune, and `msm_performance` QoS; the guard covers them all
   (20 overlapping Baseline entries printed by audit tool v2).
+- v0.12.0 round-2 nodes: perf HAL also writes `sched_group_up|downmigrate`,
+  `sched_little_cluster_coloc_fmin_khz` and `default_pwrlevel` transiently
+  during boosts. Observed once on device (2026-10-09): the first game apply
+  read back `downmigrate=85` moments after the write — the next forced apply
+  healed it. All four are drift-heal class (watchdog ≤ 30 min).
+- `gpu.idle_timer` was re-audited for v0.12.0 and **stays forbidden**:
+  libqti-perfd (OptsHandler) writes it at runtime; `adrenoboost` does not
+  exist on the stock surya kernel. Neither is cataloged.
 - Display-off cycle (stock): the network stack resets `net.tcp_rmem/wmem`;
   profiles no longer touch them (harmony: do not fight the framework).
 

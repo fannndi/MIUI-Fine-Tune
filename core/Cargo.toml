@@ -1,6 +1,6 @@
 [package]
 name = "mifinetune-core"
-version = "0.11.3"
+version = "0.12.0"
 edition = "2021"
 description = "MIUI-harmonized profile switcher core (POCO X3 NFC / surya, MIUI 12)"
 license = "Apache-2.0"

@@ -15,8 +15,12 @@ pub(super) fn write_one(op_path: &str, resolved: &str) -> Result<(), String> {
 
 /// Pairs where the kernel enforces `second > first` on every write, and the
 /// default (alphabetical) order writes `first` before `second`.
-const KERNEL_SAFE_PAIRS: [(&str, &str); 2] = [
+const KERNEL_SAFE_PAIRS: [(&str, &str); 3] = [
     ("kernel.sched_downmigrate", "kernel.sched_upmigrate"),
+    (
+        "kernel.sched_group_downmigrate",
+        "kernel.sched_group_upmigrate",
+    ),
     ("gpu.max_pwrlevel", "gpu.min_pwrlevel"),
 ];
 
@@ -296,6 +300,60 @@ mod tests {
             .unwrap();
         assert!(u2 < d2, "up-first when want_up > cur_down: {keys2:?}");
         let _ = OpStatus::Ok;
+    }
+
+    #[test]
+    fn group_migrate_pair_write_order_is_kernel_safe() {
+        // stock up=100 / down=85 -> game wants 140/120: want_up(140) >
+        // cur_down(85) => write up first (140 >= 85), then down (120 <= 140).
+        let mut params = std::collections::BTreeMap::new();
+        params.insert(
+            "kernel.sched_group_upmigrate".to_string(),
+            "140".to_string(),
+        );
+        params.insert(
+            "kernel.sched_group_downmigrate".to_string(),
+            "120".to_string(),
+        );
+        let prof = Profile {
+            id: "t".into(),
+            label: "T".into(),
+            desc: String::new(),
+            params,
+        };
+        let mut probe = crate::engine::probe::ProbeData {
+            device: Default::default(),
+            entries: Default::default(),
+            options: Default::default(),
+            framework: Default::default(),
+        };
+        probe.entries.insert(
+            "kernel.sched_group_upmigrate".into(),
+            crate::engine::probe::EntryState {
+                exists: true,
+                value: Some("100".into()),
+            },
+        );
+        probe.entries.insert(
+            "kernel.sched_group_downmigrate".into(),
+            crate::engine::probe::EntryState {
+                exists: true,
+                value: Some("85".into()),
+            },
+        );
+        let plan = build_plan(&prof, &probe);
+        assert!(plan.ok, "errors: {:?}", plan.errors);
+        let ord = plan_ops_ordered(&plan, &probe);
+        let keys: Vec<&str> = ord.iter().map(|o| o.key.as_str()).collect();
+        let u = keys
+            .iter()
+            .position(|k| *k == "kernel.sched_group_upmigrate")
+            .unwrap();
+        let d = keys
+            .iter()
+            .position(|k| *k == "kernel.sched_group_downmigrate")
+            .unwrap();
+        assert!(u < d, "up-first when want_up > cur_down: {keys:?}");
     }
 
     #[test]

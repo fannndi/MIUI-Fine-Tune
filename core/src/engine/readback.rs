@@ -41,15 +41,27 @@ pub fn readback_matches(kind: Kind, resolved: &str, readback: &str) -> bool {
             active == resolved
         }
         Kind::RepeatInt => {
-            // kernel expands one int to per-cpu array: all must equal wanted
-            let want: i64 = match resolved.parse() {
-                Ok(v) => v,
-                Err(_) => return false,
+            // kernel expands one int to per-cpu array: all must equal wanted.
+            // A stock capture may legitimately store the full array (uniform
+            // busy_*_thres) — compare element-wise in that case.
+            let want: Vec<i64> = match resolved
+                .split_whitespace()
+                .map(|t| t.parse::<i64>())
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(v) if !v.is_empty() => v,
+                _ => return false,
             };
             let vals: Option<Vec<i64>> = rb.split_whitespace().map(|t| t.parse().ok()).collect();
             match vals {
-                Some(v) => !v.is_empty() && v.iter().all(|x| *x == want),
-                None => false,
+                Some(v) if !v.is_empty() => {
+                    if want.len() == 1 {
+                        v.iter().all(|x| *x == want[0])
+                    } else {
+                        v == want
+                    }
+                }
+                _ => false,
             }
         }
         Kind::FlagYN => {
@@ -103,6 +115,17 @@ pub fn normalize_snapshot(kind: Kind, raw: &str) -> String {
             raw.to_string()
         }
         Kind::Ints => raw.split_whitespace().collect::<Vec<_>>().join(" "),
+        Kind::RepeatInt => {
+            // Uniform arrays (the only shape the kernel broadcasts) collapse
+            // to a single value so merged-stock ops re-validate and verify.
+            // A non-uniform array stays verbatim (element-wise compare).
+            let toks: Vec<&str> = raw.split_whitespace().collect();
+            let nums: Result<Vec<i64>, _> = toks.iter().map(|t| t.parse::<i64>()).collect();
+            match nums {
+                Ok(v) if !v.is_empty() && v.iter().all(|x| *x == v[0]) => v[0].to_string(),
+                _ => toks.join(" "),
+            }
+        }
         Kind::Mask => raw.split_whitespace().collect::<Vec<_>>().join(","),
         Kind::FlagYN => {
             let up = raw.to_ascii_uppercase();
@@ -127,6 +150,17 @@ mod tests {
             Kind::RepeatInt,
             "60",
             "60 40 60 60 60 60"
+        ));
+        // a full-array resolved value compares element-wise (stock capture)
+        assert!(readback_matches(
+            Kind::RepeatInt,
+            "60 60 60 60 60 60",
+            "60 60 60 60 60 60"
+        ));
+        assert!(!readback_matches(
+            Kind::RepeatInt,
+            "60 60 60 60 60 60",
+            "60 60 55 60 60 60"
         ));
     }
 
@@ -176,6 +210,15 @@ mod tests {
         assert_eq!(normalize_snapshot(Kind::Mask, "0-5"), "0-5");
         assert_eq!(normalize_snapshot(Kind::FlagYN, "n"), "N");
         assert_eq!(normalize_snapshot(Kind::Int, " 65 "), "65");
+        // uniform RepeatInt arrays collapse to the broadcast single value
+        assert_eq!(
+            normalize_snapshot(Kind::RepeatInt, "60 60 60 60 60 60"),
+            "60"
+        );
+        assert_eq!(
+            normalize_snapshot(Kind::RepeatInt, "60 40 60 60 60 60"),
+            "60 40 60 60 60 60"
+        );
     }
 
     #[test]

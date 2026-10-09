@@ -116,13 +116,25 @@ pub fn ensure_stock(store: &Store, probe: &ProbeData) -> Result<(), String> {
     });
     let mut changed = false;
     for key in keys {
-        if snap.values.contains_key(key) {
+        // Refill a previously-empty capture (e.g. cfq tunables captured while
+        // the deadline elevator was active — the node didn't exist then).
+        if snap
+            .values
+            .get(key)
+            .map(|v| !v.value.is_empty())
+            .unwrap_or(false)
+        {
             continue;
         }
         let Some(entry) = catalog::find(key) else {
             continue;
         };
         let value = normalize_snapshot(entry.kind, &probe::read(entry.path).unwrap_or_default());
+        if value.is_empty() {
+            // Node unavailable right now (elevator/governor-dependent): skip,
+            // a later apply re-captures. Never store an empty "stock".
+            continue;
+        }
         snap.values.insert(
             key.to_owned(),
             SnapValue {
