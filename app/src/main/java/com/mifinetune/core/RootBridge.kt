@@ -64,14 +64,21 @@ class RootBridge {
         runCatching {
             val binBytes = context.assets.open(ASSET_BIN).use { it.readBytes() }
             val target = File(BIN)
-            if (!target.exists() || target.length() != binBytes.size.toLong()) {
-                val tmp = File(context.cacheDir, ASSET_BIN)
-                tmp.writeBytes(binBytes)
+            // Content-aware deploy: v0.10 revert proved size-equal binaries
+            // (version-bump builds) silently skip the copy (AGENTS hard rule
+            // 7). cmp: same content -> skip; different -> copy + chmod.
+            val tmp = File(context.cacheDir, ASSET_BIN)
+            tmp.writeBytes(binBytes)
+            val sameSize = target.exists() && target.length() == binBytes.size.toLong()
+            val sameContent = sameSize && sh(
+                "cmp -s '${tmp.absolutePath}' '$BIN' && echo SAME || echo DIFF"
+            ).out.trim() == "SAME"
+            if (!sameContent) {
                 val r = sh(
                     "mkdir -p '${target.parentFile}' && " +
                         "cp '${tmp.absolutePath}' '$BIN' && chmod 755 '$BIN'"
                 )
-                if (!r.ok || !target.exists() || target.length() != binBytes.size.toLong()) {
+                if (!r.ok || !target.exists()) {
                     return@runCatching "Binary deploy failed (code ${r.code}): ${r.out.trim()}"
                 }
             }

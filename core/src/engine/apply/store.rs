@@ -3,7 +3,7 @@
 use super::{now_secs, read_json, write_json, SnapValue, Snapshot, State};
 use crate::engine::catalog;
 use crate::engine::plan::{OpStatus, PlannedOp};
-use crate::engine::probe::ProbeData;
+use crate::engine::probe::{self, ProbeData};
 use crate::engine::readback::normalize_snapshot;
 use std::collections::BTreeMap;
 use std::fs;
@@ -26,6 +26,23 @@ impl Store {
 
     fn snapshot_path(&self) -> PathBuf {
         self.dir.join("snapshot.json")
+    }
+
+    fn stock_path(&self) -> PathBuf {
+        self.dir.join("stock.json")
+    }
+
+    /// Persistent union-stock map: one entry per catalog key the profiles
+    /// ever touch; never consumed. Seeded once (first apply after install)
+    /// and grown when a new profile version introduces a key. Reconcile
+    /// ("auto-revive") writes these values for keys the active profile does
+    /// not set; the CLI `restore` parks every key back to stock.
+    pub fn load_stock(&self) -> Option<Snapshot> {
+        read_json(&self.stock_path())
+    }
+
+    pub fn save_stock(&self, s: &Snapshot) -> Result<(), String> {
+        write_json(&self.stock_path(), s)
     }
 
     fn state_path(&self) -> PathBuf {
@@ -68,6 +85,59 @@ impl Store {
 
 /// Snapshot originals for every key we are about to touch (first write wins:
 /// the earliest value is the stock one and is never overwritten).
+/// Seed/extend the persistent `stock.json` with every profile-union key.
+/// Fallback chain when a key is missing: existing `stock.json` value ->
+/// legacy `snapshot.json` value -> live device value (post-boot MIUI stock).
+/// The device file for union keys that never appeared is only useful on a
+/// clean boot (sysfs resets at boot); the installer's stock.json is seeded
+/// right after the first `apply` on a v0.11 device.
+pub fn ensure_stock(store: &Store, probe: &ProbeData) -> Result<(), String> {
+    let profiles = store.load_profiles(None)?;
+    let mut keys: Vec<&str> = profiles
+        .profiles
+        .iter()
+        .flat_map(|p| p.params.keys().map(|k| k.as_str()))
+        .collect();
+    keys.sort_unstable();
+    keys.dedup();
+
+    // Snapshot baseline: prefer the existing stock.json, else migrate the
+    // legacy session snapshot (pre-v0.11 devices).
+    let snap = store.load_stock().or_else(|| store.load_snapshot());
+    let created = snap.as_ref().map(|s| s.created).unwrap_or_else(now_secs);
+    let device = snap
+        .as_ref()
+        .map(|s| s.device.clone())
+        .unwrap_or_else(|| probe.device.device.clone());
+    let mut snap = snap.unwrap_or_else(|| Snapshot {
+        created,
+        device,
+        values: BTreeMap::new(),
+    });
+    let mut changed = false;
+    for key in keys {
+        if snap.values.contains_key(key) {
+            continue;
+        }
+        let Some(entry) = catalog::find(key) else {
+            continue;
+        };
+        let value = normalize_snapshot(entry.kind, &probe::read(entry.path).unwrap_or_default());
+        snap.values.insert(
+            key.to_owned(),
+            SnapValue {
+                path: entry.path.to_owned(),
+                value,
+            },
+        );
+        changed = true;
+    }
+    if changed {
+        store.save_stock(&snap)?;
+    }
+    Ok(())
+}
+
 pub(super) fn ensure_snapshot(
     store: &Store,
     probe: &ProbeData,

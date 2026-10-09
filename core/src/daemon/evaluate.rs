@@ -25,6 +25,14 @@ pub const JANK_MIN_FRAMES: u32 = 10;
 const BOOST_SECS_ENV: &str = "MIFINETUNE_BOOST_SECS";
 const BOOST_COOLDOWN_ENV: &str = "MIFINETUNE_BOOST_COOLDOWN_SECS";
 
+/// Auto-revive cadence: reconcile-drift check; 0 disables the watchdog.
+pub(super) fn watchdog_secs() -> u64 {
+    std::env::var("MIFINETUNE_WATCHDOG_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1_800)
+}
+
 fn env_secs(key: &str, fallback: u64) -> u64 {
     std::env::var(key)
         .ok()
@@ -120,7 +128,8 @@ impl Runtime {
                 // config/pack changes, explicit taps and the first apply of
                 // this daemon run must re-plan even when the profile id is
                 // unchanged (new keys, drift while we were down)
-                let force = matches!(trigger, "config" | "profiles") || !self.reconciled;
+                let force =
+                    matches!(trigger, "config" | "profiles" | "watchdog") || !self.reconciled;
                 if force {
                     self.log("evaluate: forced re-plan");
                 }
@@ -172,10 +181,20 @@ impl Runtime {
         }
     }
 
-    /// 3 s supervisor: periodic re-evaluate + watcher health + fallback peek.
+    /// 3 s supervisor: periodic re-evaluate + watcher health + fallback peek,
+    /// plus the auto-revive watchdog (drift reconciliation at WATCHDOG_SECS).
     pub(super) fn supervise(&mut self, ticks: u64) {
         if ticks.is_multiple_of(PERIODIC_TICKS) && self.screen_on && !self.locked {
             self.evaluate("periodic", None);
+        }
+        let wd_ms = watchdog_secs() * 1000;
+        if wd_ms > 0 && self.config.get().enabled && !self.retired {
+            self.watchdog_tick += 1;
+            if self.watchdog_tick * super::SUPERVISE_MS >= wd_ms {
+                self.watchdog_tick = 0;
+                self.log("watchdog: auto-revive check (reconcile drift)");
+                self.evaluate("watchdog", None);
+            }
         }
         // jank-boost window expiry: return to the normal decision
         if let Some(until) = self.boost_until {

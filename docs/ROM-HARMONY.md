@@ -274,6 +274,60 @@ evidence. `sched_cstate_aware` (fair.c idle-sibling placement, kernel default
 1, no writer) was surveyed and left out: a placement trade without a
 consumable profile value — documented here, not cataloged.
 
+## Auto-revive + hands-off (v0.11)
+
+**Symptom found live**: a session's tail values (from earlier applies or a
+crashed daemon mid-apply) survive profile switches because the periodic
+fast-path only reflects the *current* profile's keys — `p6.min_freq`
+stayed at the game/boost floor (1094400), `p0.max` at the sleep cap
+(1248000), `vm.stat_interval` at the sleep value after the base re-applied.
+The user experienced this as "frequency locked, cannot drop".
+
+Three-part fix:
+
+1. **`stock.json` (persistent union-stock)** — one entry per profile-union
+   key; seeded once at first apply (prefer the legacy snapshot if present,
+   else the live device at that moment; on surya the seeder table is
+   `moorea post_boot` values + kernel defaults). Grows monotonically as
+   profiles introduce new keys; never consumed.
+2. **Full-reconcile pass (force applies)** — every forced apply
+   (`config`/`profiles` change, first apply of a daemon run, user tap, and
+   the watchdog) merges the active profile with the stock map: keys the
+   profile *does* set take the profile value; every *other* union key gets
+   its stock value back. FreqMin/FreqMax are compared **exactly** in this
+   pass (`readback_matches_exact`): harmony still relaxes to thermal/QoS
+   in the periodic fast path, but a reconcile must rewrite a leftover
+   valve. The coalescing worker carries `force` sticky across a batch so
+   the startup screen-on + unlock race cannot swallow it.
+3. **Hands-off service-off** — on `restore` (service OFF / MIUI ultra
+   saver retire) the daemon releases every bridge artifact it holds and
+   then writes *nothing*: `active = null`, `last_mode = "hands-off"` —
+   the user explicitly asked for "matikan service = lepas intervensi".
+   The catalog nodes keep their last state (MIUI's own controllers and a
+   reboot reset them); `miui-ft restore` remains the explicit CLI
+   back-to-stock repair tool (writes stock.json values, keeps the file).
+
+4. **Auto-revive watchdog** — every 30 minutes (`MIFINETUNE_WATCHDOG_SECS`,
+   0 disables; host E2E uses 2) the supervisor runs an evaluate
+   ("watchdog") which is always a forced reconcile: drifted profile keys
+   and leftover union keys revert to the daemon's expected state — the
+   parameter-lock window is now bounded at ≤ 30 minutes.
+
+Live verification (2026-10-09, surya): first apply after the update moved
+`p6.max_freq 1555200→2304000`, `cpu0/core_ctl/max_cpus 4→6`,
+`vm.stat_interval 10→1`, `nr_requests 32→128`, `read_ahead 128→512`, and
+healed every `policy*` floor to the profile value; the CLI restore path
+returned `last_mode: hands-off` with zero node writes; the host E2E
+`watchdog_and_force_apply_reconcile_every_profile_key` proves the watchdog
+heals a drifted node within one cadence window.
+
+`core_ctl` note (kernel source, surya topology **2 big + 6 little**): the
+cpu0 cluster has 6 CPUs (moorea writes `min_cpus=4` with
+`not_preferred = 0 0 0 0 1 1`), cpu6 cluster has 2 with core_ctl disabled —
+the game/boost `min_cpus=6` writes are therefore *legal* (kernel clamps to
+max=6 via `core_ctl.c store_min_cpus`), not bugs. The conservative fix is
+the EXACT `6` the profiles now keep.
+
 ## Verification
 
 ```bash

@@ -100,7 +100,7 @@ pub trait EngineDriver: Send {
     /// Currently active profile id (engine state), None when stock.
     fn active(&mut self) -> Option<String>;
     /// Apply a profile (engine handles snapshot/pass-2 internally).
-    fn apply(&mut self, profile_id: &str) -> Outcome;
+    fn apply(&mut self, profile_id: &str, reconcile: bool) -> Outcome;
     /// Restore the stock snapshot.
     fn restore(&mut self) -> Outcome;
     /// Release MIUI bridge holds (no-op until the bridge lands in F4).
@@ -145,7 +145,14 @@ pub fn run(
                         break;
                     }
                     match rx.recv_timeout(deadline - now) {
-                        Ok(Work::Apply(next)) => job = next,
+                        Ok(Work::Apply(next)) => {
+                            // LATEST decision wins; a forced/reconcile job in
+                            // the batch must not be swallowed by a plain
+                            // one (startup screen-on + unlock race).
+                            let was_force = job.force;
+                            job = next;
+                            job.force |= was_force;
+                        }
                         Ok(Work::Restore { retire }) => {
                             restore_deferred = Some(Restore { retire });
                             break;
@@ -209,7 +216,7 @@ fn run_once(engine: &mut dyn EngineDriver, job: &Job) -> Outcome {
             already: true,
         };
     }
-    engine.apply(&job.profile)
+    engine.apply(&job.profile, job.force)
 }
 
 /// Raw reason labels the app resolves for display ("app" carries src_pkg).

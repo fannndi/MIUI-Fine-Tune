@@ -14,7 +14,7 @@ mod verify;
 mod write;
 
 pub use restore::restore;
-pub use store::Store;
+pub use store::{ensure_stock, Store};
 pub use verify::verify_plan;
 pub use write::{apply_plan, apply_with_pass2};
 

@@ -1,10 +1,11 @@
 //! Apply a validated plan: snapshot -> guarded writes -> read-back verify.
 
-use super::store::{ensure_snapshot, Store};
+use super::store::{ensure_snapshot, ensure_stock, Store};
+
 use super::verify::verified_readback;
 use super::{now_secs, ApplyReport, LockedKey, WriteResult};
 use crate::engine::catalog;
-use crate::engine::plan::{build_plan, OpStatus, Plan, PlannedOp};
+use crate::engine::plan::{build_plan, build_plan_opt, OpStatus, Plan, PlannedOp};
 use crate::engine::probe::{self, ProbeData};
 
 pub(super) fn write_one(op_path: &str, resolved: &str) -> Result<(), String> {
@@ -159,12 +160,40 @@ pub fn apply_plan(store: &Store, plan: &Plan, probe: &ProbeData) -> Result<Apply
 /// nodes that were missing under the previous governor/scheduler: switching
 /// `scaling_governor` materializes `policyN/schedutil/*`, switching
 /// `io.scheduler` materializes `queue/iosched/*` (cfq tunables).
+/// Active profile params + the persistent stock value for every union key
+/// the profile does not set (reconcile pass: heals leftover values from an
+/// earlier profile / a crashed apply / MIUI races).
+fn merged_profile(
+    base: &crate::engine::profile::Profile,
+    stock: Option<std::collections::BTreeMap<String, super::SnapValue>>,
+) -> crate::engine::profile::Profile {
+    let mut params = base.params.clone();
+    if let Some(stock) = stock {
+        for (k, v) in stock {
+            if !params.contains_key(&k) && !v.value.is_empty() {
+                params.insert(k, v.value);
+            }
+        }
+    }
+    crate::engine::profile::Profile {
+        id: base.id.clone(),
+        label: base.label.clone(),
+        desc: base.desc.clone(),
+        params,
+    }
+}
+
 pub fn apply_with_pass2(
     store: &Store,
     profile: &crate::engine::profile::Profile,
+    reconcile: bool,
 ) -> Result<ApplyReport, String> {
     let p = probe::probe();
-    let plan = build_plan(profile, &p);
+    ensure_stock(store, &p)?;
+    let reconciled =
+        reconcile.then(|| merged_profile(profile, store.load_stock().map(|s| s.values)));
+    let eff = reconciled.as_ref().unwrap_or(profile);
+    let plan = build_plan_opt(eff, &p, reconcile);
     let mut report = apply_plan(store, &plan, &p)?;
 
     if report
@@ -173,7 +202,7 @@ pub fn apply_with_pass2(
         .any(|l| l.reason.contains("node missing"))
     {
         let p2 = probe::probe();
-        let plan2 = build_plan(profile, &p2);
+        let plan2 = build_plan_opt(eff, &p2, reconcile);
         if plan2.ok {
             let r2 = apply_plan(store, &plan2, &p2)?;
             report.wrote += r2.wrote;
@@ -192,7 +221,9 @@ pub fn apply_with_pass2(
 
 #[cfg(test)]
 mod tests {
+    use super::super::SnapValue;
     use super::*;
+    use crate::engine::profile::Profile;
 
     #[test]
     fn migrate_pair_write_order_is_kernel_safe() {
@@ -264,6 +295,44 @@ mod tests {
             .unwrap();
         assert!(u2 < d2, "up-first when want_up > cur_down: {keys2:?}");
         let _ = OpStatus::Ok;
+    }
+
+    #[test]
+    fn merged_profile_injects_stock_for_missing_keys() {
+        use std::collections::BTreeMap;
+        let base = Profile {
+            id: "t".into(),
+            label: "T".into(),
+            desc: String::new(),
+            params: [("kernel.sched_nr_migrate".to_string(), "16".to_string())]
+                .into_iter()
+                .collect(),
+        };
+        let mut stock = BTreeMap::new();
+        stock.insert(
+            "policy6.core_ctl.min_cpus".to_string(),
+            SnapValue {
+                path: "/sys/devices/system/cpu/cpu6/core_ctl/min_cpus".into(),
+                value: "1".into(),
+            },
+        );
+        let merged = merged_profile(&base, Some(stock));
+        assert_eq!(merged.params.get("kernel.sched_nr_migrate").unwrap(), "16");
+        assert_eq!(merged.params.get("policy6.core_ctl.min_cpus").unwrap(), "1");
+    }
+
+    #[test]
+    fn merged_profile_without_stock_is_identity() {
+        let base = Profile {
+            id: "t".into(),
+            label: "T".into(),
+            desc: String::new(),
+            params: [("kernel.sched_nr_migrate".to_string(), "16".to_string())]
+                .into_iter()
+                .collect(),
+        };
+        let merged = merged_profile(&base, None);
+        assert_eq!(merged.params, base.params);
     }
 
     #[test]

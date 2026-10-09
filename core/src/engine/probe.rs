@@ -77,15 +77,35 @@ pub struct ProbeData {
     pub framework: FrameworkEvidence,
 }
 
+/// Absolute IO root: `/` on device, a fixture tree in host tests
+/// (`MIFINETUNE_SYSFS_ROOT` — same env as the env sampler uses).
+fn io_root() -> std::path::PathBuf {
+    std::env::var_os("MIFINETUNE_SYSFS_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/"))
+}
+
+fn resolve(path: &str) -> std::path::PathBuf {
+    let root = io_root();
+    let root_s = root.to_string_lossy();
+    if !root_s.is_empty() && path.starts_with(&*root_s) {
+        // Callers that pre-join `default_root()` (e.g. the bridge node paths)
+        // would double-prefix under the fixture; strip the leading root.
+        root.join(path[root_s.len()..].trim_start_matches('/'))
+    } else {
+        root.join(path.trim_start_matches('/'))
+    }
+}
+
 pub fn read(path: &str) -> Option<String> {
-    fs::read_to_string(path)
+    fs::read_to_string(resolve(path))
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
 }
 
 pub fn write(path: &str, value: &str) -> Result<(), String> {
-    fs::write(path, value).map_err(|e| format!("{path}: {e}"))
+    fs::write(resolve(path), value).map_err(|e| format!("{path}: {e}"))
 }
 
 /// Whitespace tokens with the active-scheduler brackets stripped.
@@ -129,7 +149,7 @@ pub fn probe() -> ProbeData {
         entries.insert(
             e.key.to_string(),
             EntryState {
-                exists: std::path::Path::new(e.path).exists(),
+                exists: resolve(e.path).exists(),
                 value: read(e.path),
             },
         );

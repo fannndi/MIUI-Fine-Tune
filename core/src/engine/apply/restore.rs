@@ -1,18 +1,21 @@
 //! Restore: write the stock snapshot back (engine OFF equivalent).
 
-use super::store::Store;
+use super::store::{ensure_stock, Store};
 use super::verify::verified_readback;
 use super::write::{ordered_pairs_with, write_one};
 use super::{now_secs, ApplyReport, SnapValue, WriteResult};
 use crate::engine::plan::write_rank;
 use crate::engine::probe::{self, ProbeData};
-use std::fs;
 
-/// Restore every snapshotted key to its stock value (engine OFF equivalent).
+/// Restore every stock.json key to its stock value (CLI repair path).
+/// v0.11: the daemon itself never calls this (service off = hands-off);
+/// `miui-ft restore` is the explicit back-to-stock escape hatch. The stock
+/// map is kept on disk afterwards: it is the reconcile baseline.
 pub fn restore(store: &Store, probe: &ProbeData) -> Result<ApplyReport, String> {
-    let mut snap = store
-        .load_snapshot()
-        .ok_or_else(|| "no snapshot yet (nothing has been applied)".to_string())?;
+    ensure_stock(store, probe)?;
+    let snap = store
+        .load_stock()
+        .ok_or_else(|| "no stock.json (and no live capture available)".to_string())?;
 
     let mut report = ApplyReport {
         mode: "restore".into(),
@@ -90,10 +93,8 @@ pub fn restore(store: &Store, probe: &ProbeData) -> Result<ApplyReport, String> 
     }
 
     if report.failed == 0 {
-        // Snapshot is consumed: clear it so the next apply re-captures stock.
-        snap.values.clear();
-        store.save_snapshot(&snap)?;
-        let _ = fs::remove_file(store.dir().join("snapshot.json"));
+        // stock.json stays on disk: it is the reconcile baseline, not a
+        // one-shot session capture. Only the engine state parks off.
         let mut st = store.load_state();
         st.active = None;
         st.updated = now_secs();

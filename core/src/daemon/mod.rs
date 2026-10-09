@@ -55,7 +55,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const SUPERVISE_MS: u64 = 3_000; // watcher health / periodic cadence
+pub(crate) const SUPERVISE_MS: u64 = 3_000; // watcher health / periodic cadence
 const PERIODIC_TICKS: u64 = 5; // * SUPERVISE_MS = 15 s re-evaluate cadence
 const CONFIG_POLL_MS: u64 = 1_000; // mtime fallback (app also pings)
 const SLEEP_DELAY_MS: u64 = 10_000; // screen off -> sleep grace period
@@ -120,6 +120,8 @@ struct Runtime {
     /// is forced so a pack update or drift that happened while we were down
     /// is reconciled.
     reconciled: bool,
+    /// Auto-revive watchdog counter (3 s supervise ticks).
+    watchdog_tick: u64,
     /// The app granted Do Not Disturb access (official-API bridge gate).
     dnd_granted: bool,
     /// Storage maintenance state (weekly f2fs GC while charging + idle).
@@ -281,6 +283,7 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         thermal_stepped: false,
         last_battery_low: false,
         reconciled: false,
+        watchdog_tick: 0,
         dnd_granted: false,
         maint: maintenance::MaintFile::load(state_dir),
         maint_running: false,

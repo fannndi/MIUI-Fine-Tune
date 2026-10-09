@@ -28,6 +28,7 @@ fn fail_out(errored: bool) -> Outcome {
 struct FakeEngine {
     active: Option<String>,
     applies: Vec<String>,
+    reconciles: Vec<bool>,
     restores: usize,
     holds_released: usize,
     /// Outcomes returned in order; the last one repeats.
@@ -37,6 +38,7 @@ struct FakeEngine {
 impl FakeEngine {
     fn with_script(script: Vec<Outcome>) -> Self {
         FakeEngine {
+            reconciles: Vec::new(),
             script,
             ..Default::default()
         }
@@ -54,7 +56,8 @@ impl EngineDriver for FakeEngine {
     fn active(&mut self) -> Option<String> {
         self.active.clone()
     }
-    fn apply(&mut self, profile_id: &str) -> Outcome {
+    fn apply(&mut self, profile_id: &str, reconcile: bool) -> Outcome {
+        self.reconciles.push(reconcile);
         self.applies.push(profile_id.to_string());
         let out = self.next_outcome();
         // mirror the real engine: active only moves on success
@@ -275,4 +278,24 @@ fn saver_reason_label_is_translated() {
     assert_eq!(reason_text(true, "base"), "MIUI saver");
     assert_eq!(reason_text(false, "base"), "base");
     assert_eq!(reason_text(true, "app"), "app");
+}
+
+#[test]
+fn job_force_reaches_engine_as_reconcile() {
+    let (tx, rx) = mpsc::channel();
+    tx.send(forced_job("balance")).unwrap();
+    drop(tx);
+
+    let mut eng = FakeEngine::default();
+    let mut applied = Vec::new();
+    run(
+        rx,
+        &mut eng,
+        Duration::from_millis(10),
+        Duration::from_millis(5),
+        &mut |e| applied.push(e),
+        &mut |_| {},
+    );
+    assert_eq!(eng.reconciles, vec![true]);
+    assert!(applied[0].ok);
 }

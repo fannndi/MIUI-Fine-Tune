@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.11.0 — full-reconcile + auto-revive watchdog + hands-off service-off (2026-10-09)
+
+The "frequency locked and cannot drop" complaint turned out to be a
+**stale-state bug**, not a tuning issue: leftover values from earlier
+applies (game/boost/sleep floors, caps, IO/VM keys) survived profile
+switches because the periodic fast-path only touches the current
+profile's own keys.
+
+- **Persistent `stock.json`** — union-stock map (one entry per profile
+  key ever used). Seeded once (legacy snapshot fallback, else live
+  device); never consumed; the engine extends it when new profile keys
+  show up.
+- **Full-reconcile on every forced apply** — profile switch, config/pack
+  change, first apply of a session, user tap, watchdog tick: active
+  profile keys take the profile value, every other union key reverts to
+  stock. FreqMin/FreqMax are exact-matched in this pass
+  (`readback_matches_exact`) while the periodic harmony rules stay soft.
+  Worker coalescing now carries `force` sticky across a batch, so the
+  startup screen-on + unlock race can no longer swallow it.
+- **Auto-revive watchdog** — every `MIFINETUNE_WATCHDOG_SECS`
+  (default 1800; 0 disables) the supervisor runs a forced reconcile, so
+  any drift a framework/controller writes heals within 30 minutes even
+  if no event happens. Host E2E proves the drift→heal loop in one cadence.
+- **Hands-off service-off** — after releasing every bridge artifact the
+  daemon writes nothing else: `active: null`, `last_mode: hands-off`.
+  The user explicitly rejected "restore on off" as still interference.
+  `miui-ft restore` stays as the explicit CLI back-to-stock repair tool.
+- **RootBridge deploy content-cmp** — same-size binaries (version-bump
+  builds) used to silently skip the copy; now `cmp -s` decides.
+- Tested: 136 host tests (121 unit + 15 E2E), clippy 0, fmt clean;
+  device proof of the reconcile healing: p6.max 1555200→2304000,
+  cpu0 core_ctl max 4→6, vm.stat_interval 10→1, nr_requests 32→128,
+  read_ahead 128→512 in one apply; hands-off restore left the state.json
+  at `last_mode: hands-off` with zero writes.
+
 ## v0.10.0 — deep device inventory + signed battery diagnostics (2026-10-09)
 
 Second audit loop: instead of ROM write-targets (v0.9), this pass inventoried

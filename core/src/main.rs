@@ -171,7 +171,7 @@ fn run(a: &Args) -> Result<(i32, String), String> {
                 }
                 _ => {
                     // apply probes + plans internally (pass-2 included)
-                    let report = apply::apply_with_pass2(&store, profile)?;
+                    let report = apply::apply_with_pass2(&store, profile, true)?;
                     let json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
                     let code = if report.ok { 0 } else { 2 };
                     Ok((code, json))

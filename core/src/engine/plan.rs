@@ -7,7 +7,7 @@
 use crate::engine::catalog::{self, Tier};
 use crate::engine::probe::ProbeData;
 use crate::engine::profile::Profile;
-use crate::engine::readback::readback_matches;
+use crate::engine::readback::{readback_matches, readback_matches_exact};
 use crate::engine::validate::validate_value;
 use serde::Serialize;
 
@@ -80,6 +80,13 @@ pub fn write_rank(key: &str) -> u8 {
 }
 
 pub fn build_plan(profile: &Profile, probe: &ProbeData) -> Plan {
+    build_plan_opt(profile, probe, false)
+}
+
+/// Same as [`build_plan`] (`exact_freq = true` used by the reconcile pass:
+/// leftover FreqMin/FreqMax values are rewritten, not accepted as "external
+/// QoS winning").
+pub fn build_plan_opt(profile: &Profile, probe: &ProbeData, exact_freq: bool) -> Plan {
     let mut errors = Vec::new();
     let mut ops = Vec::new();
 
@@ -118,6 +125,13 @@ pub fn build_plan(profile: &Profile, probe: &ProbeData) -> Plan {
         let status = match problem {
             Some(msg) => OpStatus::Locked(msg),
             None => match &current {
+                Some(cur) if exact_freq => {
+                    if readback_matches_exact(e.kind, &resolved, cur) {
+                        OpStatus::Unchanged
+                    } else {
+                        OpStatus::Ok
+                    }
+                }
                 Some(cur) if readback_matches(e.kind, &resolved, cur) => OpStatus::Unchanged,
                 _ => OpStatus::Ok,
             },

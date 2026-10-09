@@ -117,7 +117,7 @@ fn daemon_diag_stats_and_env_events() {
     // fake sysfs tree: battery + thermal + GPU (host has no device nodes)
     let root = dir.join("fake-root");
     let w = |rel: &str, body: &str| {
-        let p = root.join(rel);
+        let p = root.join(rel.trim_start_matches('/'));
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, body).unwrap();
     };
@@ -384,5 +384,268 @@ fn doctor_reports_valid_json() {
     let checks = v["checks"].as_array().expect("checks array");
     assert!(checks.iter().any(|c| c["name"] == "catalog"));
     assert!(checks.iter().any(|c| c["name"] == "profiles"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ===== v0.11: reconcile + auto-revive watchdog =====
+
+/// Write the fake tree nodes used by the reconcile E2E. Values start as a
+/// realistic stale mix (a leftover from an old game/boost apply) so the first
+/// forced apply must heal every union key.
+fn reconciled_tree(dir: &std::path::Path) -> std::path::PathBuf {
+    let root = dir.join("fake-root");
+    let w = |rel: &str, body: &str| {
+        let p = root.join(rel.trim_start_matches('/'));
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    };
+    let stock: &[(&str, &str)] = &[
+        // cpusets (capacity-wise identical to stock MIUI)
+        ("/dev/cpuset/background/cpus", "0-5"),
+        ("/dev/cpuset/foreground/cpus", "0-7"),
+        ("/dev/cpuset/system-background/cpus", "0-5"),
+        ("/dev/cpuset/top-app/cpus", "0-7"),
+        // l3-lat floors
+        (
+            "/sys/class/devfreq/soc:qcom,cpu0-cpu-l3-lat/min_freq",
+            "300000000",
+        ),
+        (
+            "/sys/class/devfreq/soc:qcom,cpu6-cpu-l3-lat/min_freq",
+            "300000000",
+        ),
+        // GPU levels
+        ("/sys/class/kgsl/kgsl-3d0/min_pwrlevel", "6"),
+        ("/sys/class/kgsl/kgsl-3d0/max_pwrlevel", "0"),
+        ("sys/class/kgsl/kgsl-3d0/min_pwrlevel", "6"),
+        ("sys/class/kgsl/kgsl-3d0/max_pwrlevel", "0"),
+        // io
+        ("sys/block/sda/queue/iostats", "1"),
+        ("sys/block/sda/queue/nomerges", "0"),
+        ("sys/block/sda/queue/nr_requests", "128"),
+        ("sys/block/sda/queue/read_ahead_kb", "512"),
+        ("sys/block/sda/queue/scheduler", "noop deadline [cfq]"),
+        // kernel sysctls (stale mix: leftover up/downmigrate + pl)
+        ("proc/sys/kernel/sched_conservative_pl", "1"),
+        ("proc/sys/kernel/sched_downmigrate", "50"),
+        ("proc/sys/kernel/sched_latency_ns", "6000000"),
+        ("proc/sys/kernel/sched_migration_cost_ns", "500000"),
+        ("proc/sys/kernel/sched_min_granularity_ns", "1000000"),
+        ("proc/sys/kernel/sched_min_task_util_for_boost", "51"),
+        ("proc/sys/kernel/sched_min_task_util_for_colocation", "35"),
+        ("proc/sys/kernel/sched_nr_migrate", "8"),
+        ("proc/sys/kernel/sched_upmigrate", "60"),
+        ("proc/sys/kernel/sched_wakeup_granularity_ns", "500000"),
+        // policy0 (cpubw shares cluster cpus, stale mix too)
+        ("sys/devices/system/cpu/cpu0/core_ctl/max_cpus", "6"),
+        ("sys/devices/system/cpu/cpu0/core_ctl/min_cpus", "6"),
+        ("sys/devices/system/cpu/cpu0/core_ctl/task_thres", "12"),
+        (
+            "sys/devices/system/cpu/cpufreq/policy0/scaling_governor",
+            "schedutil",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq",
+            "1248000",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq",
+            "768000",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy0/schedutil/hispeed_freq",
+            "1497600",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy0/schedutil/hispeed_load",
+            "75",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy0/schedutil/up_rate_limit_us",
+            "0",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy0/schedutil/down_rate_limit_us",
+            "0",
+        ),
+        ("sys/devices/system/cpu/cpufreq/policy0/schedutil/pl", "1"),
+        // policy6 (stale legacy)
+        ("sys/devices/system/cpu/cpu6/core_ctl/min_cpus", "1"),
+        (
+            "sys/devices/system/cpu/cpufreq/policy6/scaling_governor",
+            "schedutil",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq",
+            "1555200",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy6/scaling_min_freq",
+            "1094400",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy6/schedutil/hispeed_freq",
+            "1555200",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy6/schedutil/hispeed_load",
+            "85",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy6/schedutil/up_rate_limit_us",
+            "0",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy6/schedutil/down_rate_limit_us",
+            "0",
+        ),
+        ("sys/devices/system/cpu/cpufreq/policy6/schedutil/pl", "1"),
+        // stune
+        ("/dev/stune/top-app/boost", "0"),
+        // probe options: OPP / governor / cluster lists + related cpus
+        (
+            "sys/devices/system/cpu/cpufreq/policy0/scaling_available_governors",
+            "powersave schedutil",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy0/scaling_available_frequencies",
+            "300000 576000 768000 1017600 1248000 1324800 1497600 1612800 1804800",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy0/related_cpus",
+            "0 1 2 3 4 5",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy6/scaling_available_governors",
+            "powersave schedutil",
+        ),
+        (
+            "sys/devices/system/cpu/cpufreq/policy6/scaling_available_frequencies",
+            "300000 652800 806400 979200 1094400 1209600 1324800 1555200 1708800 2304000",
+        ),
+        ("sys/devices/system/cpu/cpufreq/policy6/related_cpus", "6 7"),
+        (
+            "sys/class/kgsl/kgsl-3d0/devfreq/available_governors",
+            "simple_ondemand msm-adreno-tz powersave",
+        ),
+        (
+            "sys/class/kgsl/kgsl-3d0/gpu_available_frequencies",
+            "180000000 266000000 305000000 380000000 430000000 575000000 825000000",
+        ),
+        (
+            "proc/sys/net/ipv4/tcp_available_congestion_control",
+            "cubic reno",
+        ),
+        // vm
+        ("proc/sys/vm/dirty_background_ratio", "10"),
+        ("proc/sys/vm/dirty_expire_centisecs", "600"),
+        ("proc/sys/vm/dirty_ratio", "30"),
+        ("proc/sys/vm/dirty_writeback_centisecs", "1500"),
+        ("proc/sys/vm/stat_interval", "3"),
+        ("proc/sys/vm/vfs_cache_pressure", "50"),
+    ];
+    for (rel, body) in stock {
+        if *rel == "ext4" {
+            continue;
+        }
+        w(rel, body);
+    }
+    // stune boost file direct
+    w("/dev/stune/top-app/boost", "0");
+    root
+}
+
+fn read_tree_node(root: &std::path::Path, rel: &str) -> String {
+    std::fs::read_to_string(root.join(rel))
+        .unwrap_or_else(|_| "<missing>".into())
+        .trim()
+        .to_string()
+}
+
+#[test]
+fn watchdog_and_force_apply_reconcile_every_profile_key() {
+    let dir = tmp("tok");
+    let cfg_path = dir.join("config.json");
+    std::fs::write(
+        &cfg_path,
+        r#"{"schema":1,"enabled":true,"dynamic":true,"base_profile":"balance"}"#,
+    )
+    .unwrap();
+    let root = reconciled_tree(&dir);
+
+    let sysfs_root = root.to_str().unwrap().to_owned();
+    let envs: Vec<(&str, &str)> = vec![
+        ("MIFINETUNE_SYSFS_ROOT", &sysfs_root),
+        ("MIFINETUNE_WATCHDOG_SECS", "2"),
+        ("MIFINETUNE_ENV_SAMPLE_MS", "1000"),
+    ];
+    let mut d = Daemon::spawn_env(&dir, &cfg_path, &envs);
+    d.send(serde_json::json!({"cmd": "hello"}));
+    d.wait_for(|v| v["event"] == "hello", Duration::from_secs(5));
+
+    // screen on + whatsapp -> balance (first apply of the run = force)
+    d.send(serde_json::json!({"cmd": "screen", "on": true, "locked": false}));
+    d.send(serde_json::json!({"cmd": "fg", "pkg": "app.balance"}));
+    d.wait_for(
+        |v| v["event"] == "applied" && v["profile"] == "balance",
+        Duration::from_secs(10),
+    );
+
+    // forced apply side effects: every PROFILE key reaches the profile value
+    assert_eq!(
+        read_tree_node(
+            &root,
+            "sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq"
+        ),
+        "576000"
+    );
+    assert_eq!(
+        read_tree_node(
+            &root,
+            "sys/devices/system/cpu/cpufreq/policy6/scaling_min_freq"
+        ),
+        "652800"
+    );
+    assert_eq!(
+        read_tree_node(&root, "sys/devices/system/cpu/cpu0/core_ctl/task_thres"),
+        "8"
+    );
+    // union keys that balance doesn't set get stock back (vm.pl)
+    assert_eq!(
+        read_tree_node(&root, "proc/sys/kernel/sched_conservative_pl"),
+        "0"
+    );
+    // cpu6 core_ctl stays untouched (not in any profile params)
+    assert_eq!(
+        read_tree_node(&root, "sys/devices/system/cpu/cpu6/core_ctl/min_cpus"),
+        "1"
+    );
+
+    // external drift now: MIUI/interference pokes a stale value
+    std::fs::write(
+        root.join("sys/devices/system/cpu/cpufreq/policy6/scaling_min_freq"),
+        "1094400\n",
+    )
+    .unwrap();
+
+    // watchdog fires within ~3s (2s interval >= one 3s supervise pass)
+    d.wait_for(
+        |v| {
+            v["event"] == "applied"
+                && v["profile"] == "balance"
+                && v["wrote"].as_u64().unwrap_or(0) >= 1
+        },
+        Duration::from_secs(10),
+    );
+    assert_eq!(
+        read_tree_node(
+            &root,
+            "sys/devices/system/cpu/cpufreq/policy6/scaling_min_freq"
+        ),
+        "652800",
+        "watchdog reconcile must heal the drifted freq floor"
+    );
+    d.send(serde_json::json!({"cmd": "shutdown"}));
+    d.wait_for(|v| v["event"] == "bye", Duration::from_secs(5));
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -6,7 +6,6 @@
 use super::bridge::Bridge;
 use super::worker::{EngineDriver, Outcome};
 use crate::engine::apply::{self, Store};
-use crate::engine::probe;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -29,7 +28,7 @@ impl EngineDriver for EngineApplier {
         self.store.load_state().active
     }
 
-    fn apply(&mut self, profile_id: &str) -> Outcome {
+    fn apply(&mut self, profile_id: &str, reconcile: bool) -> Outcome {
         let files = match self.store.load_profiles(None) {
             Ok(f) => f,
             Err(e) => return Outcome::err(e),
@@ -37,7 +36,7 @@ impl EngineDriver for EngineApplier {
         let Some(profile) = files.profiles.iter().find(|p| p.id == profile_id) else {
             return Outcome::err(format!("unknown profile '{profile_id}'"));
         };
-        match apply::apply_with_pass2(&self.store, profile) {
+        match apply::apply_with_pass2(&self.store, profile, reconcile) {
             Ok(rep) => Outcome {
                 ok: rep.ok,
                 wrote: rep.wrote,
@@ -51,32 +50,27 @@ impl EngineDriver for EngineApplier {
     }
 
     fn restore(&mut self) -> Outcome {
-        // Restore is idempotent: nothing to restore is a clean success
-        // (the service-off flow must never fail on an empty snapshot).
-        if self.store.load_snapshot().is_none() {
-            self.bridge.release_all();
-            return Outcome {
-                ok: true,
-                wrote: 0,
-                verified: 0,
-                failed: 0,
-                error: None,
-                already: false,
-            };
-        }
-        let out = match apply::restore(&self.store, &probe::probe()) {
-            Ok(rep) => Outcome {
-                ok: rep.ok,
-                wrote: rep.wrote,
-                verified: rep.verified,
-                failed: rep.failed,
-                error: None,
-                already: false,
-            },
-            Err(e) => Outcome::err(e),
-        };
+        // v0.11 service-off semantics: hands-off, zero interference.
+        // Release every bridge artifact we hold (MIUI perf/saver mirror,
+        // charge limit, bypass, DND) but never re-write catalog nodes:
+        // the user asked for "matikan service = lepas intervensi", so the
+        // device state is left to MIUI's own controllers. The stock values
+        // stay on disk for the reconcile pass; the explicit `miui-ft
+        // restore` CLI remains the repair path.
         self.bridge.release_all();
-        out
+        let mut st = self.store.load_state();
+        st.active = None;
+        st.updated = apply::now_secs();
+        st.last_mode = "hands-off".into();
+        let _ = self.store.save_state(&st);
+        Outcome {
+            ok: true,
+            wrote: 0,
+            verified: 0,
+            failed: 0,
+            error: None,
+            already: false,
+        }
     }
 
     fn release_holds(&mut self) {

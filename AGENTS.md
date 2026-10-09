@@ -57,15 +57,15 @@ Rules:
 | `src/engine/catalog/entries.rs` | the 94-node registry table (data only) |
 | `src/engine/catalog/forbidden.rs` | framework-owned path prefixes + exact keys (never written) |
 | `src/engine/env.rs` | read-only telemetry sampler (battery / thermal / GPU busy) |
-| `src/engine/probe.rs` | read-only device capture: node values, options, framework evidence |
+| `src/engine/probe.rs` | read-only device capture with `MIFINETUNE_SYSFS_ROOT` IO root (`read`/`write`/`exists` all rooted; double-prefix safe) |
 | `src/engine/profile.rs` | `profiles.json` model + parser |
 | `src/engine/plan.rs` | `build_plan`: statuses, kernel-invariant pair checks, write ordering |
 | `src/engine/validate.rs` | per-kind value validation (OPP clamping, core_ctl bounds) |
 | `src/engine/readback.rs` | read-back comparison rules + snapshot normalization |
 | `src/engine/apply/mod.rs` | apply/restore/verify module index + shared report types |
-| `src/engine/apply/store.rs` | state dir: atomic JSON, snapshot capture, profile loading |
+| `src/engine/apply/store.rs` | state dir: atomic JSON, snapshot capture, persistent `stock.json` (union-stock seed/extend), profile loading |
 | `src/engine/apply/write.rs` | guarded writes, kernel-safe ordering, pass-2 re-plan |
-| `src/engine/apply/restore.rs` | stock restore (consumes the snapshot on success) |
+| `src/engine/apply/restore.rs` | CLI back-to-stock (writes `stock.json`; the daemon never calls this) |
 | `src/engine/apply/verify.rs` | drift detection + verified read-back helper |
 | `src/engine/doctor.rs` | `doctor` environment self-check (JSON) |
 | `src/engine/testutil.rs` | shared engine test fixtures (`cfg(test)`) |
@@ -77,7 +77,7 @@ Rules:
 | `src/daemon/config.rs` | `config.json` cache (app writes; daemon reloads) |
 | `src/daemon/arbiter.rs` | pure decision table (ported from Kotlin; all cases tested) |
 | `src/daemon/worker.rs` + `worker/tests.rs` | coalescing apply worker: settle/supersede/retry/restore-cancel |
-| `src/daemon/engine_driver.rs` | engine adapter for the worker (in-process, no `su`) |
+| `src/daemon/engine_driver.rs` | engine adapter for the worker: `apply(id, reconcile)` + **hands-off restore** (release holds only) |
 | `src/daemon/watcher.rs` | logcat watchers (`-v epoch`): foreground + multi-window + jank + peek |
 | `src/daemon/env.rs` | env sampler thread (read-only telemetry into the loop) |
 | `src/daemon/maintenance.rs` | opt-in weekly f2fs GC window (charging + idle, bounded) |
@@ -135,6 +135,7 @@ Rules:
 | `docs/IPC-PROTOCOL.md` | stdio protocol schema + lifecycle |
 | `docs/ROM-HARMONY.md` | node ownership map, kernel invariants, audit findings |
 | `tools/bench.sh` | on-device benchmark harness (CLI-based) |
+| `data/adb/mifinetune/stock.json` | persistent union-stock baseline (dev-seeded once; engine extends, never consumes) |
 | `tools/owner-map-audit.sh` | catalog vs ROM audit (boot + runtime writers) |
 | `tools/rom-write-audit.sh` | ROM write-target extractor + classifier (`--device`: root probe + live-vs-boot value diff) |
 | `tools/display-off-diff.sh` | empirical display-off behavior test |
@@ -152,6 +153,7 @@ vars — the daemon code paths are the real ones:
 | `MIFINETUNE_SETTINGS_BIN` | `/system/bin/settings` | bridge E2E (fake hold/restore) |
 | `MIFINETUNE_SYSFS_ROOT` | `/sys` | env sampler + guard E2E (fake tree) |
 | `MIFINETUNE_ENV_SAMPLE_MS` | 30 s sample cadence | guard reaction tests |
+| `MIFINETUNE_WATCHDOG_SECS` | 1800 s auto-revive cadence (0 = off) | reconcile watchdog E2E |
 
 `cargo test` covers: engine units, daemon protocol/decision E2E, watcher
 streams, bridge hold/restore, env guards and the doctor — no device needed.
@@ -173,7 +175,10 @@ streams, bridge hold/restore, env guards and the doctor — no device needed.
 4. **Coexist, never fight** — nodes the framework rewrites at runtime are at
    least Baseline; nodes rewritten continuously (e.g. `net.tcp_rmem/wmem`)
    stay out of profiles entirely (there is an automated test for this).
-5. **Restore = byte-exact stock** — never "normalize" the snapshot.
+5. **Restore = byte-exact stock, or hands-off** — the daemon never calls
+   `apply::restore` (service OFF = release holds + `active=null`, zero
+   node writes, per the v0.11 user ruling); the CLI `miui-ft restore`
+   writes the stock.json values verbatim and must keep them byte-exact.
 6. **Kernel invariants** — keep `ordered_pairs_with` and the pass-2 re-plan;
    they encode kernel rejection rules (see ROM-HARMONY.md invariants table).
 7. **Asset sync** — `assembleDebug` runs `syncCore` which copies
@@ -266,6 +271,14 @@ cd core && MIFINETUNE_SYSFS_ROOT=/path/to/fake-root cargo test --test daemon_smo
 #   cpuidle gating and charger-HW paths (main/dc/usb/bms) — our charge
 #   surface stays strictly under /battery (no catalog writes sched_boost,
 #   MIUI/perfd owns that transiently)
+# - v0.11: first apply + every forced apply reconciles the FULL union
+#   (profile keys -> profile value; every other union key -> stock.json).
+#   Service OFF writes nothing ("last_mode":"hands-off", active:null).
+#   Watchdog reconcile every 30 min (MIFINETUNE_WATCHDOG_SECS); device
+#   proof: p6.max 1555200->2304000, cpu0.core_ctl.max_cpus 4->6,
+#   vm.stat_interval 10->1, nr_requests 32->128 healed in one apply.
+#   RootBridge deploy now content-cmp (a 0.10->0.11 same-size binary used
+#   to silently skip the copy)
 # - diagnostics: Home -> Diagnostics = env + 24 h + transitions + daemon log
 # - backup: Settings -> Backup export/import through the system picker
 ```

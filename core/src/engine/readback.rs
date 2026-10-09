@@ -7,6 +7,17 @@
 use crate::engine::catalog::Kind;
 
 /// Normalize a read-back value for comparison against `resolved`.
+/// Strict variant used by the reconcile pass (`force` applies): the
+/// freq-family external-QoS shortcuts are deliberately bypassed so a
+/// leftover value (from a crashed apply or a stale session) gets rewritten,
+/// not just accepted as "framework winning".
+pub fn readback_matches_exact(kind: Kind, resolved: &str, rb: &str) -> bool {
+    match kind {
+        Kind::Freq | Kind::FreqMin | Kind::FreqMax => rb.trim() == resolved,
+        _ => readback_matches(kind, resolved, rb),
+    }
+}
+
 pub fn readback_matches(kind: Kind, resolved: &str, readback: &str) -> bool {
     let rb = readback.trim();
     match kind {
