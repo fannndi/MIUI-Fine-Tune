@@ -260,6 +260,12 @@ cd core && MIFINETUNE_SYSFS_ROOT=/path/to/fake-root cargo test --test daemon_smo
 #   mapped game -> profile writes policy0/6 schedutil pl=1 + conservative=1
 #   (read back via 'cat .../schedutil/pl'); tooling:
 #   tools/rom-write-audit.sh <rom> --device -> 0 value-diff unknown writers
+# - v0.10: Diagnostics also shows Battery I/V (sign: minus = charging,
+#   verified via controlled input_suspend bypass test), CPU L/B MHz,
+#   GPU MHz, Storage written; forbidden.rs owns devfreq memlat/bw families,
+#   cpuidle gating and charger-HW paths (main/dc/usb/bms) — our charge
+#   surface stays strictly under /battery (no catalog writes sched_boost,
+#   MIUI/perfd owns that transiently)
 # - diagnostics: Home -> Diagnostics = env + 24 h + transitions + daemon log
 # - backup: Settings -> Backup export/import through the system picker
 ```

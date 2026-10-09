@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.10.0 — deep device inventory + signed battery diagnostics (2026-10-09)
+
+Second audit loop: instead of ROM write-targets (v0.9), this pass inventoried
+every readable node on the device (4 492 /proc/sys files, 433 module params,
+866 CPU, 13 devfreq devices, power/bms/charger sub-supplies) and diffed them
+against the catalog + forbidden + writers lists with the same classifier.
+
+- **Guardrail expansion** (forbidden.rs): devfreq memlat/llcc/bw families,
+  `gpubw`, `kgsl-busmon`, `npu`, `snoc_cnoc_keepalive`, `ufshc`, GPU devfreq
+  (`5000000.qcom,kgsl-3d0`), `mmc0` devfreq, vidc video devices; cpuidle
+  state gating (nothing writes it, blocking deep idle burns battery); the
+  `sched_coloc_busy_hyst*`/`coloc_downmigrate` nodes the ROM writes on other
+  SoCs but which are absent on this kernel; charger/parallel/USB power paths
+  (`main`, `dc`, `usb`, `bms`, `bq2597x-standalone`, `pc_port`) — micharge's
+  surface, ours stays under `/battery`.
+- **Signed battery diagnostics** (read-only, all 0444/0400 root): `EnvSnapshot`
+  grew `battery_current_ua` (negative = **charging**, positive = discharge —
+  sign verified with a controlled `input_suspend` bypass test: +600 mA
+  discharge during suspend, negatives on restore), `battery_voltage_uv`,
+  `little/big_freq_mhz` (cpuinfo_cur_freq, kHz), `gpu_freq_mhz`
+  (kgsl gpuclk is Hz) and `storage_written_kb` (f2fs lifetime counter,
+  53 GB total). Diagnostics card gained "Battery I/V", "CPU L/B MHz",
+  "GPU MHz", "Storage written"; doctor gained `env_power` + `env_freq`.
+- **`sched_boost` stays forbidden, observation recorded**: MIUI/perfd writes
+  1 transiently during app-launch bursts and clears it (live-sampled during
+  the game E2E): the catalog never writes it, BY the harmony rule — the
+  forbidden entry now has live evidence.
+- **Rejected with evidence**: `sched_cstate_aware` (kernel default 1, no
+  writer, placement trade-only — not profile-proof), `cpuidle stateN/disable`
+  (battery-harmful, no consumer), `scaling_boost_frequencies` (0444), PSI
+  (`/proc/pressure/*` absent on kernel 4.14), `compaction_proactiveness`
+  (absent), `sched_coloc_busy_hyst*` (absent on this kernel).
+- Tests: 119 unit + 13 E2E, clippy 0, fmt clean; owner-map audit 94 entries /
+  0 violations with the expanded guardrail.
+
 ## v0.9.0 — ROM compatibility audit + Predictive Load + panel FPS (2026-10-09)
 
 A systematic audit of every configuration file across all ROM partitions

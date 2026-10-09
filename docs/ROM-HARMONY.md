@@ -243,6 +243,37 @@ Branch caveat: post_boot is a multi-SoC script; a static scan cannot know
 which arm executes. Tier decisions therefore use the *executed* arm (soc
 365/366 moorea) when known, and the conservative static label otherwise.
 
+## Deep inventory + second audit loop (v0.10)
+
+Beyond ROM write-targets (v0.9), this pass inventoried every readable node on
+the device and diffed it against the catalog + forbidden + writers lists:
+
+| Domain | Nodes | Verdict |
+|---|---|---|
+| `/proc/sys` | 4 492 | kernel/ 510, vm/ 28, net/ 414 surveyed; `sched_coloc_busy_hyst*`/`coloc_downmigrate` are absent on this kernel (lito/atoll arms only) -> forbidden markers added |
+| `/sys/module/*/parameters` | 433 | all covered by existing forbidden families (lowmemorykiller, process_reclaim, cpu_boost, wlan, msm…) |
+| `/sys/kernel` | ~1 200 | binder stats live only in debugfs; PSI (`/proc/pressure`) absent on kernel 4.14; cpuidle `stateN/disable` exists (C0/C1/C2) with **no ROM writer** -> rejected surface (blocking deep idle burns battery for no measured win) |
+| `/sys/devices/system/cpu` | 866 | `scaling_boost_frequencies` is 0444 read-only -> reject; per-policy/alias handling unchanged |
+| `/sys/class/devfreq` | 13 devices | memlat/llcc/bw/npu/busmon/keepalive/ufshc/GPU-devfreq/mmc0/vidc are governor- or perf-HAL-owned -> **forbidden prefixes added**; the `cpu*-cpu-l3-lat` devices remain cataloged on purpose |
+| power_supply | battery + 5 sub-supplies | charger paths (`main`, `dc`, `usb`, `bms`, `bq2597x-standalone`, `pc_port`) are micharge/HW-owned -> forbidden; battery surface stays under `/battery` |
+
+New read-only diagnostics (no writer anywhere, 0444/0400 root-only):
+
+- `battery/current_now` µA — **negative = charging, positive = discharging**,
+  sign verified live via a controlled `input_suspend` bypass test (suspend:
+  +600 mA discharge; restore: negative values). 0444 system:system.
+- `battery/voltage_now` µV, `cpuinfo_cur_freq` kHz (policy0/6, 0400 root),
+  kgsl `gpuclk` Hz (0664), f2fs `lifetime_write_kbytes` (0444; 53 GB total).
+  All feed `EnvSnapshot` -> env events -> Diagnostics + doctor (`env_power`,
+  `env_freq`).
+
+`sched_boost`: observed `1` during an app-launch burst then `0` (clears
+itself) — the perf-HAL transient boost globals stay **forbidden** and the
+catalog never registers or writes them; the forbidden entry now carries live
+evidence. `sched_cstate_aware` (fair.c idle-sibling placement, kernel default
+1, no writer) was surveyed and left out: a placement trade without a
+consumable profile value — documented here, not cataloged.
+
 ## Verification
 
 ```bash

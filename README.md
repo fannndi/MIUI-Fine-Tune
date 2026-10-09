@@ -72,7 +72,7 @@ modes, GameTurbo, thermal and charging internals stay MIUI's. Every per-app
 effect is captured first and restored on app exit, Service OFF or daemon
 recovery.
 
-Extras: a Diagnostics screen (daemon health, live battery/thermal, panel FPS,
+Extras: a Diagnostics screen (daemon health, live battery/thermal, panel FPS, signed battery current, up-to-the-minute CPU/GPU clocks,
 24 h time-in-profile, relayed daemon log), a Quick Settings tile (service toggle
 with the active profile), suggested game mappings, and JSON config
 export/import through the system file picker.
