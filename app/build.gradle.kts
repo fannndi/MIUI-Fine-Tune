@@ -11,8 +11,8 @@ android {
         applicationId = "com.mifinetune"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.11.1"
+        versionCode = 14
+        versionName = "0.11.3"
     }
 
     buildTypes {

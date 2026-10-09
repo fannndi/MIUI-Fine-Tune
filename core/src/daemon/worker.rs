@@ -206,7 +206,9 @@ struct Restore {
 }
 
 fn run_once(engine: &mut dyn EngineDriver, job: &Job) -> Outcome {
-    if !job.force && engine.active().as_deref() == Some(job.profile.as_str()) {
+    let active = engine.active();
+    let changing = active.as_deref() != Some(job.profile.as_str());
+    if !job.force && !changing {
         return Outcome {
             ok: true,
             wrote: 0,
@@ -216,7 +218,10 @@ fn run_once(engine: &mut dyn EngineDriver, job: &Job) -> Outcome {
             already: true,
         };
     }
-    engine.apply(&job.profile, job.force)
+    // Reconcile on a force AND on every profile change: without the stock
+    // merge, keys owned by the OLD profile (e.g. core_ctl max_cpus left at
+    // the sleep value) survive into the new profile's session.
+    engine.apply(&job.profile, job.force || changing)
 }
 
 /// Raw reason labels the app resolves for display ("app" carries src_pkg).

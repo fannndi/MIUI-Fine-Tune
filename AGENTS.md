@@ -281,6 +281,10 @@ cd core && MIFINETUNE_SYSFS_ROOT=/path/to/fake-root cargo test --test daemon_smo
 #   to silently skip the copy)
 # - diagnostics: Home -> Diagnostics = env + 24 h + transitions + daemon log
 # - backup: Settings -> Backup export/import through the system picker
+# - v0.11.3: reconcile ALSO fires on every profile-id change (worker
+#   run_once), not just on force — old-profile keys (core_ctl.max_cpus,
+#   cpusets) revert to stock.json values. Device proof: sleep -> game
+#   move healed max_cpus 2->6 and the cpusets 0-3 -> 0-1 in one apply.
 # - v0.11.1: profile identities differ from stock by design. balance =
 #   stock-plus (hispeed little 1324@85, core_ctl.min_cpus 2); powersave =
 #   powersave governors + caps 1248/1324 + GPU lvl 5; sleep deeper at

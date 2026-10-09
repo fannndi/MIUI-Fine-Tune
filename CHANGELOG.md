@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.11.3 — hotfix: profile CHANGE also reconciles (2026-10-09)
+
+Live E2E on v0.11.2 caught a real hole in the full-reconcile design:
+`run_once` treated "not forced" AND "already this profile id" the same,
+so a plain profile id CHANGE (sleep → game) ran the apply *without* the
+stock merge — the old profile's adaplers survived (core_ctl max_cpus was
+still the sleep 2 while game expected the stock 6; the cpusets kept the
+sleep walls). 
+
+`run_once` now reconciles when `force` OR when the target profile id
+differs from the engine's active state: keys the old profile owned but
+the new one does not set revert to `stock.json`, keys the new profile
+sets take their values. Periodic "same profile id" evaluations stay on
+the fast path (no periodic writes).
+
+Device proof (2026-10-09): sleep → wake → launch the mapped game →
+`cpu0/core_ctl max_cpus 2→6`, `cpuset.background 0-3→0-1`,
+`p6.min 1094400`, `gpu.min_pwrlevel 3`, `schedutil.pl 1` — one apply,
+all values correct.
+
+## v0.11.2 — full tryhard profile matrix (2026-10-09)
+
+The user pushed for a full-matrix tune ("lebih tryhard"); every profile now
+changes values in at least 6 keys (previously many wrote stock-identical
+numbers):
+
+- **powersave** — `p6.min_freq 652800→300000` (the big cluster can park at
+  its lowest OPP when the governor is powersave) and
+  `vm.vfs_cache_pressure 120→150` (more aggressive dentry/inode trim).
+- **balance** — `schedutil pl 0→1` on both clusters: WALT's predicted
+  load becomes a frequency floor for daily swipes (the "UI burst" the
+  user asked for), still inside the harmony rules because the framework's
+  launch-boost writes are swept back by the reconcile pass to stock.
+- **sleep** — `p0.core_ctl.max_cpus 4→2` (4 of the 6 little cores park
+  while parked), `p6.min_freq 652800→300000`,
+  `p0.hispeed 1017600→768000`, `p6.hispeed 1209600→1094400`: wake bursts
+  ramp to the LOWEST OPP first, a real deep-sleep pattern.
+- **game** — `cpuset.background / system-background 0-5→0-1`: only two
+  little cores serve background work while the top-app gobbles the rest
+  (the Motivating MIUI GameTurbo move, done in our own rules).
+- **boost** (5-s jank window) — full snap: `p0.hispeed 1497600→1804800`,
+  `p6.hispeed 1555200→2304000` (burst straight to the OPP skyline),
+  `stune.top-app.boost 10` + `prefer_idle 1` (both were missing),
+  `cpuset.top-app 0-7` explicit, `gpu.max 0` (no cap during the burst)
+  + `gpu.min_pwrlevel 3` (floor 380 MHz), and explicit
+  `up/down_rate_limit 0/0` on both policies (instant ramp).
+
+Invariant checks passed (host 136 tests + clippy 0 + fmt):
+`core_ctl min/max pair` ✓ (sleep 2 ≤ 2; boost min=6 pre-clamps to the
+kernel max_cpus), `gpu.max 0 ≤ gpu.min 3` ✓ (kgsl `max_pwrlevel ≤
+min_pwrlevel`), `stune 10 ↔ 100 range` ✓, all Freq values inside the
+device OPP lists (300000 / 768000 / 1094400 / 1804800 / 2304000 are all
+real OPPs).
+
 ## v0.11.1 — profile identities that actually differ from stock (2026-10-09)
 
 The user's readback: "masih tidak ada bedanya dengan stock" — audited and
