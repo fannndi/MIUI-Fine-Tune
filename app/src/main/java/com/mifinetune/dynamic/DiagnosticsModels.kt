@@ -18,6 +18,8 @@ data class EnvSnapshot(
     val cpuTempC: Float?,
     val gpuTempC: Float?,
     val gpuBusyPct: Int?,
+    /** Panel frame rate from the read-only DRM `measured_fps` node. */
+    val screenFps: Float? = null,
 )
 
 /** One transition from the daemon's `stats` reply. */
@@ -64,6 +66,7 @@ object DiagnosticsParse {
             cpuTempC = e.floatOrNull("cpu_temp_c"),
             gpuTempC = e.floatOrNull("gpu_temp_c"),
             gpuBusyPct = e.intOrNull("gpu_busy_pct"),
+            screenFps = e.floatOrNull("screen_fps"),
         )
     }
 

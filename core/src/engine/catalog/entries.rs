@@ -123,6 +123,18 @@ pub fn catalog() -> &'static [Entry] {
             Int,
             ""
         ),
+        // Predictive Load: util is floored by WALT's predicted load (early
+        // ramp); 0 = reactive. Evidence: perf XML declares the resource
+        // (commonresourceconfigs 0x11, unused by perfboostsconfig), the
+        // executed moorea post_boot block never writes it, live watch during
+        // a game boost stayed 0, device write/readback verified 2026-10-09.
+        e!(
+            "policy0.schedutil.pl",
+            "/sys/devices/system/cpu/cpufreq/policy0/schedutil/pl",
+            Baseline,
+            Int,
+            ""
+        ),
         e!(
             "policy0.core_ctl.min_cpus",
             "/sys/devices/system/cpu/cpu0/core_ctl/min_cpus",
@@ -210,6 +222,14 @@ pub fn catalog() -> &'static [Entry] {
         e!(
             "policy6.schedutil.down_rate_limit_us",
             "/sys/devices/system/cpu/cpufreq/policy6/schedutil/down_rate_limit_us",
+            Baseline,
+            Int,
+            ""
+        ),
+        // same Predictive Load knob for the gold cluster (evidence above)
+        e!(
+            "policy6.schedutil.pl",
+            "/sys/devices/system/cpu/cpufreq/policy6/schedutil/pl",
             Baseline,
             Int,
             ""
@@ -451,6 +471,20 @@ pub fn catalog() -> &'static [Entry] {
             1
         ),
         // --- scheduler sysctls (NOT written by the moorea post_boot block) ---
+        // WALT damping for the Predictive Load floor (only active while pl=1:
+        // predicted load is scaled by TARGET_LOAD). BASELINE: post_boot writes
+        // it (1) in the lito/atoll arms — our executed moorea arm (soc
+        // 365/366) leaves the kernel default 0, perf XML does not mention it,
+        // and a live watch during a game boost stayed 0; device
+        // write/readback verified 2026-10-09. Baseline keeps the owner-map
+        // audit's static rule ("written by some ROM script") satisfied.
+        e!(
+            "kernel.sched_conservative_pl",
+            "/proc/sys/kernel/sched_conservative_pl",
+            Baseline,
+            Int,
+            ""
+        ),
         e!(
             "kernel.sched_latency_ns",
             "/proc/sys/kernel/sched_latency_ns",

@@ -174,6 +174,7 @@ private fun EnvCard(env: EnvSnapshot?) {
         KV("Battery temp", fmtTemp(env.batteryTempC))
         KV("CPU / GPU temp", "${fmtTemp(env.cpuTempC)} · ${fmtTemp(env.gpuTempC)}")
         KV("GPU busy", env.gpuBusyPct?.let { "$it%" } ?: "—")
+        KV("Panel FPS", env.screenFps?.let { String.format("%.1f fps", it) } ?: "—")
     }
 }
 

@@ -35,6 +35,10 @@ pub struct EnvSnapshot {
     pub gpu_temp_c: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gpu_busy_pct: Option<u8>,
+    /// Panel frame rate from the read-only `measured_fps` node (DRM CRTC).
+    /// Read-only telemetry: MiFineTune never writes it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screen_fps: Option<f32>,
 }
 
 /// The sysfs prefix for this process (`/` on device, a fixture in tests).
@@ -86,6 +90,8 @@ impl Sampler {
                 "sys/class/kgsl/kgsl-3d0/gpu_busy_percentage",
                 parse_gpu_busy,
             ),
+            screen_fps: self
+                .read_parse("sys/class/drm/sde-crtc-0/measured_fps", parse_measured_fps),
         }
     }
 
@@ -165,6 +171,14 @@ pub fn parse_gpu_busy(raw: &str) -> Option<u8> {
     first.parse::<i64>().ok().map(|v| v.clamp(0, 100) as u8)
 }
 
+/// DRM `measured_fps` -> frames per second:
+/// "fps: 75.1 duration:1000000 frame_count:97" -> Some(75.1).
+/// Screen off reports fps: 0.0 -> Some(0.0) (honest zero, not absent).
+pub fn parse_measured_fps(raw: &str) -> Option<f32> {
+    let rest = raw.trim().strip_prefix("fps:")?;
+    rest.split_whitespace().next()?.parse::<f32>().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,6 +208,10 @@ mod tests {
         w("sys/class/thermal/thermal_zone30/type", "gpuss-0-usr\n");
         w("sys/class/thermal/thermal_zone30/temp", "41200\n");
         w("sys/class/kgsl/kgsl-3d0/gpu_busy_percentage", "3 %\n");
+        w(
+            "sys/class/drm/sde-crtc-0/measured_fps",
+            "fps: 75.1 duration:1000000 frame_count:97\n",
+        );
         root
     }
 
@@ -224,6 +242,13 @@ mod tests {
         assert_eq!(parse_gpu_busy("3 %"), Some(3));
         assert_eq!(parse_gpu_busy("100"), Some(100));
         assert_eq!(parse_gpu_busy("bogus"), None);
+
+        assert_eq!(
+            parse_measured_fps("fps: 75.1 duration:1000000 frame_count:97"),
+            Some(75.1)
+        );
+        assert_eq!(parse_measured_fps("fps: 0.0 duration:1000000"), Some(0.0));
+        assert_eq!(parse_measured_fps("garbage"), None);
     }
 
     #[test]
@@ -240,6 +265,7 @@ mod tests {
         );
         assert_eq!(s.gpu_temp_c, Some(41.2));
         assert_eq!(s.gpu_busy_pct, Some(3));
+        assert_eq!(s.screen_fps, Some(75.1));
         let _ = fs::remove_dir_all(&root);
     }
 
