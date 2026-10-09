@@ -43,8 +43,11 @@ Rules:
    untouched.
 5. Refresh rate: per-app opt-in (F9 re-introduced v0.16.0, user request).
    The bridge captures the user's `user_refresh_rate` once and restores it on
-   release; `Default` never writes; screen-off holds 30 Hz. The vendor dfps
-   props and MIUI's own toggle remain untouched. The HWUI renderer prop was
+   release; `Default` never writes; screen-off holds 30 Hz. On surya the
+   settings key alone does not move the panel: the daemon also runs the
+   embedded `refresh_fps.dex` helper via `app_process` (root), which calls
+   MIUI's own `DisplayFeatureManager.setScreenEffect(24, hz)` — the exact
+   API MiSettings uses. The vendor dfps props remain untouched. The HWUI renderer prop was
    dropped: the app-spawned daemon runs in `untrusted_app`, where SELinux
    denies `debug_prop` writes.
 
@@ -93,7 +96,7 @@ Rules:
 | `src/daemon/bridge/charge.rs` | charge guard (`battery_charging_enabled`, opt-in limit) |
 | `src/daemon/bridge/bypass.rs` | per-app bypass charging (`input_suspend`, floor + hysteresis) |
 | `src/daemon/bridge/dnd.rs` | per-app DND decision (the app executes the official API) |
-| `src/daemon/settings.rs` | `settings` CLI read/write helpers (saver, power_mode) |
+| `src/daemon/settings.rs` | `settings` CLI read/write helpers (saver, power_mode, refresh) + the embedded FPS helper (`apply_refresh_fps`, app_process + dex) |
 | `tests/daemon_smoke.rs` | end-to-end protocol tests: full decision path, EOF exit |
 | `tests/daemon_watchers.rs` | watcher E2E over a fake logcat script |
 | `tests/daemon_bridge.rs` | bridge E2E over a fake settings binary (hold/restore) |
@@ -142,6 +145,8 @@ Rules:
 | `docs/ROM-HARMONY.md` | node ownership map, kernel invariants, audit findings |
 | `docs/AUTOMATION.md` | broadcast automation API (Tasker/MacroDroid/adb) |
 | `tools/bench.sh` | on-device benchmark harness (CLI applies, `ADB=` override, suspended-charging mode; see docs/BENCH.md) |
+| `core/assets/refresh_fps.dex` | embedded FPS-switch helper dex (built from tools/refresh-fps/RefreshFps.java) |
+| `tools/refresh-fps/` | helper source + build.sh (javac + d8 → core/assets/refresh_fps.dex) |
 | `data/adb/mifinetune/stock.json` | persistent union-stock baseline (dev-seeded once; engine extends, never consumes) |
 | `tools/owner-map-audit.sh` | catalog vs ROM audit (boot + runtime writers) |
 | `tools/rom-write-audit.sh` | ROM write-target extractor + classifier (`--device`: root probe + live-vs-boot value diff) |

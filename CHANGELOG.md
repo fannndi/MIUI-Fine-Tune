@@ -12,6 +12,12 @@
   in front (Dynamic ON), restore on app exit / Dynamic OFF / Service OFF /
   crash recovery (`holds.json`). Screen-off holds **30 Hz** (user idea).
   Master switch: Settings → MIUI bridge → "Refresh rate follow".
+- **The panel really switches**: on this ROM `user_refresh_rate` alone does
+  NOT move the display (the mode is driven by Xiaomi's `DisplayFeatureHal`
+  → SDM). Like MiSettings' own RefreshRateActivity, the daemon calls
+  `DisplayFeatureManager.setScreenEffect(24, hz)` through a tiny embedded
+  dex run via `app_process` (root). No props, no SELinux changes — the same
+  user-facing API MIUI uses.
 - Never touches the vendor dfps props; `Default` never writes.
 - Device-verified 2026-10-09: launcher 90 → YouTube 60 → HOME 90 →
   screen-off 30 → config removed → restored 120, holds clean. Host E2E

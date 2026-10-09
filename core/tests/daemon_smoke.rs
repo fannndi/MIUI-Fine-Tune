@@ -734,9 +734,11 @@ fn watchdog_and_force_apply_reconcile_every_profile_key() {
         read_tree_node(&root, "sys/block/sda/queue/rq_affinity"),
         "2"
     );
+    // v0.16 balance no longer touches tcp_slow_start_after_idle: the union
+    // stock value (1 = stock) comes back through the reconcile.
     assert_eq!(
         read_tree_node(&root, "proc/sys/net/ipv4/tcp_slow_start_after_idle"),
-        "0"
+        "1"
     );
     // keys balance does not set stay on the captured union stock
     assert_eq!(

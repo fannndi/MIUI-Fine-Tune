@@ -32,6 +32,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN=/data/local/tmp/mifinetune/miui-ft
 # adb on PATH by default; override with ADB=/path/to/adb
 ADB="${ADB:-adb}"
+# Optional bench-only profile pack on the device (A/B variants):
+#   BENCH_PROFILES=/data/local/tmp/x.json tools/bench.sh scroll ps-a 10
+BENCH_PROFILES_ARG=""
+[ -n "${BENCH_PROFILES:-}" ] && BENCH_PROFILES_ARG="--profiles $BENCH_PROFILES"
 
 SUF="$SC-$PROF-$(date +%s)"
 TMP="$(mktemp -d)"
@@ -58,7 +62,7 @@ if [ "$PROF" = "stock" ]; then
   # stock = engine fully off: restore + stop automation
   "$ADB" shell "su -c '$BIN restore'" >/dev/null
 else
-  "$ADB" shell "su -c '$BIN apply $PROF'" >/dev/null
+  "$ADB" shell "su -c '$BIN apply $PROF $BENCH_PROFILES_ARG'" >/dev/null
 fi
 
 # --- scenario prep ----------------------------------------------------------
@@ -68,13 +72,21 @@ case "$SC" in
     "$ADB" shell wm dismiss-keyguard >/dev/null 2>&1
     "$ADB" shell input keyevent 3 >/dev/null    # home
     ;;
+  scroll)
+    "$ADB" shell input keyevent 82 >/dev/null   # wake/unlock
+    "$ADB" shell wm dismiss-keyguard >/dev/null 2>&1
+    "$ADB" shell am start -n com.android.settings/.Settings >/dev/null 2>&1
+    ;;
   idle-off)
     "$ADB" shell input keyevent 26 >/dev/null   # screen off
     ;;
   video)
+    "$ADB" shell input keyevent 82 >/dev/null   # wake/unlock
+    "$ADB" shell wm dismiss-keyguard >/dev/null 2>&1
+    "$ADB" shell input keyevent 3 >/dev/null    # home
     "$ADB" shell "monkey -p com.google.android.youtube -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1
-    sleep 4
-    "$ADB" shell input keyevent 127 >/dev/null  # pause (media key) — sample current app state, not playback
+    sleep 5
+    "$ADB" shell input keyevent 126 >/dev/null  # MEDIA_PLAY: resume playback
     ;;
   game)
     "$ADB" shell input keyevent 82 >/dev/null   # wake/unlock
@@ -100,6 +112,27 @@ fi
 # --- measurement loop -------------------------------------------------------
 STEPS=$(( SECS / 30 ))     # 30 s
 : > "$TMP/current.csv"
+
+# scroll load: continuous swipe loop for the whole run (deterministic UI
+# load; oscillating so the list never rests at an end)
+SCROLL_PID=""
+if [ "$SC" = "scroll" ]; then
+  (
+    n=0
+    end=$(( $(date +%s) + SECS ))
+    while [ "$(date +%s)" -lt "$end" ]; do
+      if [ $((n % 20)) -lt 10 ]; then
+        "$ADB" shell input swipe 540 1600 540 400 120 >/dev/null 2>&1
+      else
+        "$ADB" shell input swipe 540 400 540 1600 120 >/dev/null 2>&1
+      fi
+      n=$((n + 1))
+      sleep 0.25
+    done
+  ) &
+  SCROLL_PID=$!
+fi
+
 for i in $(seq 1 "$STEPS"); do
   TS=$(date +%s)
   IDLE=""    # placeholder for synthetic flags
@@ -108,6 +141,7 @@ for i in $(seq 1 "$STEPS"); do
   echo "$TS,current=$CUR,temp=$TEMP" >> "$TMP/current.csv"
   sleep 30
 done
+[ -n "$SCROLL_PID" ] && kill "$SCROLL_PID" 2>/dev/null
 "$ADB" shell "dumpsys battery" | grep -E "charge counter|level|status|Charge count" > "$TMP/battery_end.txt"
 
 sleep 2

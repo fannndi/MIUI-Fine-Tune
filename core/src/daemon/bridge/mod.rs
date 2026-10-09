@@ -162,21 +162,23 @@ impl Bridge {
     pub fn sync(&self, ctx: &SyncCtx) {
         // The lock is held across the settings execs so two syncs can never
         // interleave their read/write pairs (the old yo-yo bug class).
-        let (perf_changed, saver_changed, refresh_changed, charge_changed, extra_changed) = {
+        let (perf_changed, saver_changed, charge_changed, extra_changed, refresh_changed) = {
             let mut st = self.lock();
             let perf_changed = self.sync_perf(&mut st, ctx);
             let saver_changed = self.sync_saver(&mut st, ctx);
-            let refresh_changed = self.sync_refresh(&mut st, ctx);
             let charge_changed = self.sync_charge(&mut st, ctx);
             let bypass_changed = self.sync_bypass(&mut st, ctx);
             let dnd_changed = self.sync_dnd(&mut st, ctx);
+            // refresh last: its FPS helper exec is the slowest step, never
+            // delay the charge/bypass safety paths
+            let refresh_changed = self.sync_refresh(&mut st, ctx);
             self.game_check(&mut st, ctx);
             (
                 perf_changed,
                 saver_changed,
-                refresh_changed,
                 charge_changed,
                 bypass_changed || dnd_changed,
+                refresh_changed,
             )
         };
         if perf_changed || saver_changed || refresh_changed || charge_changed || extra_changed {
@@ -217,11 +219,15 @@ impl Bridge {
                 match st.holds.refresh_saved.clone() {
                     Some(v) => {
                         let _ = settings::put("system", settings::REFRESH_KEY, &v);
+                        if let Ok(hz) = v.parse::<u32>() {
+                            let _ = settings::apply_refresh_fps(hz);
+                        }
                         self.log_event(format!("refresh restored ({v})"));
                     }
                     None => {
                         let _ = settings::delete("system", settings::REFRESH_KEY);
-                        self.log_event("refresh restored (user setting was unset)".into());
+                        let _ = settings::apply_refresh_fps(120);
+                        self.log_event("refresh restored (no user value, default 120)".into());
                     }
                 }
                 st.holds.refresh_held = false;

@@ -383,6 +383,18 @@ fn refresh_follow_per_app_and_sleep() {
               "com.google.android.youtube":{"refresh_hz":60}}}"#,
     )
     .unwrap();
+    // fake FPS helper binary: records every app_process invocation
+    let fps_log = dir.join("fps-calls.log");
+    let app_process = dir.join("app_process");
+    std::fs::write(
+        &app_process,
+        format!(
+            "#!/bin/sh\necho \"$CLASSPATH $*\" >> {}\n",
+            fps_log.display()
+        ),
+    )
+    .unwrap();
+    chmod(&app_process);
 
     let script = dir.join("settings");
     let mut d = Daemon::spawn_env(
@@ -390,6 +402,11 @@ fn refresh_follow_per_app_and_sleep() {
         &dir.join("config.json"),
         &[
             ("MIFINETUNE_SETTINGS_BIN", script.to_str().unwrap()),
+            ("MIFINETUNE_APP_PROCESS_BIN", app_process.to_str().unwrap()),
+            (
+                "MIFINETUNE_REFRESH_DEX",
+                dir.join("refresh.dex").to_str().unwrap(),
+            ),
             ("MIFINETUNE_LOGCAT_BIN", "/nonexistent-logcat"),
         ],
     );
@@ -397,7 +414,7 @@ fn refresh_follow_per_app_and_sleep() {
     d.wait_for(|v| v["event"] == "hello", Duration::from_secs(5));
     d.send(json!({"cmd":"screen","on":true,"locked":false}));
 
-    // launcher entry (90) captured the user's 120, wrote 90
+    // launcher entry (90) captured the user's 120, wrote 90 + FPS helper
     d.send(json!({"cmd":"fg","pkg":"com.miui.home"}));
     d.wait_for(
         |v| {
@@ -412,6 +429,14 @@ fn refresh_follow_per_app_and_sleep() {
     assert_eq!(
         setting(&state, "system.user_refresh_rate").as_deref(),
         Some("90")
+    );
+    assert!(
+        wait_file_contains(&fps_log, "mifinetune.RefreshFps 90", Duration::from_secs(3)),
+        "the FPS helper must run for the launcher target"
+    );
+    assert!(
+        dir.join("refresh.dex").exists(),
+        "the embedded dex must be materialized"
     );
 
     // video app entry -> 60 (capture must NOT move)
@@ -430,8 +455,10 @@ fn refresh_follow_per_app_and_sleep() {
         setting(&state, "system.user_refresh_rate").as_deref(),
         Some("60")
     );
-
-    // an app without a target releases -> the captured 120 returns
+    assert!(
+        wait_file_contains(&fps_log, "mifinetune.RefreshFps 60", Duration::from_secs(3)),
+        "the FPS helper must run for the video app"
+    );
     d.send(json!({"cmd":"fg","pkg":"com.whatsapp"}));
     d.wait_for(
         |v| {

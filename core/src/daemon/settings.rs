@@ -8,6 +8,8 @@
 //! simulations point it at a script); the `*_with` helpers take an explicit
 //! path so tests never touch process globals.
 
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -115,6 +117,66 @@ pub fn delete_with(bin: &str, scope: &str, key: &str) -> Result<(), String> {
     }
 }
 
+// --- refresh-rate FPS switch helper ------------------------------------------
+//
+// On surya/MIUI-12 the `user_refresh_rate` settings key alone does NOT move
+// the panel: the mode is driven by MIUI's display-feature HAL
+// (`DisplayFeatureHal::HandleFpsSwitch` -> SDM `SetActiveConfig`). MIUI's own
+// RefreshRateActivity calls `DisplayFeatureManager.setScreenEffect(24, hz)`
+// (effect id 24, per MiSettings DisplayUtils.java). The call only works from
+// a root context, so the daemon runs the tiny embedded dex via
+// `app_process` — the exact same API the MIUI UI uses, no props, no SELinux
+// changes. Device-verified 2026-10-09: "really set fps(120)" + the active
+// mode flips 60 <-> 120.
+
+pub const APP_PROCESS_BIN_ENV: &str = "MIFINETUNE_APP_PROCESS_BIN";
+const APP_PROCESS_BIN: &str = "/system/bin/app_process";
+pub const REFRESH_DEX_ENV: &str = "MIFINETUNE_REFRESH_DEX";
+const REFRESH_DEX_PATH: &str = "/data/local/tmp/mifinetune/refresh_fps.dex";
+const REFRESH_DEX_BYTES: &[u8] = include_bytes!("../../assets/refresh_fps.dex");
+
+fn app_process_path() -> String {
+    std::env::var(APP_PROCESS_BIN_ENV).unwrap_or_else(|_| APP_PROCESS_BIN.to_string())
+}
+
+fn refresh_dex_path() -> PathBuf {
+    std::env::var(REFRESH_DEX_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(REFRESH_DEX_PATH))
+}
+
+/// Resolves the helper + dex for this process (env overrides for E2E).
+pub fn apply_refresh_fps(hz: u32) -> Result<String, String> {
+    apply_refresh_fps_with(&app_process_path(), &refresh_dex_path(), hz)
+}
+
+/// Explicit-path variant (tests never touch process globals).
+pub fn apply_refresh_fps_with(app_bin: &str, dex: &Path, hz: u32) -> Result<String, String> {
+    let need_write = fs::read(dex)
+        .map(|b| b != REFRESH_DEX_BYTES)
+        .unwrap_or(true);
+    if need_write {
+        if let Some(dir) = dex.parent() {
+            fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
+        }
+        fs::write(dex, REFRESH_DEX_BYTES).map_err(|e| format!("write dex: {e}"))?;
+    }
+    let out = Command::new(app_bin)
+        .arg("/system/bin")
+        .arg("mifinetune.RefreshFps")
+        .arg(hz.to_string())
+        .env("CLASSPATH", dex)
+        .output()
+        .map_err(|e| format!("spawn {app_bin}: {e}"))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let last = err.lines().last().unwrap_or("app_process failed");
+        Err(last.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +229,35 @@ mod tests {
 
         put_with(bin, "global", "low_power", "1").unwrap();
         assert_eq!(read_with(bin, "global", "low_power").as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn refresh_fps_helper_materializes_dex_and_runs() {
+        let dir = crate::daemon::test_util::tmpdir("refresh-fps");
+        let log = dir.join("calls.log");
+        let bin = dir.join("app_process");
+        fs::write(
+            &bin,
+            format!("#!/bin/sh\necho \"$CLASSPATH $*\" >> {}\n", log.display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = fs::metadata(&bin).unwrap().permissions();
+            perm.set_mode(0o755);
+            fs::set_permissions(&bin, perm).unwrap();
+        }
+        let dex = dir.join("sub").join("refresh.dex");
+        apply_refresh_fps_with(bin.to_str().unwrap(), &dex, 90).unwrap();
+        assert!(dex.exists(), "the embedded dex must be materialized");
+        let calls = fs::read_to_string(&log).unwrap();
+        assert!(
+            calls.contains("mifinetune.RefreshFps 90"),
+            "helper call recorded: {calls}"
+        );
+        assert!(calls.contains("refresh.dex"), "CLASSPATH points at the dex");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

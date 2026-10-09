@@ -106,6 +106,10 @@ impl Bridge {
         match action {
             RefreshAction::Write(v) => {
                 let _ = settings::put("system", settings::REFRESH_KEY, &v);
+                let hz: u32 = v.parse().unwrap_or(120);
+                if let Err(e) = settings::apply_refresh_fps(hz) {
+                    self.log_event(format!("refresh fps helper failed: {e}"));
+                }
                 let who = if !ctx.screen_on {
                     "sleep".to_string()
                 } else {
@@ -116,11 +120,20 @@ impl Bridge {
             RefreshAction::Restore(saved) => match &saved {
                 Some(v) => {
                     let _ = settings::put("system", settings::REFRESH_KEY, v);
+                    if let Ok(hz) = v.parse::<u32>() {
+                        if let Err(e) = settings::apply_refresh_fps(hz) {
+                            self.log_event(format!("refresh fps helper failed: {e}"));
+                        }
+                    }
                     self.log_event(format!("refresh restored ({v})"));
                 }
                 None => {
                     let _ = settings::delete("system", settings::REFRESH_KEY);
-                    self.log_event("refresh restored (user setting was unset)".into());
+                    // no captured value: the panel default is 120 (mode id 1)
+                    if let Err(e) = settings::apply_refresh_fps(120) {
+                        self.log_event(format!("refresh fps helper failed: {e}"));
+                    }
+                    self.log_event("refresh restored (no user value, default 120)".into());
                 }
             },
             _ => {}
