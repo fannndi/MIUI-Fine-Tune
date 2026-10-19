@@ -366,6 +366,15 @@ mod tests {
     }
 
     #[test]
+    fn effective_base_profile_falls_back_to_balance() {
+        let mut c = DaemonConfig::default();
+        c.base_profile = "nope".into();
+        assert_eq!(c.effective_base_profile(), "balance");
+        c.base_profile = "game".into();
+        assert_eq!(c.effective_base_profile(), "game");
+    }
+
+    #[test]
     fn partial_json_fills_defaults() {
         let c: DaemonConfig = serde_json::from_str(r#"{"base_profile":"game"}"#).unwrap();
         assert_eq!(c.base_profile, "game");
