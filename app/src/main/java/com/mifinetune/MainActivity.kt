@@ -1,7 +1,7 @@
 package com.mifinetune
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -12,7 +12,7 @@ import com.mifinetune.ui.theme.MiFineTuneTheme
 /**
  * Single activity. All logic lives in [HomeViewModel] + the Rust core.
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)

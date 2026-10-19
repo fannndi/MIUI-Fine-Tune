@@ -58,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -210,7 +211,18 @@ fun HomeScreen(vm: HomeViewModel) {
                 )
             },
             confirmButton = {
-                Button(onClick = vm::confirmServiceOff) { Text("Turn off") }
+                val ctx = LocalContext.current
+                Button(onClick = {
+                    val act = ctx as? androidx.fragment.app.FragmentActivity
+                    if (act != null && BiometricGate.canAuthenticate(ctx)) {
+                        BiometricGate.authenticate(
+                            activity = act,
+                            onSuccess = vm::confirmServiceOff,
+                        )
+                    } else {
+                        vm::confirmServiceOff()
+                    }
+                }) { Text("Turn off") }
             },
             dismissButton = {
                 TextButton(onClick = vm::cancelServiceOff) { Text("Cancel") }
