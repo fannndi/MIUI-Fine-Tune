@@ -41,8 +41,12 @@ impl Runtime {
                         self.log("screen off");
                     }
                     self.screen_off_since = Some(Instant::now());
+                    let sleep_ms = std::env::var("MIFINETUNE_SLEEP_DELAY_MS")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(SLEEP_DELAY_MS);
                     self.sleep_deadline =
-                        Some(Instant::now() + Duration::from_millis(SLEEP_DELAY_MS));
+                        Some(Instant::now() + Duration::from_millis(sleep_ms));
                 } else {
                     self.screen_off_since = None;
                     self.sleep_deadline = None;
