@@ -74,16 +74,63 @@ pub fn verify_plan(store: &Store, plan: &Plan) -> ApplyReport {
                 });
                 continue;
             }
-            OpStatus::Unchanged => report.unchanged += 1,
-            OpStatus::Ok => {
-                // wanted differs from what the fresh probe saw during planning;
-                // verify against a *new* read here to detect drift
-                let live = probe::read(&op.path);
+            OpStatus::Unchanged => {
+                // re-read now (drift can happen between plan and verify); for
+                // freq-family kinds allow a short settle retry.
                 let kind = catalog::find(&op.key).map(|e| e.kind);
-                let in_sync = match (kind, live.as_deref()) {
+                let live = probe::read(&op.path);
+                let mut in_sync = match (kind, live.as_deref()) {
                     (Some(k), Some(rb)) => readback_matches(k, &op.resolved, rb),
                     _ => false,
                 };
+                if !in_sync {
+                    if let Some(k) = kind {
+                        if mismatch_is_transient(k) {
+                            std::thread::sleep(std::time::Duration::from_millis(300));
+                            if let Some(rb) = probe::read(&op.path) {
+                                in_sync = readback_matches(k, &op.resolved, &rb);
+                            }
+                        }
+                    }
+                }
+                if in_sync {
+                    report.unchanged += 1;
+                } else {
+                    report.failed += 1;
+                    report.ok = false;
+                    report.results.push(WriteResult {
+                        key: op.key.clone(),
+                        path: op.path.clone(),
+                        resolved: op.resolved.clone(),
+                        before: op.current.clone(),
+                        written: false,
+                        verified: false,
+                        error: Some(format!(
+                            "drift: live={}",
+                            live.as_deref().unwrap_or("<unreadable>")
+                        )),
+                    });
+                }
+            }
+            OpStatus::Ok => {
+                // wanted differs from what the fresh probe saw during planning;
+                // verify against a *new* read here to detect drift
+                let kind = catalog::find(&op.key).map(|e| e.kind);
+                let live = probe::read(&op.path);
+                let mut in_sync = match (kind, live.as_deref()) {
+                    (Some(k), Some(rb)) => readback_matches(k, &op.resolved, rb),
+                    _ => false,
+                };
+                if !in_sync {
+                    if let Some(k) = kind {
+                        if mismatch_is_transient(k) {
+                            std::thread::sleep(std::time::Duration::from_millis(300));
+                            if let Some(rb) = probe::read(&op.path) {
+                                in_sync = readback_matches(k, &op.resolved, &rb);
+                            }
+                        }
+                    }
+                }
                 if in_sync {
                     report.verified += 1;
                 } else {

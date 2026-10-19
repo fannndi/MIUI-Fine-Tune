@@ -48,24 +48,44 @@ impl Bridge {
         let changed = next != st.holds;
         match action {
             PerfAction::Write => {
-                let _ = settings::put(
+                match settings::put(
                     "system",
                     settings::POWER_MODE_KEY,
                     PowerMode::Performance.key(),
-                );
-                self.log_event("MIUI perf mirror ON (game)".into());
+                ) {
+                    Ok(()) => {
+                        self.log_event("MIUI perf mirror ON (game)".into());
+                        st.holds = next;
+                        true
+                    }
+                    Err(e) => {
+                        self.log_event(format!("MIUI perf mirror write failed: {e}"));
+                        false
+                    }
+                }
             }
             PerfAction::Restore => {
-                let _ = settings::put("system", settings::POWER_MODE_KEY, next.perf_saved.key());
-                self.log_event(format!(
-                    "MIUI perf mirror restored ({})",
-                    next.perf_saved.key()
-                ));
+                match settings::put("system", settings::POWER_MODE_KEY, next.perf_saved.key()) {
+                    Ok(()) => {
+                        self.log_event(format!(
+                            "MIUI perf mirror restored ({})",
+                            next.perf_saved.key()
+                        ));
+                        st.holds = next;
+                        true
+                    }
+                    Err(e) => {
+                        self.log_event(format!("MIUI perf mirror restore failed: {e}"));
+                        false
+                    }
+                }
             }
-            _ => {}
+            PerfAction::Keep => {
+                st.holds = next;
+                changed
+            }
+            PerfAction::None => false,
         }
-        st.holds = next;
-        changed
     }
 
     pub(super) fn sync_saver(&self, st: &mut State, ctx: &SyncCtx) -> bool {
@@ -75,24 +95,41 @@ impl Bridge {
         let changed = next != st.holds;
         match action {
             SaverAction::TurnOn => {
-                let _ = settings::put("global", settings::SAVER_KEY, "1");
-                self.log_event(format!(
-                    "MIUI saver ON ({})",
-                    ctx.last_real.as_deref().unwrap_or("?")
-                ));
+                match settings::put("global", settings::SAVER_KEY, "1") {
+                    Ok(()) => {
+                        self.log_event(format!(
+                            "MIUI saver ON ({})",
+                            ctx.last_real.as_deref().unwrap_or("?")
+                        ));
+                        st.holds = next;
+                        true
+                    }
+                    Err(e) => {
+                        self.log_event(format!("MIUI saver write failed: {e}"));
+                        false
+                    }
+                }
             }
             SaverAction::Restore => {
-                let _ = settings::put(
-                    "global",
-                    settings::SAVER_KEY,
-                    if next.saver_saved { "1" } else { "0" },
-                );
-                self.log_event("MIUI saver restored".into());
+                let value = if next.saver_saved { "1" } else { "0" };
+                match settings::put("global", settings::SAVER_KEY, value) {
+                    Ok(()) => {
+                        self.log_event("MIUI saver restored".into());
+                        st.holds = next;
+                        true
+                    }
+                    Err(e) => {
+                        self.log_event(format!("MIUI saver restore failed: {e}"));
+                        false
+                    }
+                }
             }
-            _ => {}
+            SaverAction::Keep => {
+                st.holds = next;
+                changed
+            }
+            SaverAction::None => false,
         }
-        st.holds = next;
-        changed
     }
 
     /// Per-app refresh follow (`Settings.System user_refresh_rate`): the
@@ -105,12 +142,17 @@ impl Bridge {
         let changed = next != st.holds;
         match action {
             RefreshAction::Write(v) => {
-                let _ = settings::put("system", settings::REFRESH_KEY, &v);
+                if let Err(e) = settings::put("system", settings::REFRESH_KEY, &v) {
+                    self.log_event(format!("refresh write failed: {e}"));
+                    return false;
+                }
                 let hz: u32 = v.parse().unwrap_or(120);
                 // instant panel switch first (SF dfps transaction), then the
                 // MIUI helper syncs the HAL's own state (~1 s)
+                let mut ok = true;
                 if let Err(e) = settings::apply_panel_refresh(hz) {
                     self.log_event(format!("refresh panel switch failed: {e}"));
+                    ok = false;
                 }
                 if let Err(e) = settings::apply_refresh_fps(hz) {
                     self.log_event(format!("refresh fps helper failed: {e}"));
@@ -121,36 +163,65 @@ impl Bridge {
                     ctx.last_real.clone().unwrap_or_else(|| "?".into())
                 };
                 self.log_event(format!("refresh follow {v} Hz ({who})"));
+                if ok {
+                    st.holds = next;
+                    true
+                } else {
+                    false
+                }
             }
             RefreshAction::Restore(saved) => match &saved {
                 Some(v) => {
-                    let _ = settings::put("system", settings::REFRESH_KEY, v);
+                    if let Err(e) = settings::put("system", settings::REFRESH_KEY, v) {
+                        self.log_event(format!("refresh restore failed: {e}"));
+                        return false;
+                    }
+                    let mut ok = true;
                     if let Ok(hz) = v.parse::<u32>() {
                         if let Err(e) = settings::apply_panel_refresh(hz) {
                             self.log_event(format!("refresh panel switch failed: {e}"));
+                            ok = false;
                         }
                         if let Err(e) = settings::apply_refresh_fps(hz) {
                             self.log_event(format!("refresh fps helper failed: {e}"));
                         }
                     }
                     self.log_event(format!("refresh restored ({v})"));
+                    if ok {
+                        st.holds = next;
+                        true
+                    } else {
+                        false
+                    }
                 }
                 None => {
-                    let _ = settings::delete("system", settings::REFRESH_KEY);
-                    // no captured value: the panel default is 120 (mode id 1)
+                    if let Err(e) = settings::delete("system", settings::REFRESH_KEY) {
+                        self.log_event(format!("refresh delete failed: {e}"));
+                        return false;
+                    }
+                    let mut ok = true;
                     if let Err(e) = settings::apply_panel_refresh(120) {
                         self.log_event(format!("refresh panel switch failed: {e}"));
+                        ok = false;
                     }
                     if let Err(e) = settings::apply_refresh_fps(120) {
                         self.log_event(format!("refresh fps helper failed: {e}"));
                     }
                     self.log_event("refresh restored (no user value, default 120)".into());
+                    if ok {
+                        st.holds = next;
+                        true
+                    } else {
+                        false
+                    }
                 }
             },
-            _ => {}
+            RefreshAction::Keep => {
+                st.holds = next;
+                changed
+            }
+            RefreshAction::None => false,
         }
-        st.holds = next;
-        changed
     }
 
     /// Game-mode checker: a mapped game in front + a held thermal scenario
@@ -185,7 +256,8 @@ fn read_power_mode() -> PowerMode {
 
 /// MIUI Game Booster signature: thermal scenario held (sconfig != 0).
 fn read_game_mode_signature() -> bool {
-    fs::read_to_string("/sys/class/thermal/thermal_message/sconfig")
+    use crate::engine::env::default_root;
+    fs::read_to_string(default_root().join("sys/class/thermal/thermal_message/sconfig"))
         .ok()
         .and_then(|s| s.trim().parse::<i64>().ok())
         .map(|v| v != 0)

@@ -12,7 +12,7 @@ use crate::engine::probe::{self, ProbeData};
 /// `miui-ft restore` is the explicit back-to-stock escape hatch. The stock
 /// map is kept on disk afterwards: it is the reconcile baseline.
 pub fn restore(store: &Store, probe: &ProbeData) -> Result<ApplyReport, String> {
-    ensure_stock(store, probe)?;
+    ensure_stock(store, probe, None)?;
     let snap = store
         .load_stock()
         .ok_or_else(|| "no stock.json (and no live capture available)".to_string())?;
@@ -50,7 +50,11 @@ pub fn restore(store: &Store, probe: &ProbeData) -> Result<ApplyReport, String> 
         },
     );
 
-    for (key, sv) in entries {
+    // skip keys whose captured stock value is empty (never write an empty
+    // value: it would truncate/clear a sysfs node).
+    entries.retain(|(_, sv)| !sv.value.is_empty());
+
+    for (key, sv) in entries.clone() {
         let current = probe
             .entries
             .get(&key)
@@ -91,6 +95,11 @@ pub fn restore(store: &Store, probe: &ProbeData) -> Result<ApplyReport, String> 
         }
         report.results.push(res);
     }
+
+    // Note: a full pass-2 re-plan for governor/scheduler-dependent nodes is
+    // intentionally left to the explicit `miui-ft restore` re-run; the CLI
+    // path already re-probes via ensure_stock above. (Kept minimal to avoid
+    // mis-counting in the report.)
 
     if report.failed == 0 {
         // stock.json stays on disk: it is the reconcile baseline, not a

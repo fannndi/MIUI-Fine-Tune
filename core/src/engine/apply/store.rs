@@ -91,8 +91,12 @@ impl Store {
 /// The device file for union keys that never appeared is only useful on a
 /// clean boot (sysfs resets at boot); the installer's stock.json is seeded
 /// right after the first `apply` on a v0.11 device.
-pub fn ensure_stock(store: &Store, probe: &ProbeData) -> Result<(), String> {
-    let profiles = store.load_profiles(None)?;
+pub fn ensure_stock(
+    store: &Store,
+    probe: &ProbeData,
+    override_path: Option<&std::path::Path>,
+) -> Result<(), String> {
+    let profiles = store.load_profiles(override_path)?;
     let mut keys: Vec<&str> = profiles
         .profiles
         .iter()
@@ -156,7 +160,7 @@ pub(super) fn ensure_snapshot(
     ops: &[PlannedOp],
 ) -> Result<(Snapshot, bool), String> {
     let existing = store.load_snapshot();
-    let created_now = existing.is_none();
+    let existing_was_none = existing.is_none();
     let mut snap = existing.unwrap_or_else(|| Snapshot {
         created: now_secs(),
         device: probe.device.device.clone(),
@@ -179,6 +183,11 @@ pub(super) fn ensure_snapshot(
             .map(|e| e.kind)
             .unwrap_or(catalog::Kind::Text);
         let value = normalize_snapshot(kind, &value);
+        if value.is_empty() {
+            // never store an empty stock/snapshot value (would truncate a node
+            // on restore)
+            continue;
+        }
         snap.values.insert(
             op.key.clone(),
             SnapValue {
@@ -191,6 +200,7 @@ pub(super) fn ensure_snapshot(
     if changed {
         store.save_snapshot(&snap)?;
     }
+    let created_now = existing_was_none && changed;
     Ok((snap, created_now))
 }
 

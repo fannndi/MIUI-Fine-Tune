@@ -136,9 +136,25 @@ fn getprop(name: &str) -> Option<String> {
 fn cpu_count() -> usize {
     read("/sys/devices/system/cpu/possible")
         .and_then(|s| {
-            let last = s.split(',').next_back()?;
-            let hi = last.split('-').next_back()?.parse::<usize>().ok()?;
-            Some(hi + 1)
+            let mut max: Option<usize> = None;
+            for part in s.split(',') {
+                let part = part.trim();
+                if part.is_empty() {
+                    continue;
+                }
+                let mut segs = part.split('-');
+                let lo: usize = segs.next()?.trim().parse().ok()?;
+                let hi: usize = match segs.next() {
+                    Some(h) => h.trim().parse().ok()?,
+                    None => lo,
+                };
+                if segs.next().is_some() {
+                    return None; // malformed
+                }
+                let m = max.get_or_insert(0);
+                *m = (*m).max(hi);
+            }
+            max.map(|m| m + 1)
         })
         .unwrap_or(8)
 }

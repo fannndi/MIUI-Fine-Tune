@@ -36,6 +36,7 @@ impl Runtime {
                 self.screen_on = on;
                 self.locked = locked;
                 if !on {
+                    self.fg_debounce = None;
                     if was_on {
                         self.log("screen off");
                     }
@@ -53,11 +54,22 @@ impl Runtime {
                     }
                 }
                 self.emit_state(false);
+                // screen state changed: re-sync the MIUI bridge (refresh sleep
+                // value, perf/saver visibility gates) without waiting for the
+                // sleep timer or an env sample.
+                let cfg = self.config.get().clone();
+                if cfg.enabled && !self.retired {
+                    let _ = self.sync_tx.send(self.bridge_ctx());
+                }
             }
             Command::UserPresent => {
                 self.locked = false;
                 self.peek_now("unlock");
                 self.emit_state(false);
+                let cfg = self.config.get().clone();
+                if cfg.enabled && !self.retired {
+                    let _ = self.sync_tx.send(self.bridge_ctx());
+                }
             }
             Command::Fg { pkg } => self.on_fg(pkg),
             Command::Seed { pkg } => self.on_seed(pkg, "unlock"),
@@ -65,14 +77,24 @@ impl Runtime {
             Command::DndAccess { granted } => {
                 self.dnd_granted = granted;
                 self.log(&format!("DND access: {granted}"));
-                // re-evaluate the DND bridge immediately (no profile decision)
-                let _ = self.sync_tx.send(self.bridge_ctx());
+                // re-evaluate the DND bridge immediately (no profile decision),
+                // but never after retire / while disabled.
+                let cfg = self.config.get().clone();
+                if cfg.enabled && !self.retired {
+                    let _ = self.sync_tx.send(self.bridge_ctx());
+                }
             }
             Command::Ultra { on } => {
                 self.ultra = on;
                 self.log(&format!("MIUI extreme saver: {on}"));
                 if on {
                     self.evaluate("ultra", None);
+                } else {
+                    // MIUI extreme saver off: leave the retired state and let
+                    // the normal decision re-assert (otherwise the retire path
+                    // is one-way within a session).
+                    self.retired = false;
+                    self.evaluate("ultra-off", None);
                 }
             }
             Command::SetBase { profile } => {
@@ -155,7 +177,9 @@ impl Runtime {
         self.last_fg = Some(pkg);
         self.emit_state(false);
         if self.screen_on && !self.locked {
-            self.evaluate("event", None);
+            // Debounce: a rapid burst of foreground events (launcher flashes
+            // between two registered apps) coalesces into one smooth switch.
+            self.fg_debounce = Some(Instant::now() + Duration::from_millis(super::FG_DEBOUNCE_MS));
         }
     }
 
@@ -165,7 +189,9 @@ impl Runtime {
     pub(super) fn on_seed(&mut self, peeked: Option<String>, trigger: &str) {
         let best = match peeked.as_deref() {
             Some(p) if !arbiter::is_transient(Some(p)) => Some(p.to_string()),
-            _ => self.last_real.clone().or_else(|| peeked.clone()),
+            // never park last_fg on a transient package: keep the previous
+            // real foreground (or None) so the next real event isn't deduped.
+            _ => self.last_real.clone(),
         };
         self.log(&format!("seed: peeked={peeked:?} best={best:?}"));
         let changed = best.is_some() && best != self.last_fg;

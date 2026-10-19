@@ -46,8 +46,9 @@ impl LiveFlags {
 
     /// Starts the polling thread; lives for the daemon lifetime.
     pub fn spawn() -> Arc<Self> {
+        let initial = read_bool("global", SAVER_KEY).unwrap_or(false);
         let me = Arc::new(LiveFlags {
-            saver: AtomicBool::new(false),
+            saver: AtomicBool::new(initial),
         });
         let keep = me.clone();
         let _ = std::thread::Builder::new()
@@ -132,7 +133,7 @@ pub fn delete_with(bin: &str, scope: &str, key: &str) -> Result<(), String> {
 pub const APP_PROCESS_BIN_ENV: &str = "MIFINETUNE_APP_PROCESS_BIN";
 const APP_PROCESS_BIN: &str = "/system/bin/app_process";
 pub const REFRESH_DEX_ENV: &str = "MIFINETUNE_REFRESH_DEX";
-const REFRESH_DEX_PATH: &str = "/data/local/tmp/mifinetune/refresh_fps.dex";
+const REFRESH_DEX_PATH: &str = "/data/adb/mifinetune/refresh_fps.dex";
 const REFRESH_DEX_BYTES: &[u8] = include_bytes!("../../assets/refresh_fps.dex");
 
 fn app_process_path() -> String {
@@ -160,6 +161,12 @@ pub fn apply_refresh_fps_with(app_bin: &str, dex: &Path, hz: u32) -> Result<Stri
             fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
         }
         fs::write(dex, REFRESH_DEX_BYTES).map_err(|e| format!("write dex: {e}"))?;
+    }
+    // Re-verify the dex bytes immediately before exec (TOCTOU hardening):
+    // a tampered file must not be executed as root.
+    let on_disk = fs::read(dex).map_err(|e| format!("read dex: {e}"))?;
+    if on_disk != REFRESH_DEX_BYTES {
+        return Err("refresh dex bytes mismatch".into());
     }
     let out = Command::new(app_bin)
         .arg("/system/bin")

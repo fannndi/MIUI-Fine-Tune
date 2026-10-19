@@ -126,7 +126,13 @@ pub fn normalize_snapshot(kind: Kind, raw: &str) -> String {
                 _ => toks.join(" "),
             }
         }
-        Kind::Mask => raw.split_whitespace().collect::<Vec<_>>().join(","),
+        Kind::Mask => {
+            if raw.contains(',') {
+                raw.split_whitespace().collect::<Vec<_>>().join(",")
+            } else {
+                raw.to_string()
+            }
+        }
         Kind::FlagYN => {
             let up = raw.to_ascii_uppercase();
             match up.as_str() {

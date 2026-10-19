@@ -287,9 +287,13 @@ impl Holds {
 /// Persisted holds (crash-safe restore points), `holds.json` in the state dir.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HoldsFile {
+    #[serde(default)]
     pub perf_held: bool,
+    #[serde(default)]
     pub perf_saved: String,
+    #[serde(default)]
     pub saver_held: bool,
+    #[serde(default)]
     pub saver_saved: bool,
     #[serde(default)]
     pub refresh_held: bool,

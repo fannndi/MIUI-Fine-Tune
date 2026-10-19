@@ -79,8 +79,10 @@ impl Runtime {
         }
         self.maybe_maintenance(&cfg);
         // the charge guard must react even while the screen is off (night
-        // charging): feed a bridge sync from every sample when enabled
-        if cfg.charge_limit {
+        // charging): feed a bridge sync from every sample when enabled.
+        // Never act after retire / while the service is disabled: release_all
+        // already ran on those paths and a late sample must not re-engage.
+        if cfg.charge_limit && !self.retired && cfg.enabled {
             let _ = self.sync_tx.send(self.bridge_ctx());
         }
     }

@@ -84,6 +84,8 @@ impl Runtime {
     /// config toggles and unlocks evaluate for the *real* package even
     /// though our own (transient) app is technically in front.
     pub(super) fn evaluate(&mut self, trigger: &str, fg_override: Option<String>) {
+        // a real decision supersedes any pending debounced foreground switch
+        self.fg_debounce = None;
         if self.retired {
             return;
         }

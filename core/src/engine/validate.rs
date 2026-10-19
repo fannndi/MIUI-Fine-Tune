@@ -76,9 +76,9 @@ pub fn validate_value(
             probe
                 .options
                 .governors
-                .values()
-                .next()
-                .map(|v| v.as_slice()),
+                .get(e.scope)
+                .map(|v| v.as_slice())
+                .or_else(|| probe.options.governors.values().next().map(|v| v.as_slice())),
             "governor",
         ),
         Kind::GpuGov => one_of(wanted, Some(&probe.options.gpu_governors), "gpu governor"),

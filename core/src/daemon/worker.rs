@@ -183,13 +183,60 @@ pub fn run(
                 }
 
                 let settle_ms = batch_start.elapsed().as_millis() as u64;
-                let started = Instant::now();
+                let t0 = Instant::now();
                 let mut out = run_once(engine, &job);
-                if !out.ok && out.error.is_none() && out.failed > 0 {
-                    // transient race with MIUI writes -> one retry
-                    std::thread::sleep(retry);
-                    out = run_once(engine, &job);
-                }
+                let ms = if !out.ok && out.error.is_none() && out.failed > 0 {
+                    // transient race with MIUI writes -> one retry, but keep
+                    // observing the channel so a Restore/Apply arriving during
+                    // the pause is not delayed (or stale-re-applied).
+                    let retry_deadline = Instant::now() + retry;
+                    let mut restored: Option<Restore> = None;
+                    let mut superseded = false;
+                    while Instant::now() < retry_deadline {
+                        let remaining = retry_deadline.saturating_duration_since(Instant::now());
+                        let wait = remaining.min(Duration::from_millis(100));
+                        match rx.recv_timeout(wait) {
+                            Ok(Work::Restore { retire }) => {
+                                restored = Some(Restore { retire });
+                                break;
+                            }
+                            Ok(Work::Apply(next)) => {
+                                let was_force = job.force;
+                                job = next;
+                                job.force |= was_force;
+                                superseded = true;
+                                break;
+                            }
+                            Err(RecvTimeoutError::Timeout) => continue,
+                            Err(RecvTimeoutError::Disconnected) => break,
+                        }
+                    }
+                    if let Some(r) = restored {
+                        engine.release_holds();
+                        let o = engine.restore();
+                        on_restored(RestoredEvent {
+                            retire: r.retire,
+                            ok: o.ok,
+                            wrote: o.wrote,
+                            verified: o.verified,
+                            failed: o.failed,
+                        });
+                        // skip the on_applied for the original job
+                        continue;
+                    }
+                    if superseded {
+                        // apply the superseding job immediately
+                        let t1 = Instant::now();
+                        out = run_once(engine, &job);
+                        t1.elapsed().as_millis() as u64
+                    } else {
+                        let t1 = Instant::now();
+                        out = run_once(engine, &job);
+                        t1.elapsed().as_millis() as u64
+                    }
+                } else {
+                    t0.elapsed().as_millis() as u64
+                };
                 on_applied(AppliedEvent {
                     profile: job.profile.clone(),
                     reason: reason_text(job.used_saver, &job.reason),
@@ -198,7 +245,7 @@ pub fn run(
                     wrote: out.wrote,
                     verified: out.verified,
                     failed: out.failed,
-                    ms: started.elapsed().as_millis() as u64,
+                    ms,
                     settle_ms,
                     watchdog: job.watchdog,
                 });

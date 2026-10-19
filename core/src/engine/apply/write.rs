@@ -50,6 +50,9 @@ where
                     items.insert(f, second);
                 }
             }
+            // precondition: input lists `first` before `second` for each pair
+            // (callers sort by write_rank then key). A reversed input is
+            // already in the safe (second-first) order and needs no reorder.
         }
     }
     items
@@ -193,7 +196,7 @@ pub fn apply_with_pass2(
     reconcile: bool,
 ) -> Result<ApplyReport, String> {
     let p = probe::probe();
-    ensure_stock(store, &p)?;
+    ensure_stock(store, &p, None)?;
     let reconciled =
         reconcile.then(|| merged_profile(profile, store.load_stock().map(|s| s.values)));
     let eff = reconciled.as_ref().unwrap_or(profile);
@@ -209,10 +212,26 @@ pub fn apply_with_pass2(
         let plan2 = build_plan_opt(eff, &p2, reconcile);
         if plan2.ok {
             let r2 = apply_plan(store, &plan2, &p2)?;
-            report.wrote += r2.wrote;
-            report.verified += r2.verified;
+            // Only aggregate keys pass-2 actually re-wrote, so a key already
+            // counted in pass-1 is not double-counted; also fold r2.unchanged.
+            let already: std::collections::BTreeSet<String> =
+                report.results.iter().map(|r| r.key.clone()).collect();
+            for r in &r2.results {
+                if !already.contains(&r.key) {
+                    report.results.push(r.clone());
+                    if r.written {
+                        report.wrote += 1;
+                    }
+                    if r.verified {
+                        report.verified += 1;
+                    }
+                    if let Some(_) = r.error.as_ref() {
+                        // error already reflected via failed below
+                    }
+                }
+            }
             report.failed += r2.failed;
-            report.results.extend(r2.results);
+            report.unchanged += r2.unchanged;
             report.locked = r2.locked; // fresh truth per key
             report.ok = report.ok && r2.ok;
             if r2.active.is_some() {

@@ -193,68 +193,96 @@ impl Bridge {
             let mut st = self.lock();
             let mut changed = false;
             if st.holds.perf_held {
-                let _ = settings::put(
-                    "system",
-                    settings::POWER_MODE_KEY,
-                    st.holds.perf_saved.key(),
-                );
-                self.log_event(format!(
-                    "MIUI perf mirror restored ({})",
-                    st.holds.perf_saved.key()
-                ));
-                st.holds.perf_held = false;
-                changed = true;
+                let saved = st.holds.perf_saved;
+                match settings::put("system", settings::POWER_MODE_KEY, saved.key()) {
+                    Ok(()) => {
+                        self.log_event(format!("MIUI perf mirror restored ({})", saved.key()));
+                        st.holds.perf_held = false;
+                        changed = true;
+                    }
+                    Err(e) => self.log_event(format!("MIUI perf mirror restore failed: {e}")),
+                }
             }
             if st.holds.saver_held {
-                let _ = settings::put(
-                    "global",
-                    settings::SAVER_KEY,
-                    if st.holds.saver_saved { "1" } else { "0" },
-                );
-                self.log_event("MIUI saver restored".into());
-                st.holds.saver_held = false;
-                changed = true;
+                let saved = st.holds.saver_saved;
+                let value = if saved { "1" } else { "0" };
+                match settings::put("global", settings::SAVER_KEY, value) {
+                    Ok(()) => {
+                        self.log_event("MIUI saver restored".into());
+                        st.holds.saver_held = false;
+                        changed = true;
+                    }
+                    Err(e) => self.log_event(format!("MIUI saver restore failed: {e}")),
+                }
             }
             if st.holds.refresh_held {
-                match st.holds.refresh_saved.clone() {
+                let saved = st.holds.refresh_saved.clone();
+                let mut ok = true;
+                match saved {
                     Some(v) => {
-                        let _ = settings::put("system", settings::REFRESH_KEY, &v);
-                        if let Ok(hz) = v.parse::<u32>() {
-                            let _ = settings::apply_panel_refresh(hz);
-                            let _ = settings::apply_refresh_fps(hz);
+                        if let Err(e) = settings::put("system", settings::REFRESH_KEY, &v) {
+                            self.log_event(format!("refresh restore failed: {e}"));
+                            ok = false;
+                        } else if let Ok(hz) = v.parse::<u32>() {
+                            if let Err(e) = settings::apply_panel_refresh(hz) {
+                                self.log_event(format!("refresh panel switch failed: {e}"));
+                                ok = false;
+                            }
+                            if let Err(e) = settings::apply_refresh_fps(hz) {
+                                self.log_event(format!("refresh fps helper failed: {e}"));
+                            }
+                            self.log_event(format!("refresh restored ({v})"));
                         }
-                        self.log_event(format!("refresh restored ({v})"));
                     }
                     None => {
-                        let _ = settings::delete("system", settings::REFRESH_KEY);
-                        let _ = settings::apply_panel_refresh(120);
-                        let _ = settings::apply_refresh_fps(120);
-                        self.log_event("refresh restored (no user value, default 120)".into());
+                        if let Err(e) = settings::delete("system", settings::REFRESH_KEY) {
+                            self.log_event(format!("refresh delete failed: {e}"));
+                            ok = false;
+                        } else {
+                            if let Err(e) = settings::apply_panel_refresh(120) {
+                                self.log_event(format!("refresh panel switch failed: {e}"));
+                                ok = false;
+                            }
+                            if let Err(e) = settings::apply_refresh_fps(120) {
+                                self.log_event(format!("refresh fps helper failed: {e}"));
+                            }
+                            self.log_event("refresh restored (no user value, default 120)".into());
+                        }
                     }
                 }
-                st.holds.refresh_held = false;
-                st.holds.refresh_saved = None;
-                changed = true;
+                if ok {
+                    st.holds.refresh_held = false;
+                    st.holds.refresh_saved = None;
+                    changed = true;
+                }
             }
             if st.holds.charge_held {
                 let value = st.holds.charge_saved.clone().unwrap_or_else(|| "1".into());
                 let node = crate::engine::env::default_root()
                     .join("sys/class/power_supply/battery/battery_charging_enabled");
-                let _ = crate::engine::apply::guarded_write(&node.display().to_string(), &value);
-                self.log_event(format!("charge resumed (node {value})"));
-                st.holds.charge_held = false;
-                st.holds.charge_saved = None;
-                changed = true;
+                match crate::engine::apply::guarded_write(&node.display().to_string(), &value) {
+                    Ok(()) => {
+                        self.log_event(format!("charge resumed (node {value})"));
+                        st.holds.charge_held = false;
+                        st.holds.charge_saved = None;
+                        changed = true;
+                    }
+                    Err(e) => self.log_event(format!("charge resume failed: {e}")),
+                }
             }
             if st.holds.bypass_held {
                 let value = st.holds.bypass_saved.clone().unwrap_or_else(|| "0".into());
                 let node = crate::engine::env::default_root()
                     .join("sys/class/power_supply/battery/input_suspend");
-                let _ = crate::engine::apply::guarded_write(&node.display().to_string(), &value);
-                self.log_event(format!("bypass charging OFF (node {value})"));
-                st.holds.bypass_held = false;
-                st.holds.bypass_saved = None;
-                changed = true;
+                match crate::engine::apply::guarded_write(&node.display().to_string(), &value) {
+                    Ok(()) => {
+                        self.log_event(format!("bypass charging OFF (node {value})"));
+                        st.holds.bypass_held = false;
+                        st.holds.bypass_saved = None;
+                        changed = true;
+                    }
+                    Err(e) => self.log_event(format!("bypass release failed: {e}")),
+                }
             }
             if st.dnd_sent.is_some() {
                 // the app executes the official DND API; release via event

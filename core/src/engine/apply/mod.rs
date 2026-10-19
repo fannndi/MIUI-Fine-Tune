@@ -113,12 +113,16 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| format!("mkdir {parent:?}: {e}"))?;
     }
     let s = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    {
+    let tmp = path.with_extension(format!("json.tmp.{}", std::process::id()));
+    let res = (|| {
         let mut f = fs::File::create(&tmp).map_err(|e| format!("create {tmp:?}: {e}"))?;
         f.write_all(s.as_bytes())
             .map_err(|e| format!("write {tmp:?}: {e}"))?;
         f.sync_all().map_err(|e| format!("fsync {tmp:?}: {e}"))?;
+        fs::rename(&tmp, path).map_err(|e| format!("rename {tmp:?} -> {path:?}: {e}"))
+    })();
+    if res.is_err() {
+        let _ = fs::remove_file(&tmp);
     }
-    fs::rename(&tmp, path).map_err(|e| format!("rename {tmp:?} -> {path:?}: {e}"))
+    res
 }

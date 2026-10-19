@@ -59,6 +59,10 @@ pub(crate) const SUPERVISE_MS: u64 = 3_000; // watcher health / periodic cadence
 const PERIODIC_TICKS: u64 = 5; // * SUPERVISE_MS = 15 s re-evaluate cadence
 const CONFIG_POLL_MS: u64 = 1_000; // mtime fallback (app also pings)
 const SLEEP_DELAY_MS: u64 = 10_000; // screen off -> sleep grace period
+/// Debounce foreground switches so a rapid burst of app transitions (e.g.
+/// launcher flashes between two registered apps) coalesces into one smooth
+/// profile switch instead of back-to-back full applies.
+const FG_DEBOUNCE_MS: u64 = 300;
 
 /// Messages the main loop consumes.
 enum Msg {
@@ -147,6 +151,8 @@ struct Runtime {
     retired: bool,
     // timers
     sleep_deadline: Option<Instant>,
+    /// Debounce deadline for a pending foreground-switch evaluation.
+    fg_debounce: Option<Instant>,
     // watchers
     fg_watcher: Option<Watcher>,
     mw_watcher: Option<Watcher>,
@@ -303,6 +309,7 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         ultra: false,
         retired: false,
         sleep_deadline: None,
+        fg_debounce: None,
         fg_watcher: None,
         mw_watcher: None,
         jank_watcher: None,
@@ -338,6 +345,9 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         if let Some(s) = rt.sleep_deadline {
             wake = wake.min(s);
         }
+        if let Some(d) = rt.fg_debounce {
+            wake = wake.min(d);
+        }
         let timeout = wake.saturating_duration_since(now);
 
         match msg_rx.recv_timeout(timeout) {
@@ -366,6 +376,15 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
         }
 
         let now = Instant::now();
+        // fg-debounce expiry: fire the deferred foreground evaluation
+        if let Some(d) = rt.fg_debounce {
+            if now >= d {
+                rt.fg_debounce = None;
+                if rt.screen_on && !rt.locked {
+                    rt.evaluate("event", None);
+                }
+            }
+        }
         if now >= next_sup {
             next_sup = now + Duration::from_millis(SUPERVISE_MS);
             ticks += 1;
