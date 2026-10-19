@@ -120,6 +120,8 @@ Rules:
 | `dynamic/DynamicProfileConfig.kt` | `config.json` writer (atomic), prefs migration, daemon hints |
 | `dynamic/AppProfileEntry.kt` | Apps Profile entry model (mapping + bypass + DND) |
 | `dynamic/DndController.kt` | the only platform-API executor: DND access + interruption filter |
+| `dynamic/BiometricGate.kt` | optional biometric gate for service-off/restore (Android 10+) |
+| `dynamic/ThermalStatusMonitor.kt` | Android 10 PowerManager thermal status listener (StateFlow) |
 | `dynamic/DynamicProfileState.kt` | process-wide StateFlows mirrored from daemon events (incl. env/diag/stats/logs) |
 | `dynamic/DeviceContext.kt` | PowerManager/KeyguardManager reader only |
 | `dynamic/DynamicProfileBootReceiver.kt` | best-effort service start on boot |
