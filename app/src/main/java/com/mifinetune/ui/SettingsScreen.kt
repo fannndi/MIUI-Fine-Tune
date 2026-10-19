@@ -25,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -140,6 +141,22 @@ fun SettingsScreen(
                                 )
                             }
                             Switch(checked = quietHours, onCheckedChange = vm::setQuietHours)
+                        }
+                        if (quietHours) {
+                            Text("Start hour: ${vm.quietStartHour.collectAsStateWithLifecycle().value}:00")
+                            Slider(
+                                value = vm.quietStartHour.collectAsStateWithLifecycle().value.toFloat(),
+                                onValueChange = { vm.setQuietStartHour(it.toInt()) },
+                                valueRange = 0f..23f,
+                                steps = 22,
+                            )
+                            Text("End hour: ${vm.quietEndHour.collectAsStateWithLifecycle().value}:00")
+                            Slider(
+                                value = vm.quietEndHour.collectAsStateWithLifecycle().value.toFloat(),
+                                onValueChange = { vm.setQuietEndHour(it.toInt()) },
+                                valueRange = 0f..23f,
+                                steps = 22,
+                            )
                         }
                     }
                 }
