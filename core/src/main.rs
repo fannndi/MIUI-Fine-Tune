@@ -245,6 +245,10 @@ fn run(a: &Args) -> Result<(i32, String), String> {
 
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.iter().any(|a| a == "--version" || a == "-V") {
+        println!("miui-ft {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
     let args = match parse_args(&argv) {
         Ok(a) => a,
         Err(e) => {
