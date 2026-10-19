@@ -303,7 +303,9 @@ impl Runtime {
     /// window ends. Rate-limited by a cooldown; opt-in via config.
     pub(super) fn on_jank(&mut self, frames: u32) {
         let cfg = self.config.get().clone();
-        if !cfg.jank_boost || self.retired || !self.screen_on || self.locked || battery_low(&cfg, &self.env) {
+        if !cfg.jank_boost || self.retired || !self.screen_on || self.locked
+            || battery_low(&cfg, &self.env) || self.thermal_stepped
+        {
             return;
         }
         if frames < JANK_MIN_FRAMES {
