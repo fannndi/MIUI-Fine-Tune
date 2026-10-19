@@ -35,6 +35,13 @@ class AutomationReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        // Only accept targeted broadcasts (explicit component), so an app
+        // cannot fire these actions implicitly. Documented callers (adb,
+        // Tasker, MacroDroid) all use an explicit component (-n / component).
+        if (intent.component?.packageName != context.packageName) {
+            Log.w(TAG, "automation: rejected non-targeted broadcast from ${intent.`package` ?: "?"}")
+            return
+        }
         val pending = goAsync()
         val config = DynamicProfileConfig.get(context)
         Thread {

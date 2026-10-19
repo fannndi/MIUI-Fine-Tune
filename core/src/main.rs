@@ -91,15 +91,18 @@ commands:
                       previously hidden governor-specific nodes";
 
 fn is_root() -> bool {
-    std::fs::read_to_string("/proc/self/status")
-        .map(|s| {
-            s.lines()
-                .find(|l| l.starts_with("Uid:"))
-                .and_then(|l| l.split_whitespace().nth(2))
-                .map(|euid| euid == "0")
-                .unwrap_or(false)
-        })
-        .unwrap_or(false)
+    static CACHED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CACHED.get_or_init(|| {
+        std::fs::read_to_string("/proc/self/status")
+            .map(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("Uid:"))
+                    .and_then(|l| l.split_whitespace().nth(2))
+                    .map(|euid| euid == "0")
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
+    })
 }
 
 fn require_root() -> Result<(), String> {
