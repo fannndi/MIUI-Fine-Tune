@@ -123,10 +123,32 @@ pub struct DaemonConfig {
     /// The daemon emits `charge_once_done` on the unplug; the app clears it.
     #[serde(default)]
     pub charge_once: bool,
+    /// Quiet hours: while in the configured window, force the base profile to
+    /// `quiet_profile` (default powersave). Wall-clock (UTC) based.
+    #[serde(default)]
+    pub quiet_hours: bool,
+    #[serde(default = "default_quiet_start")]
+    pub quiet_start_hour: u8,
+    #[serde(default = "default_quiet_end")]
+    pub quiet_end_hour: u8,
+    #[serde(default = "default_quiet_profile")]
+    pub quiet_profile: String,
 }
 
 fn default_charge_pct() -> u8 {
     80
+}
+
+fn default_quiet_start() -> u8 {
+    22
+}
+
+fn default_quiet_end() -> u8 {
+    6
+}
+
+fn default_quiet_profile() -> String {
+    "powersave".to_string()
 }
 
 fn default_bypass_floor() -> u8 {
@@ -168,6 +190,10 @@ impl Default for DaemonConfig {
             charge_limit: false,
             charge_limit_pct: default_charge_pct(),
             charge_once: false,
+            quiet_hours: false,
+            quiet_start_hour: 22,
+            quiet_end_hour: 6,
+            quiet_profile: default_quiet_profile(),
         }
     }
 }

@@ -89,13 +89,20 @@ impl Runtime {
         if self.retired {
             return;
         }
-        let cfg = self.config.get().clone();
+        let mut cfg = self.config.get().clone();
         if !cfg.enabled {
             // the app owns lifecycle: it stops the service (and thus us)
             return;
         }
         let battery_low = battery_low(&cfg, &self.env);
         let thermal_high = self.thermal_high(cfg.guard_thermal, cfg.thermal_ceiling_c);
+        // quiet hours: force the base profile in the configured window
+        if cfg.quiet_hours {
+            let hour = current_utc_hour();
+            if in_quiet_window(hour, cfg.quiet_start_hour, cfg.quiet_end_hour) {
+                cfg.base_profile = cfg.quiet_profile.clone();
+            }
+        }
         let fg = fg_override.or_else(|| self.last_fg.clone());
         let input = ArbiterInput {
             service_enabled: true,
@@ -325,5 +332,26 @@ impl Runtime {
             watchdog: false,
         };
         let _ = self.work_tx.send(Work::Apply(job));
+    }
+}
+
+/// Current UTC hour (0..23) from wall clock.
+fn current_utc_hour() -> u8 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    ((secs / 3600) % 24) as u8
+}
+
+/// True when `hour` falls inside [start, end), supporting wrap-around windows.
+fn in_quiet_window(hour: u8, start: u8, end: u8) -> bool {
+    if start < end {
+        hour >= start && hour < end
+    } else if start > end {
+        hour >= start || hour < end
+    } else {
+        false
     }
 }
