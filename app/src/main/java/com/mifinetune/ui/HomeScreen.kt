@@ -143,6 +143,22 @@ fun HomeScreen(vm: HomeViewModel) {
                     if (state.loading || state.busy != null) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
+                    val thermalWarn by DynamicProfileState.thermalWarning.collectAsStateWithLifecycle()
+                    if (thermalWarn) {
+                        ElevatedCard(Modifier.fillMaxWidth()) {
+                            Row(
+                                Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = null)
+                                Text(
+                                    "CPU near thermal ceiling — Game profile stepped down",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                    }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),

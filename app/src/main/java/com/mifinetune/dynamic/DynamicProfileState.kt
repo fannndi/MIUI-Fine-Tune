@@ -76,6 +76,9 @@ object DynamicProfileState {
     /** In-app relay of the daemon's stderr log (capped, timestamped). */
     val logs = MutableStateFlow<List<String>>(emptyList())
 
+    /** True when the last env sample reported CPU temp at/above the guard ceiling. */
+    val thermalWarning = MutableStateFlow(false)
+
     fun pushLog(line: String) {
         val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
             .format(java.util.Date())

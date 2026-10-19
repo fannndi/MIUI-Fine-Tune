@@ -306,7 +306,13 @@ class DynamicProfileService : Service() {
                 }
             }
 
-            "env" -> DynamicProfileState.env.value = DiagnosticsParse.env(ev)
+            "env" -> {
+                val e = DiagnosticsParse.env(ev)
+                DynamicProfileState.env.value = e
+                val ceiling = config.thermalCeiling
+                DynamicProfileState.thermalWarning.value =
+                    e?.cpuTempC != null && e.cpuTempC!! >= ceiling
+            }
 
             "diag" -> DiagnosticsParse.diag(ev)?.let { DynamicProfileState.diag.value = it }
 
