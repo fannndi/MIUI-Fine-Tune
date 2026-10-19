@@ -41,7 +41,8 @@ class DynamicProfileConfig private constructor(context: Context) {
             "sync_miui_perf", "sync_miui_saver", "sync_refresh", "game_mode_checker",
             "guard_battery", "battery_floor_pct", "guard_thermal", "thermal_ceiling_c",
             "maintenance", "charge_limit", "charge_limit_pct", "jank_boost",
-            "app_profiles", "bypass_floor_pct",
+            "app_profiles", "bypass_floor_pct", "quiet_hours", "quiet_start_hour",
+            "quiet_end_hour", "quiet_profile",
         )
 
         @Volatile
@@ -155,6 +156,31 @@ class DynamicProfileConfig private constructor(context: Context) {
         get() = _chargeOnce.value
         set(v) = put { it.put("charge_once", v) }
 
+    // --- quiet hours (v0.17) -----------------------------------------------
+    private val _quietHours = MutableStateFlow(false)
+    val quietHoursFlow: StateFlow<Boolean> = _quietHours
+    var quietHours: Boolean
+        get() = _quietHours.value
+        set(v) = put { it.put("quiet_hours", v) }
+
+    private val _quietStartHour = MutableStateFlow(22)
+    val quietStartHourFlow: StateFlow<Int> = _quietStartHour
+    var quietStartHour: Int
+        get() = _quietStartHour.value
+        set(v) = put { it.put("quiet_start_hour", v.coerceIn(0, 23)) }
+
+    private val _quietEndHour = MutableStateFlow(6)
+    val quietEndHourFlow: StateFlow<Int> = _quietEndHour
+    var quietEndHour: Int
+        get() = _quietEndHour.value
+        set(v) = put { it.put("quiet_end_hour", v.coerceIn(0, 23)) }
+
+    private val _quietProfile = MutableStateFlow("powersave")
+    val quietProfileFlow: StateFlow<String> = _quietProfile
+    var quietProfile: String
+        get() = _quietProfile.value
+        set(v) = put { it.put("quiet_profile", v) }
+
     private val _bypassFloor = MutableStateFlow(30)
     val bypassFloorFlow: StateFlow<Int> = _bypassFloor
     var bypassFloor: Int
@@ -251,6 +277,16 @@ class DynamicProfileConfig private constructor(context: Context) {
             if (src.has("charge_limit_pct")) {
                 next.put("charge_limit_pct", src.optInt("charge_limit_pct", 80).coerceIn(60, 95))
             }
+            if (src.has("quiet_hours")) next.put("quiet_hours", src.optBoolean("quiet_hours"))
+            if (src.has("quiet_start_hour")) {
+                next.put("quiet_start_hour", src.optInt("quiet_start_hour", 22).coerceIn(0, 23))
+            }
+            if (src.has("quiet_end_hour")) {
+                next.put("quiet_end_hour", src.optInt("quiet_end_hour", 6).coerceIn(0, 23))
+            }
+            src.optString("quiet_profile").takeIf { it in KNOWN_PROFILES }?.let {
+                next.put("quiet_profile", it)
+            }
             if (src.has("battery_floor_pct")) {
                 next.put("battery_floor_pct", src.optInt("battery_floor_pct", 20).coerceIn(5, 50))
             }
@@ -323,6 +359,10 @@ class DynamicProfileConfig private constructor(context: Context) {
         _chargeLimit.value = json.optBoolean("charge_limit", false)
         _chargeLimitPct.value = json.optInt("charge_limit_pct", 80).coerceIn(60, 95)
         _chargeOnce.value = json.optBoolean("charge_once", false)
+        _quietHours.value = json.optBoolean("quiet_hours", false)
+        _quietStartHour.value = json.optInt("quiet_start_hour", 22).coerceIn(0, 23)
+        _quietEndHour.value = json.optInt("quiet_end_hour", 6).coerceIn(0, 23)
+        _quietProfile.value = json.optString("quiet_profile", "powersave")
         _bypassFloor.value = json.optInt("bypass_floor_pct", 30).coerceIn(15, 50)
         _baseProfile = json.optString("base_profile", DEFAULT_BASE).ifEmpty { DEFAULT_BASE }
         val map = mutableMapOf<String, String>()
@@ -378,6 +418,10 @@ class DynamicProfileConfig private constructor(context: Context) {
         def("charge_limit_pct", 80)
         def("charge_once", false)
         def("bypass_floor_pct", 30)
+        def("quiet_hours", false)
+        def("quiet_start_hour", 22)
+        def("quiet_end_hour", 6)
+        def("quiet_profile", "powersave")
         def("app_map", JSONObject())
         def("app_profiles", JSONObject())
     }
@@ -400,6 +444,10 @@ class DynamicProfileConfig private constructor(context: Context) {
         .put("charge_limit", _chargeLimit.value)
         .put("charge_limit_pct", _chargeLimitPct.value)
         .put("charge_once", _chargeOnce.value)
+        .put("quiet_hours", _quietHours.value)
+        .put("quiet_start_hour", _quietStartHour.value)
+        .put("quiet_end_hour", _quietEndHour.value)
+        .put("quiet_profile", _quietProfile.value)
         .put("bypass_floor_pct", _bypassFloor.value)
         .put("app_map", JSONObject())
         .put(
