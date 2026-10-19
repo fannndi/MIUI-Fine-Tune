@@ -103,7 +103,7 @@ impl Runtime {
             keyguard_locked: self.locked,
             foreground_pkg: fg.clone(),
             app_map: cfg.merged_app_map(),
-            base_profile: cfg.base_profile.clone(),
+            base_profile: cfg.effective_base_profile(),
             sleep_profile: SLEEP_PROFILE.to_string(),
             // attribution: a saver flag WE hold for a mapped app is invisible
             // to the decision — only the user's own saver forces the base

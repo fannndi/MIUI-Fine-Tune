@@ -284,6 +284,15 @@ impl DaemonConfig {
     pub fn app_profile(&self, pkg: &str) -> Option<&AppProfile> {
         self.app_profiles.get(pkg)
     }
+
+    /// Base profile id validated against the shipped set; unknown values fall
+    /// back to `balance` so a typo in config.json can never strand the daemon.
+    pub fn effective_base_profile(&self) -> String {
+        match self.base_profile.as_str() {
+            "powersave" | "balance" | "game" | "sleep" | "boost" => self.base_profile.clone(),
+            _ => "balance".to_string(),
+        }
+    }
 }
 
 #[cfg(test)]
