@@ -99,7 +99,9 @@ impl Runtime {
         // quiet hours: force the base profile in the configured window
         if cfg.quiet_hours {
             let hour = current_utc_hour();
-            if in_quiet_window(hour, cfg.quiet_start_hour, cfg.quiet_end_hour) {
+            let start = cfg.quiet_start_hour.min(23);
+            let end = cfg.quiet_end_hour.min(23);
+            if in_quiet_window(hour, start, end) {
                 let qp = match cfg.quiet_profile.as_str() {
                     "powersave" | "balance" | "game" | "sleep" | "boost" => cfg.quiet_profile.clone(),
                     _ => "powersave".to_string(),
