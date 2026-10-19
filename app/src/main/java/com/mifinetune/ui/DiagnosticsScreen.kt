@@ -24,8 +24,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -50,12 +52,17 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiagnosticsScreen(onBack: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val running by DynamicProfileState.running.collectAsStateWithLifecycle()
     val diag by DynamicProfileState.diag.collectAsStateWithLifecycle()
     val env by DynamicProfileState.env.collectAsStateWithLifecycle()
     val stats by DynamicProfileState.stats.collectAsStateWithLifecycle()
     val heals by DynamicProfileState.heals.collectAsStateWithLifecycle()
     val logs by DynamicProfileState.logs.collectAsStateWithLifecycle()
+
+    val thermalMonitor = remember(context) { ThermalStatusMonitor(context) }
+    val thermalStatus by thermalMonitor.status.collectAsStateWithLifecycle()
+    DisposableEffect(thermalMonitor) { onDispose { thermalMonitor.close() } }
 
     // fresh data on open (the service seeds diag/stats once at connect)
     LaunchedEffect(Unit) {
@@ -101,7 +108,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
                 }
             }
             item(key = "daemon") { DaemonCard(diag) }
-            item(key = "env") { EnvCard(env) }
+            item(key = "env") { EnvCard(env, thermalStatus) }
             item(key = "heal") { HealCard(heals) }
             item(key = "stats24") { StatsSummaryCard(stats) }
             item(key = "stats") { TransitionsCard(stats) }
@@ -163,7 +170,7 @@ private fun DaemonCard(diag: DiagInfo?) {
 }
 
 @Composable
-private fun EnvCard(env: EnvSnapshot?) {
+private fun EnvCard(env: EnvSnapshot?, thermalStatus: Int) {
     SectionCard("Environment") {
         if (env == null) {
             Text("Waiting for the first sample (30 s cadence)…", style = MaterialTheme.typography.bodySmall)
@@ -184,18 +191,9 @@ private fun EnvCard(env: EnvSnapshot?) {
         KV("GPU busy", env.gpuBusyPct?.let { "$it%" } ?: "—")
         KV("Panel FPS", env.screenFps?.let { String.format("%.1f fps", it) } ?: "—")
         if (android.os.Build.VERSION.SDK_INT >= 29) {
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
-            val status = runCatching { pm?.currentThermalStatus }.getOrNull()
-            val label = when (status) {
-                0 -> "none"
-                1 -> "light"
-                2 -> "moderate"
-                3 -> "severe"
-                4 -> "critical"
-                5 -> "emergency"
-                6 -> "shutdown"
-                else -> "—"
+            val label = when (thermalStatus) {
+                0 -> "none"; 1 -> "light"; 2 -> "moderate"; 3 -> "severe"
+                4 -> "critical"; 5 -> "emergency"; 6 -> "shutdown"; else -> "—"
             }
             KV("Thermal (Android 10)", label)
         }

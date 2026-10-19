@@ -70,9 +70,12 @@ pub struct EnvSnapshot {
 
 /// The sysfs prefix for this process (`/` on device, a fixture in tests).
 pub fn default_root() -> PathBuf {
-    std::env::var_os(SYSFS_ROOT_ENV)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"))
+    if crate::engine::probe::allow_env_overrides() {
+        if let Some(v) = std::env::var_os(SYSFS_ROOT_ENV) {
+            return PathBuf::from(v);
+        }
+    }
+    PathBuf::from("/")
 }
 
 /// Battery + thermal + GPU sampler (zone paths resolved once at startup).

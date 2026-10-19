@@ -77,12 +77,38 @@ pub struct ProbeData {
     pub framework: FrameworkEvidence,
 }
 
+/// True when this process is running as root (uid 0).
+pub fn is_root() -> bool {
+    std::fs::read_to_string("/proc/self/status")
+        .map(|s| {
+            s.lines()
+                .find(|l| l.starts_with("Uid:"))
+                .and_then(|l| l.split_whitespace().nth(2))
+                .map(|euid| euid == "0")
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+}
+
+/// Whether environment-based path overrides are honored. Production (root)
+/// ignores them so a caller cannot redirect the root daemon at arbitrary
+/// binaries/paths; host tests (non-root) and explicit debug runs keep them.
+pub fn allow_env_overrides() -> bool {
+    if std::env::var("MIFINETUNE_DEBUG").ok().as_deref() == Some("1") {
+        return true;
+    }
+    !is_root()
+}
+
 /// Absolute IO root: `/` on device, a fixture tree in host tests
 /// (`MIFINETUNE_SYSFS_ROOT` — same env as the env sampler uses).
 fn io_root() -> std::path::PathBuf {
-    std::env::var_os("MIFINETUNE_SYSFS_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("/"))
+    if allow_env_overrides() {
+        if let Some(v) = std::env::var_os("MIFINETUNE_SYSFS_ROOT") {
+            return std::path::PathBuf::from(v);
+        }
+    }
+    std::path::PathBuf::from("/")
 }
 
 fn resolve(path: &str) -> std::path::PathBuf {

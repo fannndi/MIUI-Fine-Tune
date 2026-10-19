@@ -27,7 +27,12 @@ pub const MAX_PEEK_AGE_S: f64 = 60.0;
 
 /// logcat path; overridable for host tests (fake-logcat fixtures).
 fn logcat_bin() -> String {
-    std::env::var("MIFINETUNE_LOGCAT_BIN").unwrap_or_else(|_| LOGCAT.to_string())
+    if crate::engine::probe::allow_env_overrides() {
+        if let Ok(v) = std::env::var("MIFINETUNE_LOGCAT_BIN") {
+            return v;
+        }
+    }
+    LOGCAT.to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

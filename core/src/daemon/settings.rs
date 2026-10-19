@@ -30,7 +30,12 @@ const POLL_MS: u64 = 5_000;
 
 /// Resolved settings binary for this process.
 pub fn bin_path() -> String {
-    std::env::var(SETTINGS_BIN_ENV).unwrap_or_else(|_| SETTINGS_BIN.to_string())
+    if crate::engine::probe::allow_env_overrides() {
+        if let Ok(v) = std::env::var(SETTINGS_BIN_ENV) {
+            return v;
+        }
+    }
+    SETTINGS_BIN.to_string()
 }
 
 /// Cached live flags for the decision loop.
@@ -137,13 +142,21 @@ const REFRESH_DEX_PATH: &str = "/data/adb/mifinetune/refresh_fps.dex";
 const REFRESH_DEX_BYTES: &[u8] = include_bytes!("../../assets/refresh_fps.dex");
 
 fn app_process_path() -> String {
-    std::env::var(APP_PROCESS_BIN_ENV).unwrap_or_else(|_| APP_PROCESS_BIN.to_string())
+    if crate::engine::probe::allow_env_overrides() {
+        if let Ok(v) = std::env::var(APP_PROCESS_BIN_ENV) {
+            return v;
+        }
+    }
+    APP_PROCESS_BIN.to_string()
 }
 
 fn refresh_dex_path() -> PathBuf {
-    std::env::var(REFRESH_DEX_ENV)
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(REFRESH_DEX_PATH))
+    if crate::engine::probe::allow_env_overrides() {
+        if let Ok(v) = std::env::var(REFRESH_DEX_ENV) {
+            return PathBuf::from(v);
+        }
+    }
+    PathBuf::from(REFRESH_DEX_PATH)
 }
 
 /// Resolves the helper + dex for this process (env overrides for E2E).
@@ -212,19 +225,30 @@ const DT_BASE: &str = "/sys/firmware/devicetree/base/soc/qcom,mdss_mdp@ae00000";
 const DFPS_FALLBACK: [u32; 5] = [120, 90, 60, 50, 30];
 
 fn service_bin() -> String {
-    std::env::var(SERVICE_BIN_ENV).unwrap_or_else(|_| SERVICE_BIN.to_string())
+    if crate::engine::probe::allow_env_overrides() {
+        if let Ok(v) = std::env::var(SERVICE_BIN_ENV) {
+            return v;
+        }
+    }
+    SERVICE_BIN.to_string()
 }
 
 fn panel_info_path() -> PathBuf {
-    std::env::var(PANEL_INFO_ENV)
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(PANEL_INFO_PATH))
+    if crate::engine::probe::allow_env_overrides() {
+        if let Ok(v) = std::env::var(PANEL_INFO_ENV) {
+            return PathBuf::from(v);
+        }
+    }
+    PathBuf::from(PANEL_INFO_PATH)
 }
 
 fn dt_base_path() -> PathBuf {
-    std::env::var(DT_BASE_ENV)
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(DT_BASE))
+    if crate::engine::probe::allow_env_overrides() {
+        if let Ok(v) = std::env::var(DT_BASE_ENV) {
+            return PathBuf::from(v);
+        }
+    }
+    PathBuf::from(DT_BASE)
 }
 
 /// Panel name (e.g. `dsi_nt36672c_huaxing_fhd_video_display`) mapped to the
