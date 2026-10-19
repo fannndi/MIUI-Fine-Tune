@@ -31,9 +31,9 @@ internal fun BackupCard(config: DynamicProfileConfig) {
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val ok = runCatching {
-            context.contentResolver.openOutputStream(uri)?.use {
-                it.write(config.exportJson().toByteArray())
-            }
+            val stream = context.contentResolver.openOutputStream(uri)
+                ?: return@runCatching false
+            stream.use { it.write(config.exportJson().toByteArray()) }
             true
         }.getOrDefault(false)
         Toast.makeText(

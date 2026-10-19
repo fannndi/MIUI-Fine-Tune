@@ -203,9 +203,14 @@ class DynamicProfileConfig private constructor(context: Context) {
     private fun writeAppProfiles(json: JSONObject, entries: Map<String, AppProfileEntry>) {
         val out = JSONObject()
         for ((k, e) in entries) out.put(k, e.toJson())
-        // `app_map` stays the mirror of `profile` but must PRESERVE legacy
-        // mappings of apps that have no extended entry yet.
+        // `app_map` stays the mirror of `profile`. Drop entries for apps that
+        // were removed (stale mappings must not survive).
+        val before = json.optJSONObject("app_profiles")
         val map = json.optJSONObject("app_map") ?: JSONObject()
+        // remove any key that existed before but is gone now
+        before?.keys()?.forEach { k ->
+            if (!entries.containsKey(k)) map.remove(k)
+        }
         for ((k, e) in entries) {
             if (e.profile != null) map.put(k, e.profile) else map.remove(k)
         }
@@ -276,12 +281,16 @@ class DynamicProfileConfig private constructor(context: Context) {
             }
             src.optString("base_profile").takeIf { it in KNOWN_PROFILES }
                 ?.let { next.put("base_profile", it) }
-            src.optJSONObject("app_map")?.let { map ->
-                val out = JSONObject()
-                map.keys().forEach { k ->
-                    map.optString(k).takeIf { it in KNOWN_PROFILES }?.let { out.put(k, it) }
+            // only honor a standalone app_map import when the backup did not
+            // carry app_profiles (which is the authoritative source).
+            if (!src.has("app_profiles")) {
+                src.optJSONObject("app_map")?.let { map ->
+                    val out = JSONObject()
+                    map.keys().forEach { k ->
+                        map.optString(k).takeIf { it in KNOWN_PROFILES }?.let { out.put(k, it) }
+                    }
+                    next.put("app_map", out)
                 }
-                next.put("app_map", out)
             }
             fillDefaults(next)
             writeAtomic(next.toString())
@@ -464,9 +473,9 @@ class DynamicProfileConfig private constructor(context: Context) {
             val tmp = File(context.cacheDir, "holds.json.migrate")
             tmp.writeText(holds.toString())
             Tuner.bridge.sh(
-                "mkdir -p ${RootBridge.STATE_DIR}; " +
-                    "cp ${tmp.absolutePath} ${RootBridge.STATE_DIR}/holds.json; " +
-                    "rm ${tmp.absolutePath}"
+                "mkdir -p \"${RootBridge.STATE_DIR}\"; " +
+                    "cp \"${tmp.absolutePath}\" \"${RootBridge.STATE_DIR}/holds.json\"; " +
+                    "rm \"${tmp.absolutePath}\""
             )
         }.onFailure { Log.w(TAG, "holds migration skipped: $it") }
     }

@@ -70,9 +70,16 @@ class DndController(private val context: Context) {
         val manager = nm()
         val current = runCatching { manager?.currentInterruptionFilter }.getOrNull()
         if (manager != null && current == applied) {
-            runCatching { manager.setInterruptionFilter(saved) }
-            Log.d(TAG, "dnd restored: $saved")
+            val ok = runCatching { manager.setInterruptionFilter(saved) }.isSuccess
+            if (ok) {
+                Log.d(TAG, "dnd restored: $saved")
+                prefs.edit().remove(K_APPLIED).remove(K_SAVED).apply()
+            } else {
+                Log.w(TAG, "dnd restore failed")
+            }
+        } else {
+            // not our filter anymore: drop the stale restore point
+            prefs.edit().remove(K_APPLIED).remove(K_SAVED).apply()
         }
-        prefs.edit().remove(K_APPLIED).remove(K_SAVED).apply()
     }
 }

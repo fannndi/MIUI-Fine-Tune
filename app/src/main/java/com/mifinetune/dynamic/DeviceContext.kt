@@ -17,10 +17,10 @@ import android.os.PowerManager
 class DeviceContextReader(private val context: Context) {
 
     private val keyguard =
-        context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
     private val power =
-        context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        context.getSystemService(Context.POWER_SERVICE) as? PowerManager
 
-    val screenOn: Boolean get() = power.isInteractive
-    val keyguardLocked: Boolean get() = keyguard.isKeyguardLocked
+    val screenOn: Boolean get() = power?.isInteractive ?: true
+    val keyguardLocked: Boolean get() = keyguard?.isKeyguardLocked ?: false
 }

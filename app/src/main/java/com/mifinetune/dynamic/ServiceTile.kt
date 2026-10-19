@@ -39,8 +39,13 @@ class ServiceTile : TileService() {
                     .setAction(DynamicProfileService.ACTION_STOP),
             )
         } else {
-            DynamicProfileConfig.get(this).enabled = true
-            DynamicProfileService.start(this)
+            val config = DynamicProfileConfig.get(this)
+            config.enabled = true
+            runCatching { DynamicProfileService.start(this) }
+                .onFailure { e ->
+                    config.enabled = false
+                    android.util.Log.w("MiFineTune", "tile start failed: $e")
+                }
         }
         refreshTile()
     }

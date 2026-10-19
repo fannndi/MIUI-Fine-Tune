@@ -193,8 +193,11 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
      * to apply now, wait for the applied event (it carries real counters).
      */
     private suspend fun applyViaDaemon(profileId: String) {
-        config.baseProfile = profileId
+        // capture the seq BEFORE writing config: the config_changed hint can
+        // make the daemon re-evaluate and emit an applied event that bumps
+        // the seq before set_base is sent.
         val seq = DynamicProfileState.currentAppliedSeq()
+        config.baseProfile = profileId
         val sent = DaemonLink.send(JSONObject().put("cmd", "set_base").put("profile", profileId))
         val ev = if (sent) {
             withTimeoutOrNull(15_000) {
@@ -310,6 +313,11 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(busy = "service-off", error = null) }
             config.enabled = false
             val report = if (DaemonLink.connected()) restoreViaDaemon() else restoreViaCli()
+            if (report?.ok == false) {
+                // restore failed: keep the service enabled so the device is not
+                // left tuned while config claims disabled.
+                config.enabled = true
+            }
             runCatching { DynamicProfileService.stop(getApplication()) }
             Tuner.stopGuard()
             val status = runCatching { Tuner.status() }.getOrNull()

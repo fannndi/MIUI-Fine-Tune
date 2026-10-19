@@ -189,7 +189,7 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
                 // settings are MIUI's), except ones already merged above.
                 val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
                 pm.queryIntentActivities(intent, 0).forEach { ri ->
-                    val ai = ri.activityInfo.applicationInfo
+                    val ai = ri.activityInfo?.applicationInfo ?: return@forEach
                     val isSystem = (ai.flags and ApplicationInfo.FLAG_SYSTEM) != 0
                     if (!isSystem) add(ai)
                 }

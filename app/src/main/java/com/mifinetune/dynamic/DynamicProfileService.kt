@@ -142,6 +142,7 @@ class DynamicProfileService : Service() {
     // --- daemon lifecycle ---------------------------------------------------
 
     private fun startClient() {
+        lastClientStart = System.currentTimeMillis()
         val c = DaemonClient(
             configPath = daemonConfigPath(this),
             onEvent = { ev -> handleEvent(ev) },
@@ -247,6 +248,8 @@ class DynamicProfileService : Service() {
                 DynamicProfileState.reason.value = reason
                 if (active != null) {
                     updateNotification(active, reason ?: "base")
+                } else {
+                    updateNotification("stock", reason ?: "base")
                 }
             }
 

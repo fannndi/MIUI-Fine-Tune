@@ -35,12 +35,16 @@ class RootBridge {
         val process = ProcessBuilder(suBin, "-c", cmd)
             .redirectErrorStream(true)
             .start()
-        val out = process.inputStream.bufferedReader().use { it.readText() }
         val finished = process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
         if (!finished) {
             process.destroyForcibly()
-            return Sh(124, "$out\n[timeout after ${timeoutMs}ms]")
+            // drain whatever was produced before the kill
+            val partial = runCatching {
+                process.inputStream.bufferedReader().use { it.readText() }
+            }.getOrDefault("")
+            return Sh(124, "$partial\n[timeout after ${timeoutMs}ms]")
         }
+        val out = process.inputStream.bufferedReader().use { it.readText() }
         return Sh(process.exitValue(), out)
     }
 

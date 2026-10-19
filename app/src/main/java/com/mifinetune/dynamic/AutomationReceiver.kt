@@ -35,35 +35,42 @@ class AutomationReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        val pending = goAsync()
         val config = DynamicProfileConfig.get(context)
-        when (intent.action) {
-            ACTION_SET_PROFILE -> {
-                val profile = intent.getStringExtra("profile")?.trim()
-                if (profile == null || profile !in PROFILES) {
-                    Log.w(TAG, "automation: bad profile '${intent.getStringExtra("profile")}'")
-                    return
-                }
-                Log.d(TAG, "automation: set profile $profile")
-                config.baseProfile = profile
-                // immediate apply when the service (daemon) is running;
-                // otherwise the base takes effect at the next service start
-                DaemonLink.send(JSONObject().put("cmd", "set_base").put("profile", profile))
-            }
+        Thread {
+            try {
+                when (intent.action) {
+                    ACTION_SET_PROFILE -> {
+                        val profile = intent.getStringExtra("profile")?.trim()
+                        if (profile == null || profile !in PROFILES) {
+                            Log.w(TAG, "automation: bad profile '${intent.getStringExtra("profile")}'")
+                            return@Thread
+                        }
+                        Log.d(TAG, "automation: set profile $profile")
+                        config.baseProfile = profile
+                        // immediate apply when the service (daemon) is running;
+                        // otherwise the base takes effect at the next service start
+                        DaemonLink.send(JSONObject().put("cmd", "set_base").put("profile", profile))
+                    }
 
-            ACTION_BOOST -> {
-                Log.d(TAG, "automation: boost")
-                DaemonLink.send(JSONObject().put("cmd", "boost"))
-            }
+                    ACTION_BOOST -> {
+                        Log.d(TAG, "automation: boost")
+                        DaemonLink.send(JSONObject().put("cmd", "boost"))
+                    }
 
-            ACTION_SET_CHARGE_LIMIT -> {
-                if (!intent.hasExtra("enabled")) return
-                val enabled = intent.getBooleanExtra("enabled", config.chargeLimit)
-                Log.d(TAG, "automation: charge limit $enabled")
-                config.chargeLimit = enabled
-                if (enabled && intent.hasExtra("pct")) {
-                    config.chargeLimitPct = intent.getIntExtra("pct", config.chargeLimitPct)
+                    ACTION_SET_CHARGE_LIMIT -> {
+                        if (!intent.hasExtra("enabled")) return@Thread
+                        val enabled = intent.getBooleanExtra("enabled", config.chargeLimit)
+                        Log.d(TAG, "automation: charge limit $enabled")
+                        config.chargeLimit = enabled
+                        if (enabled && intent.hasExtra("pct")) {
+                            config.chargeLimitPct = intent.getIntExtra("pct", config.chargeLimitPct)
+                        }
+                    }
                 }
+            } finally {
+                pending.finish()
             }
-        }
+        }.start()
     }
 }

@@ -61,8 +61,9 @@ object Tuner {
      * ends by itself when nothing is active.
      */
     fun ensureGuard(scope: CoroutineScope) {
-        if (guardJob?.isActive == true) return
-        guardJob = scope.launch(Dispatchers.IO) {
+        synchronized(this) {
+            if (guardJob?.isActive == true) return
+            guardJob = scope.launch(Dispatchers.IO) {
             guardActive.value = true
             while (isActive) {
                 delay(15_000)
@@ -76,6 +77,7 @@ object Tuner {
                     }
             }
             guardActive.value = false
+        }
         }
     }
 

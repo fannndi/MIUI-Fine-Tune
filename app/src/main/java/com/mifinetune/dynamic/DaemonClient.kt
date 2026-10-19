@@ -36,8 +36,8 @@ class DaemonClient(
     var isAlive: Boolean = false
         private set
 
-    private var process: Process? = null
-    private var writer: BufferedWriter? = null
+    @Volatile private var process: Process? = null
+    @Volatile private var writer: BufferedWriter? = null
     private val writeLock = Any()
 
     /** Spawns `su -c "miui-ft serve ..."` and starts the reader threads. */
