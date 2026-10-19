@@ -82,6 +82,10 @@ object DynamicProfileState {
         logs.value = (logs.value + "$time  $line").takeLast(200)
     }
 
+    fun clearLogs() {
+        logs.value = emptyList()
+    }
+
     /** Latest `applied` event (each event is a new instance). */
     val appliedEvents = MutableStateFlow<AppliedEvent?>(null)
     private var appliedSeq = 0L

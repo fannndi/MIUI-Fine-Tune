@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ElevatedCard
@@ -87,6 +88,11 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
                         DaemonLink.send(JSONObject().put("cmd", "stats"))
                     }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    }
+                    IconButton(onClick = {
+                        DynamicProfileState.clearLogs()
+                    }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Clear log")
                     }
                     IconButton(onClick = {
                         val body = buildString {
