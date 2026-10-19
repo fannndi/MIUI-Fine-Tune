@@ -69,6 +69,7 @@ fun SettingsScreen(
     val chargeOnce = vm?.chargeOnce?.collectAsStateWithLifecycle()?.value
     val bypassFloor = vm?.bypassFloor?.collectAsStateWithLifecycle()?.value
     val jankBoost = vm?.jankBoost?.collectAsStateWithLifecycle()?.value
+    val quietHours = vm?.quietHours?.collectAsStateWithLifecycle()?.value
 
     Scaffold(
         topBar = {
@@ -123,6 +124,25 @@ fun SettingsScreen(
                     onChargeOnce = vm::setChargeOnce,
                     onBypassFloor = vm::setBypassFloor,
                 )
+            }
+
+            if (vm != null && quietHours != null) {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Quiet hours", style = MaterialTheme.typography.titleMedium)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Force base profile at night", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "UTC window; default 22:00 → 06:00 → powersave",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(checked = quietHours, onCheckedChange = vm::setQuietHours)
+                        }
+                    }
+                }
             }
 
             if (vm != null) {
