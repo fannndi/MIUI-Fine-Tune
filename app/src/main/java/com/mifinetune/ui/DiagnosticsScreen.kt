@@ -182,6 +182,12 @@ private fun DaemonCard(diag: DiagInfo?) {
             "service ${if (diag.configEnabled) "on" else "off"} · " +
                 "dynamic ${if (diag.configDynamic) "on" else "off"} · base ${diag.baseProfile}",
         )
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = {
+                DaemonLink.send(JSONObject().put("cmd", "shutdown"))
+            }) { Text("Restart daemon") }
+        }
     }
 }
 
