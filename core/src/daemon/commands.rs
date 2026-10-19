@@ -179,7 +179,11 @@ impl Runtime {
         if self.screen_on && !self.locked {
             // Debounce: a rapid burst of foreground events (launcher flashes
             // between two registered apps) coalesces into one smooth switch.
-            self.fg_debounce = Some(Instant::now() + Duration::from_millis(super::FG_DEBOUNCE_MS));
+            let debounce = std::env::var("MIFINETUNE_DEBOUNCE_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(super::FG_DEBOUNCE_MS);
+            self.fg_debounce = Some(Instant::now() + Duration::from_millis(debounce));
         }
     }
 
