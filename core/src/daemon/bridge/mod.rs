@@ -53,6 +53,8 @@ pub struct Bridge {
     /// 0/1 = the captured user value while a hold is active. Kept in sync
     /// with `state` so the decision loop never blocks on the bridge Mutex.
     saver_override: AtomicI8,
+    /// Last synced context: skip a full sync when nothing relevant changed.
+    last_sync: Mutex<Option<SyncCtx>>,
 }
 
 struct State {
@@ -100,6 +102,7 @@ impl Bridge {
                 dnd_sent: None,
             }),
             saver_override: AtomicI8::new(-1),
+            last_sync: Mutex::new(None),
         });
         bridge.refresh_attribution();
         bridge
@@ -160,6 +163,15 @@ impl Bridge {
     /// One full sync: perf mirror, saver follow, game-mode checker.
     /// Serialized by the internal Mutex; safe to call after every decision.
     pub fn sync(&self, ctx: &SyncCtx) {
+        // Short-circuit: if the world hasn't changed since the last sync, skip
+        // the settings execs entirely (perf/saver/refresh/charge/bypass reads).
+        {
+            let mut last = self.last_sync.lock().unwrap_or_else(|p| p.into_inner());
+            if last.as_ref() == Some(ctx) {
+                return;
+            }
+            *last = Some(ctx.clone());
+        }
         // The lock is held across the settings execs so two syncs can never
         // interleave their read/write pairs (the old yo-yo bug class).
         let (perf_changed, saver_changed, charge_changed, extra_changed, refresh_changed) = {

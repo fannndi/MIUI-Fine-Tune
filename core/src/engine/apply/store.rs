@@ -11,12 +11,15 @@ use std::path::{Path, PathBuf};
 
 pub struct Store {
     dir: PathBuf,
+    /// Cached parsed profile pack keyed by file mtime (None for embedded).
+    profiles_cache: std::cell::RefCell<Option<(Option<std::time::SystemTime>, crate::engine::profile::ProfilesFile)>>,
 }
 
 impl Store {
     pub fn new(dir: &Path) -> Self {
         Store {
             dir: dir.to_path_buf(),
+            profiles_cache: std::cell::RefCell::new(None),
         }
     }
 
@@ -70,16 +73,31 @@ impl Store {
         &self,
         override_path: Option<&Path>,
     ) -> Result<crate::engine::profile::ProfilesFile, String> {
+        // overrides (CLI/tests) are never cached
         if let Some(p) = override_path {
             let s = fs::read_to_string(p).map_err(|e| format!("read {p:?}: {e}"))?;
             return crate::engine::profile::parse_profiles(&s);
         }
         let local = self.dir.join("profiles.json");
-        if local.exists() {
-            let s = fs::read_to_string(&local).map_err(|e| format!("read {local:?}: {e}"))?;
-            return crate::engine::profile::parse_profiles(&s);
+        let stamp = if local.exists() {
+            fs::metadata(&local).ok().and_then(|m| m.modified().ok())
+        } else {
+            None
+        };
+        // cache hit?
+        if let Some((cached_stamp, cached)) = self.profiles_cache.borrow().as_ref() {
+            if *cached_stamp == stamp {
+                return Ok(cached.clone());
+            }
         }
-        crate::engine::profile::parse_profiles(crate::DEFAULT_PROFILES_JSON)
+        let parsed = if local.exists() {
+            let s = fs::read_to_string(&local).map_err(|e| format!("read {local:?}: {e}"))?;
+            crate::engine::profile::parse_profiles(&s)?
+        } else {
+            crate::engine::profile::parse_profiles(crate::DEFAULT_PROFILES_JSON)?
+        };
+        *self.profiles_cache.borrow_mut() = Some((stamp, parsed.clone()));
+        Ok(parsed)
     }
 }
 

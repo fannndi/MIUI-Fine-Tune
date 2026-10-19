@@ -12,7 +12,7 @@ use crate::daemon::settings;
 use std::fs;
 
 /// Everything the sync needs about the current world.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SyncCtx {
     pub last_real: Option<String>,
     pub screen_on: bool,
