@@ -158,30 +158,40 @@ fn getprop(name: &str) -> Option<String> {
     }
 }
 
+/// Parse `/sys/devices/system/cpu/possible` ("0-7", "0-3,4-7", "0,2,4-7")
+/// into a count.
+pub fn parse_cpu_count(s: &str) -> usize {
+    let mut max: Option<usize> = None;
+    for part in s.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let mut segs = part.split('-');
+        let lo: usize = match segs.next().map(str::trim).and_then(|t| t.parse().ok()) {
+            Some(v) => v,
+            None => return 8,
+        };
+        let hi: usize = match segs.next() {
+            Some(h) => match h.trim().parse().ok() {
+                Some(v) => v,
+                None => return 8,
+            },
+            None => lo,
+        };
+        if segs.next().is_some() {
+            return 8; // malformed
+        }
+        let m = max.get_or_insert(0);
+        *m = (*m).max(hi);
+    }
+    max.map(|m| m + 1).unwrap_or(8)
+}
+
 /// Parse `/sys/devices/system/cpu/possible` ("0-7") into a count.
 fn cpu_count() -> usize {
     read("/sys/devices/system/cpu/possible")
-        .and_then(|s| {
-            let mut max: Option<usize> = None;
-            for part in s.split(',') {
-                let part = part.trim();
-                if part.is_empty() {
-                    continue;
-                }
-                let mut segs = part.split('-');
-                let lo: usize = segs.next()?.trim().parse().ok()?;
-                let hi: usize = match segs.next() {
-                    Some(h) => h.trim().parse().ok()?,
-                    None => lo,
-                };
-                if segs.next().is_some() {
-                    return None; // malformed
-                }
-                let m = max.get_or_insert(0);
-                *m = (*m).max(hi);
-            }
-            max.map(|m| m + 1)
-        })
+        .map(|s| parse_cpu_count(&s))
         .unwrap_or(8)
 }
 
@@ -295,4 +305,35 @@ pub fn probe() -> ProbeData {
 /// Current value for a catalog entry (live read).
 pub fn entry_value(e: &Entry) -> Option<String> {
     read(e.path)
+}
+
+#[cfg(test)]
+mod tests_cpu_count {
+    use super::parse_cpu_count;
+
+    #[test]
+    fn simple_range() {
+        assert_eq!(parse_cpu_count("0-7"), 8);
+    }
+
+    #[test]
+    fn comma_ranges() {
+        assert_eq!(parse_cpu_count("0-3,4-7"), 8);
+        assert_eq!(parse_cpu_count("0,2,4-7"), 8);
+    }
+
+    #[test]
+    fn mixed_single() {
+        assert_eq!(parse_cpu_count("0-3,5"), 6);
+    }
+
+    #[test]
+    fn single_cpu() {
+        assert_eq!(parse_cpu_count("0"), 1);
+    }
+
+    #[test]
+    fn empty_fallback() {
+        assert_eq!(parse_cpu_count(""), 8);
+    }
 }
