@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Offline by design: no INTERNET permission. Root is used through `su`. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -8,6 +9,8 @@
     <!-- Per-app DND uses the official interruption-filter API; the user
          grants "Do Not Disturb access" once in system settings. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+<uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+    tools:ignore="ProtectedPermissions" />
 
     <!-- package visibility (API 30+): needed to list launchable apps -->
     <queries>

@@ -160,6 +160,9 @@ class DynamicProfileService : Service() {
             // tell the daemon whether the official-API bridge is usable
             dnd.restore()
             c.send(JSONObject().put("cmd", "hello"))
+            UsageStatsForeground.currentForeground(this)?.let { pkg ->
+                c.send(JSONObject().put("cmd", "seed").put("pkg", pkg))
+            }
             c.send(JSONObject().put("cmd", "dnd_access").put("granted", dnd.isGranted()))
             // seed the diagnostics screen (on-demand, cheap)
             c.send(JSONObject().put("cmd", "diag"))

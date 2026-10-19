@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mifinetune.core.Status
 import com.mifinetune.dynamic.DynamicProfileConfig
+import com.mifinetune.dynamic.UsageStatsForeground
 
 /**
  * Settings: permissions/background checklist and a small diagnostics block.
@@ -171,6 +172,13 @@ fun SettingsScreen(
                         ok = null,
                         actionLabel = "Open",
                         onAction = { openAppSettings(context) },
+                    )
+                    SetupRow(
+                        title = "Usage access",
+                        subtitle = "Optional fallback for foreground detection",
+                        ok = UsageStatsForeground.hasAccess(context),
+                        actionLabel = "Open",
+                        onAction = { UsageStatsForeground.openSettings(context) },
                     )
                 }
             }
