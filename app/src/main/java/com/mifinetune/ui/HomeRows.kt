@@ -2,6 +2,7 @@ package com.mifinetune.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -95,6 +96,7 @@ internal fun ProfileRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .animateContentSize()
             .clickable(enabled = enabled && !busy, onClick = onApply),
         colors = if (active) {
             CardDefaults.cardColors(
