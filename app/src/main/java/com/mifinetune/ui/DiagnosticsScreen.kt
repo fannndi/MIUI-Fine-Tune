@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -86,6 +87,20 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
                         DaemonLink.send(JSONObject().put("cmd", "stats"))
                     }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    }
+                    IconButton(onClick = {
+                        val body = buildString {
+                            append("MiFineTune diagnostics\n")
+                            append("logs:\n")
+                            append(logs.joinToString("\n"))
+                        }
+                        val i = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_TEXT, body)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(i, "Share diagnostics"))
+                    }) {
+                        Icon(Icons.Default.Share, contentDescription = "Share")
                     }
                 },
             )
