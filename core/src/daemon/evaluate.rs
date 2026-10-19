@@ -361,3 +361,37 @@ fn in_quiet_window(hour: u8, start: u8, end: u8) -> bool {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::in_quiet_window;
+
+    #[test]
+    fn quiet_window_linear() {
+        assert!(in_quiet_window(1, 22, 6));
+        assert!(in_quiet_window(5, 22, 6));
+        assert!(!in_quiet_window(12, 22, 6));
+        assert!(in_quiet_window(23, 22, 6));
+    }
+
+    #[test]
+    fn quiet_window_wrap() {
+        assert!(in_quiet_window(23, 22, 6));
+        assert!(in_quiet_window(0, 22, 6));
+        assert!(in_quiet_window(5, 22, 6));
+        assert!(!in_quiet_window(12, 22, 6));
+        assert!(!in_quiet_window(6, 22, 6));
+    }
+
+    #[test]
+    fn quiet_window_linear_range() {
+        assert!(in_quiet_window(10, 8, 18));
+        assert!(!in_quiet_window(7, 8, 18));
+        assert!(!in_quiet_window(18, 8, 18));
+    }
+
+    #[test]
+    fn quiet_window_empty() {
+        assert!(!in_quiet_window(5, 6, 6));
+    }
+}
