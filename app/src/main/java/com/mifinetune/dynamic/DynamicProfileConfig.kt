@@ -504,6 +504,7 @@ class DynamicProfileConfig private constructor(context: Context) {
             .put("game_mode_checker", sp.getBoolean("game_mode_checker", true))
             .put("app_map", runCatching { JSONObject(sp.getString("app_map", "{}") ?: "{}") }.getOrDefault(JSONObject()))
         writeAtomic(json.toString())
+        fillDefaults(json)
         migrateHolds(context, sp)
         Log.d(TAG, "config migrated from prefs -> ${file.name}")
         return json
