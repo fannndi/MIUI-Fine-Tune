@@ -184,6 +184,12 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
     if let Err(e) = std::fs::create_dir_all(state_dir) {
         publisher.log(&format!("state dir: {e}"));
     }
+    // lock down the state dir: it holds restore points + config cache
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(state_dir, std::fs::Permissions::from_mode(0o700));
+    }
 
     let (mut cfg, cfg_err) = ConfigFile::load(config_path);
     if let Some(e) = cfg_err {
