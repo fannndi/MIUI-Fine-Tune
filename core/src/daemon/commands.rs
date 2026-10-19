@@ -45,8 +45,7 @@ impl Runtime {
                         .ok()
                         .and_then(|v| v.parse().ok())
                         .unwrap_or(SLEEP_DELAY_MS);
-                    self.sleep_deadline =
-                        Some(Instant::now() + Duration::from_millis(sleep_ms));
+                    self.sleep_deadline = Some(Instant::now() + Duration::from_millis(sleep_ms));
                 } else {
                     self.screen_off_since = None;
                     self.sleep_deadline = None;
@@ -104,7 +103,10 @@ impl Runtime {
             Command::SetBase { profile } => {
                 // validate against the shipped profile set so a bad/tampered
                 // value can never reach the engine (or the device).
-                if !matches!(profile.as_str(), "powersave" | "balance" | "game" | "sleep" | "boost") {
+                if !matches!(
+                    profile.as_str(),
+                    "powersave" | "balance" | "game" | "sleep" | "boost"
+                ) {
                     self.log(&format!("set_base: rejected unknown profile '{profile}'"));
                     return true;
                 }

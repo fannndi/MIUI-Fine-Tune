@@ -12,7 +12,12 @@ use std::path::{Path, PathBuf};
 pub struct Store {
     dir: PathBuf,
     /// Cached parsed profile pack keyed by file mtime (None for embedded).
-    profiles_cache: std::cell::RefCell<Option<(Option<std::time::SystemTime>, crate::engine::profile::ProfilesFile)>>,
+    profiles_cache: std::cell::RefCell<
+        Option<(
+            Option<std::time::SystemTime>,
+            crate::engine::profile::ProfilesFile,
+        )>,
+    >,
 }
 
 impl Store {

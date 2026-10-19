@@ -94,22 +94,20 @@ impl Bridge {
         let (next, action) = st.holds.request_saver(live, want);
         let changed = next != st.holds;
         match action {
-            SaverAction::TurnOn => {
-                match settings::put("global", settings::SAVER_KEY, "1") {
-                    Ok(()) => {
-                        self.log_event(format!(
-                            "MIUI saver ON ({})",
-                            ctx.last_real.as_deref().unwrap_or("?")
-                        ));
-                        st.holds = next;
-                        true
-                    }
-                    Err(e) => {
-                        self.log_event(format!("MIUI saver write failed: {e}"));
-                        false
-                    }
+            SaverAction::TurnOn => match settings::put("global", settings::SAVER_KEY, "1") {
+                Ok(()) => {
+                    self.log_event(format!(
+                        "MIUI saver ON ({})",
+                        ctx.last_real.as_deref().unwrap_or("?")
+                    ));
+                    st.holds = next;
+                    true
                 }
-            }
+                Err(e) => {
+                    self.log_event(format!("MIUI saver write failed: {e}"));
+                    false
+                }
+            },
             SaverAction::Restore => {
                 let value = if next.saver_saved { "1" } else { "0" };
                 match settings::put("global", settings::SAVER_KEY, value) {

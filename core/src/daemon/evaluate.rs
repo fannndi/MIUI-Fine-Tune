@@ -103,7 +103,9 @@ impl Runtime {
             let end = cfg.quiet_end_hour.min(23);
             if in_quiet_window(hour, start, end) {
                 let qp = match cfg.quiet_profile.as_str() {
-                    "powersave" | "balance" | "game" | "sleep" | "boost" => cfg.quiet_profile.clone(),
+                    "powersave" | "balance" | "game" | "sleep" | "boost" => {
+                        cfg.quiet_profile.clone()
+                    }
                     _ => "powersave".to_string(),
                 };
                 self.log(&format!("quiet hours: base -> {qp}"));
@@ -306,8 +308,12 @@ impl Runtime {
     /// window ends. Rate-limited by a cooldown; opt-in via config.
     pub(super) fn on_jank(&mut self, frames: u32) {
         let cfg = self.config.get().clone();
-        if !cfg.jank_boost || self.retired || !self.screen_on || self.locked
-            || battery_low(&cfg, &self.env) || self.thermal_stepped
+        if !cfg.jank_boost
+            || self.retired
+            || !self.screen_on
+            || self.locked
+            || battery_low(&cfg, &self.env)
+            || self.thermal_stepped
         {
             return;
         }
