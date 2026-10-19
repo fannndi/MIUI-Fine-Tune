@@ -27,10 +27,6 @@ class DynamicProfileConfig private constructor(context: Context) {
         const val FILE = "config.json"
         const val DEFAULT_BASE = "balance"
 
-        // legacy SharedPreferences (v0.5); kept as a downgrade fallback
-        private const val PREFS = "dynamic_profile"
-        private const val LEGACY_PREFS = "automation"
-        private const val K_MIGRATED = "prefs_migrated_from_automation"
 
         /** Profile ids the UI/engine ship today (import validation). */
         private val KNOWN_PROFILES = setOf("powersave", "balance", "game")
@@ -388,36 +384,9 @@ class DynamicProfileConfig private constructor(context: Context) {
      * daemon's holds.json when one was active at upgrade time.
      */
     private fun migrateFromPrefs(context: Context): JSONObject {
-        val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!sp.getBoolean(K_MIGRATED, false)) {
-            // first: copy the pre-rebrand file (v0.5 migration chain)
-            val legacy = context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
-            sp.edit().apply {
-                for ((k, v) in legacy.all) {
-                    when (v) {
-                        is Boolean -> putBoolean(k, v)
-                        is String -> putString(k, v)
-                        is Int -> putInt(k, v)
-                        is Long -> putLong(k, v)
-                        is Float -> putFloat(k, v)
-                        is Set<*> -> @Suppress("UNCHECKED_CAST") putStringSet(k, v as Set<String>)
-                    }
-                }
-                putBoolean(K_MIGRATED, true)
-            }.apply()
-        }
-        val json = JSONObject()
-            .put("schema", 1)
-            .put("enabled", sp.getBoolean("enabled", true))
-            .put("dynamic", sp.getBoolean("dynamic_enabled", true))
-            .put("base_profile", sp.getString("base_profile", DEFAULT_BASE) ?: DEFAULT_BASE)
-            .put("sync_miui_perf", sp.getBoolean("sync_miui_perf", true))
-            .put("sync_miui_saver", sp.getBoolean("sync_miui_saver", true))
-            .put("game_mode_checker", sp.getBoolean("game_mode_checker", true))
-            .put("app_map", runCatching { JSONObject(sp.getString("app_map", "{}") ?: "{}") }.getOrDefault(JSONObject()))
-        writeAtomic(json.toString())
+        val json = ConfigMigration.migrate(context)
         fillDefaults(json)
-        migrateHolds(context, sp)
+        writeAtomic(json.toString())
         Log.d(TAG, "config migrated from prefs -> ${file.name}")
         return json
     }
