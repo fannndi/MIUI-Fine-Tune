@@ -1,5 +1,6 @@
 package com.mifinetune.ui
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -121,7 +122,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
 
 @Composable
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
+    ElevatedCard(Modifier.fillMaxWidth().animateContentSize()) {
         Column(Modifier.padding(14.dp)) {
             Text(
                 title,
