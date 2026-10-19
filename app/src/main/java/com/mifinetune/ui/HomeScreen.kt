@@ -159,6 +159,22 @@ fun HomeScreen(vm: HomeViewModel) {
                             }
                         }
                     }
+                    val battLow by DynamicProfileState.batteryLowWarning.collectAsStateWithLifecycle()
+                    if (battLow) {
+                        ElevatedCard(Modifier.fillMaxWidth()) {
+                            Row(
+                                Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(Icons.Default.BatterySaver, contentDescription = null)
+                                Text(
+                                    "Battery low — forced Power Save",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                    }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),

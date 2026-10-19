@@ -312,6 +312,9 @@ class DynamicProfileService : Service() {
                 val ceiling = config.thermalCeiling
                 DynamicProfileState.thermalWarning.value =
                     e?.cpuTempC != null && e.cpuTempC!! >= ceiling
+                val floor = config.batteryFloor
+                DynamicProfileState.batteryLowWarning.value =
+                    e?.batteryPct != null && e.batteryPct!! <= floor && e.charging != true
             }
 
             "diag" -> DiagnosticsParse.diag(ev)?.let { DynamicProfileState.diag.value = it }

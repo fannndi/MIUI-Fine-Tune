@@ -79,6 +79,9 @@ object DynamicProfileState {
     /** True when the last env sample reported CPU temp at/above the guard ceiling. */
     val thermalWarning = MutableStateFlow(false)
 
+    /** True when battery is at/below the guard floor and not charging. */
+    val batteryLowWarning = MutableStateFlow(false)
+
     fun pushLog(line: String) {
         val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
             .format(java.util.Date())
