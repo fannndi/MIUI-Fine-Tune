@@ -254,6 +254,15 @@ class DynamicProfileService : Service() {
             }
 
             "applied" -> {
+                runCatching {
+                    val v = getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                    if (android.os.Build.VERSION.SDK_INT >= 29) {
+                        v?.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        v?.vibrate(15)
+                    }
+                }
                 val profile = ev.optString("profile")
                 val rawReason = ev.optString("reason")
                 val srcPkg = ev.optString("src_pkg").ifEmpty { null }
