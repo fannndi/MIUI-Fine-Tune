@@ -73,6 +73,14 @@ internal fun BackupCard(config: DynamicProfileConfig) {
                 TextButton(onClick = { import.launch(arrayOf("application/json", "text/plain", "*/*")) }) {
                     Text("Import")
                 }
+                TextButton(onClick = {
+                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    cm.setPrimaryClip(
+                        android.content.ClipData.newPlainText("MiFineTune config", config.exportJson()),
+                    )
+                    Toast.makeText(context, "Config copied", Toast.LENGTH_SHORT).show()
+                }) { Text("Copy") }
             }
         }
     }
