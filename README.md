@@ -171,3 +171,11 @@ State lives in `/data/adb/mifinetune/` (`state.json`, `snapshot.json`,
 | [docs/AUTOMATION.md](docs/AUTOMATION.md) | broadcast API for Tasker/MacroDroid/adb |
 | [docs/BENCH.md](docs/BENCH.md) | 10-minute A/B battery-draw matrix (method + numbers) |
 | [AGENTS.md](AGENTS.md) | file map + hard rules for AI agents and contributors |
+
+## Troubleshooting
+
+- **Service won't start** — check root (`su -c id -u` → 0), MIUI Autostart permission, and battery saver "No restrictions" for the app.
+- **Profile apply reports drift** — MIUI/thermal QoS may hold a stricter cap/floor; this is "framework wins" by design, not a failure. Re-run after the QoS expires.
+- **Refresh rate doesn't move** — on surya the settings key alone is a no-op; the daemon runs `refresh_fps.dex` via `app_process` (root). Check the daemon log for "refresh fps helper failed".
+- **Stuck tuned after a crash** — run `miui-ft restore` (root) to write `stock.json` back verbatim; the daemon self-heals on next start via `holds.json`.
+- **Diagnostics empty** — turn the Service on; the daemon seeds diag/stats on connect.
