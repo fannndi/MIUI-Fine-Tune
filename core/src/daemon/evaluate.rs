@@ -100,7 +100,11 @@ impl Runtime {
         if cfg.quiet_hours {
             let hour = current_utc_hour();
             if in_quiet_window(hour, cfg.quiet_start_hour, cfg.quiet_end_hour) {
-                cfg.base_profile = cfg.quiet_profile.clone();
+                let qp = match cfg.quiet_profile.as_str() {
+                    "powersave" | "balance" | "game" | "sleep" | "boost" => cfg.quiet_profile.clone(),
+                    _ => "powersave".to_string(),
+                };
+                cfg.base_profile = qp;
             }
         }
         let fg = fg_override.or_else(|| self.last_fg.clone());
