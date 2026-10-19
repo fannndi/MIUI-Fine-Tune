@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -157,6 +158,16 @@ fun SettingsScreen(
                                 valueRange = 0f..23f,
                                 steps = 22,
                             )
+                            Text("Profile during quiet hours")
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("powersave", "balance", "game").forEach { p ->
+                                    FilterChip(
+                                        selected = vm.quietProfile.collectAsStateWithLifecycle().value == p,
+                                        onClick = { vm.setQuietProfile(p) },
+                                        label = { Text(p) },
+                                    )
+                                }
+                            }
                         }
                     }
                 }

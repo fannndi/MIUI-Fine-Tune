@@ -70,6 +70,7 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
     val quietHours: StateFlow<Boolean> = config.quietHoursFlow
     val quietStartHour: StateFlow<Int> = config.quietStartHourFlow
     val quietEndHour: StateFlow<Int> = config.quietEndHourFlow
+    val quietProfile: StateFlow<String> = config.quietProfileFlow
 
     private val _state = MutableStateFlow(DynamicProfileUiState())
     val state: StateFlow<DynamicProfileUiState> = _state.asStateFlow()
@@ -157,6 +158,10 @@ class DynamicProfileViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setQuietEndHour(v: Int) {
         config.quietEndHour = v
+    }
+
+    fun setQuietProfile(v: String) {
+        config.quietProfile = v
     }
 
     fun checkRoot() {
