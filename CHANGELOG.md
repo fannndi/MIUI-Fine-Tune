@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased — audit hardening, smoother switching, Android 10 adoption, pastel UI
+
+- **Rust core**: bridge sync no longer advances hold state on IO failure
+  (retry on next sync); `release_all` only clears holds on success;
+  `HoldsFile` serde defaults; retired/disabled gating for charge/bypass/DND
+  sync; Ultra-off re-evaluates; Screen/UserPresent trigger bridge sync;
+  `on_seed` ignores transient packages; `ensure_snapshot` skips empty values;
+  `cpu_count` robust; per-scope governor validation; hardened dex path +
+  byte-verify; env overrides ignored when running as root; debounce 300 ms
+  on foreground switches.
+- **App**: null-safety, lifecycle (restart storm, notification on stock),
+  security (AutomationReceiver background, biometric gate for service-off),
+  Android 10 features (Settings.Panel, Thermal API, ThermalStatusMonitor),
+  copy daemon log to clipboard.
+- **UI**: calm pastel Material 3 theme (lavender/mint/peach).
+
 ## v0.16.2 — efficiency audit of the perf stack (2026-10-10)
 
 - **Powersave no longer fights itself on touch**: the kernel `cpu-boost`
