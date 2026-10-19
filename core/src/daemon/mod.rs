@@ -245,7 +245,7 @@ pub fn run(state_dir: &Path, config_path: &Path) -> Result<(), String> {
                 worker::run(
                     work_rx,
                     &mut engine,
-                    Duration::from_millis(worker::SETTLE_MS),
+                    Duration::from_millis(worker::settle_ms()),
                     Duration::from_millis(worker::RETRY_MS),
                     &mut on_applied,
                     &mut on_restored,

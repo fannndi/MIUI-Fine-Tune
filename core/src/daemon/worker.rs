@@ -15,8 +15,15 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 /// Coalescing window for one app transition (measured on device 2026-10-08:
-/// same accuracy as 700 ms, ~300 ms faster).
+/// same accuracy as 700 ms, ~300 ms faster). Overridable via env for tuning.
 pub const SETTLE_MS: u64 = 400;
+
+pub fn settle_ms() -> u64 {
+    std::env::var("MIFINETUNE_SETTLE_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(SETTLE_MS)
+}
 /// Pause before the single retry of a failed apply.
 pub const RETRY_MS: u64 = 2_000;
 
