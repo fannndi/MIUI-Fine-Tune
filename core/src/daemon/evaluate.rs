@@ -104,6 +104,7 @@ impl Runtime {
                     "powersave" | "balance" | "game" | "sleep" | "boost" => cfg.quiet_profile.clone(),
                     _ => "powersave".to_string(),
                 };
+                self.log(&format!("quiet hours: base -> {qp}"));
                 cfg.base_profile = qp;
             }
         }
