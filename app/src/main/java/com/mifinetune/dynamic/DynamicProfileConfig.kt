@@ -35,16 +35,6 @@ class DynamicProfileConfig private constructor(context: Context) {
         /** Profile ids the UI/engine ship today (import validation). */
         private val KNOWN_PROFILES = setOf("powersave", "balance", "game")
 
-        /** Keys a backup may carry (anything else is ignored). */
-        private val IMPORT_KEYS = setOf(
-            "enabled", "dynamic", "base_profile", "app_map",
-            "sync_miui_perf", "sync_miui_saver", "sync_refresh", "game_mode_checker",
-            "guard_battery", "battery_floor_pct", "guard_thermal", "thermal_ceiling_c",
-            "maintenance", "charge_limit", "charge_limit_pct", "jank_boost",
-            "app_profiles", "bypass_floor_pct", "quiet_hours", "quiet_start_hour",
-            "quiet_end_hour", "quiet_profile",
-        )
-
         @Volatile
         private var instance: DynamicProfileConfig? = null
 
@@ -58,7 +48,7 @@ class DynamicProfileConfig private constructor(context: Context) {
     }
 
     private val file = File(context.filesDir, FILE)
-    private val lock = Any()
+    internal val lock = Any()
 
     private val _enabled = MutableStateFlow(true)
     val enabledFlow: StateFlow<Boolean> = _enabled
@@ -247,103 +237,25 @@ class DynamicProfileConfig private constructor(context: Context) {
     // --- backup (export / import) -------------------------------------------
 
     /** Pretty JSON of the current config file, for backup (defaults filled). */
-    fun exportJson(): String = synchronized(lock) {
-        val json = load() ?: baseJson()
-        fillDefaults(json)
-        json.toString(2)
-    }
+    fun exportJson(): String = ConfigBackup.export(this)
 
     /**
      * Applies a backup: only recognized keys, values validated/clamped; the
      * write stays atomic and the daemon gets its hint. Returns false when the
      * payload carries nothing usable (unknown JSON / unrelated object).
      */
-    fun importJson(raw: String): Boolean {
-        val src = runCatching { JSONObject(raw) }.getOrNull() ?: return false
-        if (src.keys().asSequence().none { it in IMPORT_KEYS }) return false
-        synchronized(lock) {
-            val next = load() ?: baseJson()
-            if (src.has("enabled")) next.put("enabled", src.optBoolean("enabled"))
-            if (src.has("dynamic")) next.put("dynamic", src.optBoolean("dynamic"))
-            if (src.has("sync_miui_perf")) next.put("sync_miui_perf", src.optBoolean("sync_miui_perf"))
-            if (src.has("sync_miui_saver")) next.put("sync_miui_saver", src.optBoolean("sync_miui_saver"))
-            if (src.has("sync_refresh")) next.put("sync_refresh", src.optBoolean("sync_refresh"))
-            if (src.has("game_mode_checker")) next.put("game_mode_checker", src.optBoolean("game_mode_checker"))
-            if (src.has("guard_battery")) next.put("guard_battery", src.optBoolean("guard_battery"))
-            if (src.has("guard_thermal")) next.put("guard_thermal", src.optBoolean("guard_thermal"))
-            if (src.has("maintenance")) next.put("maintenance", src.optBoolean("maintenance"))
-            if (src.has("jank_boost")) next.put("jank_boost", src.optBoolean("jank_boost"))
-            if (src.has("charge_limit")) next.put("charge_limit", src.optBoolean("charge_limit"))
-            if (src.has("charge_limit_pct")) {
-                next.put("charge_limit_pct", src.optInt("charge_limit_pct", 80).coerceIn(60, 95))
-            }
-            if (src.has("quiet_hours")) next.put("quiet_hours", src.optBoolean("quiet_hours"))
-            if (src.has("quiet_start_hour")) {
-                next.put("quiet_start_hour", src.optInt("quiet_start_hour", 22).coerceIn(0, 23))
-            }
-            if (src.has("quiet_end_hour")) {
-                next.put("quiet_end_hour", src.optInt("quiet_end_hour", 6).coerceIn(0, 23))
-            }
-            src.optString("quiet_profile").takeIf { it in KNOWN_PROFILES }?.let {
-                next.put("quiet_profile", it)
-            }
-            if (src.has("battery_floor_pct")) {
-                next.put("battery_floor_pct", src.optInt("battery_floor_pct", 20).coerceIn(5, 50))
-            }
-            if (src.has("bypass_floor_pct")) {
-                next.put("bypass_floor_pct", src.optInt("bypass_floor_pct", 30).coerceIn(15, 50))
-            }
-            src.optJSONObject("app_profiles")?.let { obj ->
-                val out = JSONObject()
-                obj.keys().forEach { k ->
-                    val e = AppProfileEntry.fromJson(obj.optJSONObject(k) ?: return@forEach)
-                    val clean = e.copy(profile = e.profile?.takeIf { it in KNOWN_PROFILES })
-                    if (!clean.isEmpty) out.put(k, clean.toJson())
-                }
-                next.put("app_profiles", out)
-                // the extended source wins: rebuild the legacy mirror
-                val mirror = JSONObject()
-                out.keys().forEach { k ->
-                    out.optJSONObject(k)?.optString("profile")?.takeIf { it.isNotEmpty() }
-                        ?.let { mirror.put(k, it) }
-                }
-                next.put("app_map", mirror)
-            }
-            if (src.has("thermal_ceiling_c")) {
-                next.put(
-                    "thermal_ceiling_c",
-                    src.optDouble("thermal_ceiling_c", 75.0).coerceIn(60.0, 90.0),
-                )
-            }
-            src.optString("base_profile").takeIf { it in KNOWN_PROFILES }
-                ?.let { next.put("base_profile", it) }
-            // only honor a standalone app_map import when the backup did not
-            // carry app_profiles (which is the authoritative source).
-            if (!src.has("app_profiles")) {
-                src.optJSONObject("app_map")?.let { map ->
-                    val out = JSONObject()
-                    map.keys().forEach { k ->
-                        map.optString(k).takeIf { it in KNOWN_PROFILES }?.let { out.put(k, it) }
-                    }
-                    next.put("app_map", out)
-                }
-            }
-            fillDefaults(next)
-            writeAtomic(next.toString())
-            apply(next)
-        }
-        DaemonLink.configChanged()
-        return true
-    }
+    fun importJson(raw: String): Boolean = ConfigBackup.import(this, raw)
 
-    // --- internals ---------------------------------------------------------
+    // --- internals ---
+    // --- internals ---
+    // --- internals ---
 
-    private fun load(): JSONObject? = runCatching {
+    internal fun load(): JSONObject? = runCatching {
         if (!file.exists()) return null
         JSONObject(file.readText())
     }.getOrNull()
 
-    private fun apply(json: JSONObject) {
+    internal fun apply(json: JSONObject) {
         _enabled.value = json.optBoolean("enabled", true)
         _dynamicEnabled.value = json.optBoolean("dynamic", true)
         _syncMiuiPerf.value = json.optBoolean("sync_miui_perf", true)
@@ -397,7 +309,7 @@ class DynamicProfileConfig private constructor(context: Context) {
     }
 
     /** Keeps the file explicit: missing keys would otherwise be daemon defaults. */
-    private fun fillDefaults(json: JSONObject) {
+    internal fun fillDefaults(json: JSONObject) {
         fun def(key: String, value: Any) {
             if (!json.has(key)) json.put(key, value)
         }
@@ -426,7 +338,7 @@ class DynamicProfileConfig private constructor(context: Context) {
         def("app_profiles", JSONObject())
     }
 
-    private fun baseJson(): JSONObject = JSONObject()
+    internal fun baseJson(): JSONObject = JSONObject()
         .put("schema", 1)
         .put("enabled", _enabled.value)
         .put("dynamic", _dynamicEnabled.value)
@@ -457,7 +369,7 @@ class DynamicProfileConfig private constructor(context: Context) {
             },
         )
 
-    private fun writeAtomic(body: String) {
+    internal fun writeAtomic(body: String) {
         runCatching {
             val tmp = File(file.parentFile, "$FILE.tmp")
             tmp.writeText(body)
