@@ -12,6 +12,8 @@ class FtClient(private val bridge: RootBridge) {
 
     class FtException(message: String) : Exception(message)
 
+    private val knownProfiles = setOf("powersave", "balance", "game", "sleep", "boost")
+
     /** Runs `miui-ft <args>`; throws [FtException] on non-JSON or crash. */
     fun exec(args: String): JSONObject {
         val r = bridge.sh("${RootBridge.BIN} $args")
@@ -31,11 +33,20 @@ class FtClient(private val bridge: RootBridge) {
 
     fun status(): Status = parseStatus(exec("status"))
 
-    fun plan(profileId: String): Plan = parsePlan(exec("plan $profileId"))
+    fun plan(profileId: String): Plan {
+        require(profileId in knownProfiles) { "unknown profile '$profileId'" }
+        return parsePlan(exec("plan $profileId"))
+    }
 
-    fun apply(profileId: String): ApplyReport = parseReport(exec("apply $profileId"))
+    fun apply(profileId: String): ApplyReport {
+        require(profileId in knownProfiles) { "unknown profile '$profileId'" }
+        return parseReport(exec("apply $profileId"))
+    }
 
-    fun verify(profileId: String): ApplyReport = parseReport(exec("verify $profileId"))
+    fun verify(profileId: String): ApplyReport {
+        require(profileId in knownProfiles) { "unknown profile '$profileId'" }
+        return parseReport(exec("verify $profileId"))
+    }
 
     fun restore(): ApplyReport = parseReport(exec("restore"))
 }

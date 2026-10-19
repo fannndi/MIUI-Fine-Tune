@@ -345,6 +345,8 @@ impl Runtime {
 }
 
 /// Current UTC hour (0..23) from wall clock.
+/// NOTE: quiet hours are evaluated in UTC; the UI labels them as such.
+/// A future revision may add a local-time offset if users request it.
 fn current_utc_hour() -> u8 {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()

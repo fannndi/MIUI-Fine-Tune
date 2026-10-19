@@ -38,6 +38,7 @@ class DaemonClient(
 
     @Volatile private var process: Process? = null
     @Volatile private var writer: BufferedWriter? = null
+    @Volatile private var reaper: Thread? = null
     private val writeLock = Any()
 
     /** Spawns `su -c "miui-ft serve ..."` and starts the reader threads. */
@@ -105,14 +106,21 @@ class DaemonClient(
         isAlive = false
         runCatching { writer?.close() }
         writer = null
-        thread(name = "daemon-reaper") {
+        val prev = reaper
+        if (prev?.isAlive == true) {
+            // a previous reaper is still finishing; let it own the process
+            return
+        }
+        val t = thread(name = "daemon-reaper") {
             val exited = runCatching { p.waitFor(EXIT_GRACE_MS, TimeUnit.MILLISECONDS) }
                 .getOrDefault(false)
             if (!exited) {
                 Log.w(TAG, "daemon: no clean exit, killing")
                 runCatching { p.destroy() }
             }
+            reaper = null
         }
+        reaper = t
     }
 }
 

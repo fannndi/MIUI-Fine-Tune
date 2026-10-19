@@ -79,15 +79,18 @@ pub struct ProbeData {
 
 /// True when this process is running as root (uid 0).
 pub fn is_root() -> bool {
-    std::fs::read_to_string("/proc/self/status")
-        .map(|s| {
-            s.lines()
-                .find(|l| l.starts_with("Uid:"))
-                .and_then(|l| l.split_whitespace().nth(2))
-                .map(|euid| euid == "0")
-                .unwrap_or(false)
-        })
-        .unwrap_or(false)
+    static CACHED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CACHED.get_or_init(|| {
+        std::fs::read_to_string("/proc/self/status")
+            .map(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("Uid:"))
+                    .and_then(|l| l.split_whitespace().nth(2))
+                    .map(|euid| euid == "0")
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
+    })
 }
 
 /// Whether environment-based path overrides are honored. Production (root)

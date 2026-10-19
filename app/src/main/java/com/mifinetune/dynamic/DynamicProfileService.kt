@@ -379,11 +379,15 @@ class DynamicProfileService : Service() {
         else -> raw
     }
 
-    private fun labelFor(pkg: String): String = labelCache.getOrPut(pkg) {
-        runCatching {
+    private fun labelFor(pkg: String): String {
+        labelCache[pkg]?.let { return it }
+        val label = runCatching {
             val pm = packageManager
             pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
         }.getOrDefault(pkg)
+        labelCache[pkg] = label
+        if (labelCache.size > 128) labelCache.keys.firstOrNull()?.let { labelCache.remove(it) }
+        return label
     }
     private fun updateNotification(profileId: String, reason: String) {
         // state events arrive on every visible change; the notification only

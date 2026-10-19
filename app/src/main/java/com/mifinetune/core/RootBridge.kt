@@ -73,14 +73,15 @@ class RootBridge {
             // 7). cmp: same content -> skip; different -> copy + chmod.
             val tmp = File(context.cacheDir, ASSET_BIN)
             tmp.writeBytes(binBytes)
+            val q: (String) -> String = { p -> "'" + p.replace("'", "'\\''") + "'" }
             val sameSize = target.exists() && target.length() == binBytes.size.toLong()
             val sameContent = sameSize && sh(
-                "cmp -s '${tmp.absolutePath}' '$BIN' && echo SAME || echo DIFF"
+                "cmp -s ${q(tmp.absolutePath)} ${q(BIN)} && echo SAME || echo DIFF"
             ).out.trim() == "SAME"
             if (!sameContent) {
                 val r = sh(
-                    "mkdir -p '${target.parentFile}' && " +
-                        "cp '${tmp.absolutePath}' '$BIN' && chmod 755 '$BIN'"
+                    "mkdir -p ${q(target.parentFile!!.absolutePath)} && " +
+                        "cp ${q(tmp.absolutePath)} ${q(BIN)} && chmod 755 ${q(BIN)}"
                 )
                 if (!r.ok || !target.exists()) {
                     return@runCatching "Binary deploy failed (code ${r.code}): ${r.out.trim()}"
@@ -92,13 +93,15 @@ class RootBridge {
             tmpP.writeBytes(profBytes)
             // keep a user-edited copy untouched; sync only when content differs
             val r2 = sh(
-                "mkdir -p '$STATE_DIR' && chmod 700 '$STATE_DIR'; " +
-                    "if ! cmp -s '${tmpP.absolutePath}' '$STATE_DIR/$ASSET_PROFILES'; then " +
-                    "cp '${tmpP.absolutePath}' '$STATE_DIR/$ASSET_PROFILES'; fi"
+                "mkdir -p ${q(STATE_DIR)} && chmod 700 ${q(STATE_DIR)}; " +
+                    "if ! cmp -s ${q(tmpP.absolutePath)} ${q("$STATE_DIR/$ASSET_PROFILES")}; then " +
+                    "cp ${q(tmpP.absolutePath)} ${q("$STATE_DIR/$ASSET_PROFILES")}; fi"
             )
             if (!r2.ok) {
                 return@runCatching "Profiles deploy failed (code ${r2.code}): ${r2.out.trim()}"
             }
+            tmp.delete()
+            tmpP.delete()
             null
         }.getOrElse { "Deploy error: ${it.message ?: it}" }
     }

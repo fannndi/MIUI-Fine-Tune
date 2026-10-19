@@ -102,6 +102,12 @@ impl Runtime {
                 }
             }
             Command::SetBase { profile } => {
+                // validate against the shipped profile set so a bad/tampered
+                // value can never reach the engine (or the device).
+                if !matches!(profile.as_str(), "powersave" | "balance" | "game" | "sleep" | "boost") {
+                    self.log(&format!("set_base: rejected unknown profile '{profile}'"));
+                    return true;
+                }
                 // the app writes config.json first; force-sync, then apply
                 self.config.reload();
                 self.log(&format!("set_base: {profile}"));

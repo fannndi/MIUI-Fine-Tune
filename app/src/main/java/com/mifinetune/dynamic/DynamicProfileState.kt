@@ -82,9 +82,10 @@ object DynamicProfileState {
     /** True when battery is at/below the guard floor and not charging. */
     val batteryLowWarning = MutableStateFlow(false)
 
+    private val timeFmt = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+
     fun pushLog(line: String) {
-        val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
-            .format(java.util.Date())
+        val time = timeFmt.format(java.util.Date())
         logs.value = (logs.value + "$time  $line").takeLast(200)
     }
 
@@ -114,9 +115,10 @@ object DynamicProfileState {
 
     fun currentRestoredSeq(): Long = restoredSeq
 
+    private val bridgeTimeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+
     fun pushBridgeEvent(msg: String) {
-        val time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
-            .format(java.util.Date())
+        val time = bridgeTimeFmt.format(java.util.Date())
         bridgeLog.value = (bridgeLog.value + "$time  $msg").takeLast(20)
     }
 }

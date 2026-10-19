@@ -462,8 +462,10 @@ class DynamicProfileConfig private constructor(context: Context) {
             val tmp = File(file.parentFile, "$FILE.tmp")
             tmp.writeText(body)
             if (!tmp.renameTo(file)) {
-                file.writeText(body)
+                // rename failed (unexpected, same filesystem) — surface the
+                // error instead of silently writing the target non-atomically
                 tmp.delete()
+                throw IllegalStateException("atomic rename failed")
             }
         }.onFailure { Log.w(TAG, "config write failed: $it") }
     }
