@@ -183,6 +183,22 @@ private fun EnvCard(env: EnvSnapshot?) {
         KV("Storage written", env.storageWrittenKb?.let { String.format(Locale.US, "%.1f GB", it / 1_000_000.0) } ?: "—")
         KV("GPU busy", env.gpuBusyPct?.let { "$it%" } ?: "—")
         KV("Panel FPS", env.screenFps?.let { String.format("%.1f fps", it) } ?: "—")
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+            val status = runCatching { pm?.currentThermalStatus }.getOrNull()
+            val label = when (status) {
+                0 -> "none"
+                1 -> "light"
+                2 -> "moderate"
+                3 -> "severe"
+                4 -> "critical"
+                5 -> "emergency"
+                6 -> "shutdown"
+                else -> "—"
+            }
+            KV("Thermal (Android 10)", label)
+        }
     }
 }
 

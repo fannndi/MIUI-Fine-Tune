@@ -130,6 +130,28 @@ fun SettingsScreen(
 
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("System panels (Android 10)", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Quick access to the system panels MIUI owns — opens in place, no leave",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { openSystemPanel(context, "battery") }) {
+                            Text("Battery saver")
+                        }
+                        TextButton(onClick = { openSystemPanel(context, "internet") }) {
+                            Text("Internet")
+                        }
+                        TextButton(onClick = { openSystemPanel(context, "volume") }) {
+                            Text("Volume")
+                        }
+                    }
+                }
+            }
+
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Background", style = MaterialTheme.typography.titleMedium)
                     SetupRow(
                         title = "Root",
@@ -353,6 +375,21 @@ private fun openAppSettings(context: Context) {
                 Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.fromParts("package", context.packageName, null),
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+}
+
+private fun openSystemPanel(context: Context, kind: String) {
+    if (android.os.Build.VERSION.SDK_INT < 29) return
+    val action = when (kind) {
+        "battery" -> Settings.Panel.ACTION_BATTERY_SAVER
+        "internet" -> Settings.Panel.ACTION_INTERNET_CONNECTIVITY
+        "volume" -> Settings.Panel.ACTION_VOLUME
+        else -> return
+    }
+    runCatching {
+        context.startActivity(
+            Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
 }
