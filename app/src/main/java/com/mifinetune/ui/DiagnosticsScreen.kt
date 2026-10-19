@@ -112,7 +112,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
             item(key = "heal") { HealCard(heals) }
             item(key = "stats24") { StatsSummaryCard(stats) }
             item(key = "stats") { TransitionsCard(stats) }
-            item(key = "log") { LogCard(logs) }
+            item(key = "log") { LogCard(logs, context) }
         }
     }
 }
@@ -253,11 +253,20 @@ private fun TransitionsCard(stats: List<StatEntry>) {
 }
 
 @Composable
-private fun LogCard(logs: List<String>) {
+private fun LogCard(logs: List<String>, context: android.content.Context) {
     SectionCard("Daemon log (${logs.size})") {
         if (logs.isEmpty()) {
             Text("No log lines yet.", style = MaterialTheme.typography.bodySmall)
             return@SectionCard
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = {
+                val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                    as android.content.ClipboardManager
+                cm.setPrimaryClip(
+                    android.content.ClipData.newPlainText("MiFineTune log", logs.joinToString("\n")),
+                )
+            }) { Text("Copy") }
         }
         Column(
             Modifier
