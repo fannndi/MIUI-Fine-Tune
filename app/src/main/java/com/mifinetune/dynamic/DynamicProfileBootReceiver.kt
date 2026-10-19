@@ -11,8 +11,15 @@ import android.content.Intent
 class DynamicProfileBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
-        if (DynamicProfileConfig.get(context).enabled) {
-            DynamicProfileService.start(context)
-        }
+        val pending = goAsync()
+        Thread {
+            try {
+                if (DynamicProfileConfig.get(context).enabled) {
+                    DynamicProfileService.start(context)
+                }
+            } finally {
+                pending.finish()
+            }
+        }.start()
     }
 }
